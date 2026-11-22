@@ -47,9 +47,22 @@ func extensionDir() (string, error) {
 }
 
 // shipsWithExtension reports whether a bundled file goes into the unpacked
-// folder: the unit tests stay in the repo.
+// folder: the unit tests, harnesses and fixtures stay in the repo. Keep this in
+// step with the exclusions in scripts/package-extension-store.sh and the zip
+// step of .github/workflows/release.yml.
 func shipsWithExtension(name string) bool {
-	return !strings.HasSuffix(name, ".test.mjs") && name != "NOTICE"
+	base := path.Base(name)
+	switch {
+	case name == "NOTICE", name == "icons/ICONS.txt":
+		return false
+	case strings.HasSuffix(base, ".test.mjs"), strings.HasSuffix(base, "_harness.mjs"), strings.HasSuffix(base, ".fixtures.mjs"):
+		return false
+	case base == "recorder_fake_dom.mjs", base == "recorder_go_types.mjs", base == "test_helpers.mjs", base == "autopair_e2e.mjs":
+		return false
+	case strings.HasPrefix(name, "fixtures/"), strings.HasPrefix(name, "adapters/fixtures/"):
+		return false
+	}
+	return true
 }
 
 func newExtensionInstallCmd(cfg *Deps) *cobra.Command {
