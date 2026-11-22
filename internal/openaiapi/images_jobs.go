@@ -200,6 +200,7 @@ func (g *Gateway) handleImageJob() func(http.ResponseWriter, *http.Request, Prin
 				Message: "No such image job for this key. A finished job is kept for " + imageJobTTL.String() + "."})
 			return
 		}
+		w.Header().Set("Cache-Control", "no-store")
 		head := fmt.Sprintf(`"id":%q,"object":"image.job",`, j.id)
 		switch {
 		case !j.done:
