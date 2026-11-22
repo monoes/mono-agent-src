@@ -4546,7 +4546,7 @@ resolver prefix `jev:`.
   with almost no mass on any, fails with "the model did not answer with a
   single option label; a reasoning/thinking model needs a larger budget or a
   non-thinking variant". The client's retry budget holds
-  for every adapter: the `api_auto` surface and `jev retry` retry nothing,
+  for every adapter: the `api_auto` surface and the `retry` surface's triage retry nothing,
   the org decider once. For a provider that samples or takes one question
   per request, the org decider waits 30 s instead of 10 s and the HIL node's
   `auto_decide` gives each item its own 30 s, one item's failure leaving only
@@ -4648,7 +4648,7 @@ resolver prefix `jev:`.
   refused), or the step runs under agent access. TypeSafe and a provider on
   this computer are not refused; run the workflow yourself to use another.
 - **Provider errors.** An adapter's error carries the HTTP status and, when
-  the body holds one, a short error code (`openai: HTTP 401
+  the body holds one, a short error code (`openaicompat: HTTP 401
   (invalid_api_key)`), never other text of the response. Where it is stored
   for agents and people to read (an org decision's rationale, a
   Human-in-Loop item's `auto_decide_skipped`), the error of a provider other

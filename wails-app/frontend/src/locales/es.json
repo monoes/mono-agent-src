@@ -2464,7 +2464,7 @@
     "machineHint": "Cómo el agente principal de un chat de código asigna a sus trabajadores y si lo que envían los agentes espera tu aprobación. Para todo este equipo.",
     "routerLabel": "Quién elige el rol de un trabajador",
     "routerHint": "Cuando el agente principal de un chat de código inicia un trabajador sin indicar su rol ni sus habilidades.",
-    "routerJevNote": "Cuando se resuelve un proveedor de decisión (el de la función dynorg, si no el predeterminado de la máquina: TypeSafe con una clave de Jev, o un proveedor que añadiste), el encargo de un trabajador va a él elijas lo que elijas aquí: Automático y TypeSafe Jev enrutan con él, y él elige el modelo y el esfuerzo que el agente principal deja abiertos. Los encargos solo se quedan en este equipo cuando no se resuelve ninguna clave de Jev ni proveedor, o cuando el servidor de ese proveedor es este ordenador (e incluso entonces el servidor local puede reenviarlos).",
+    "routerJevNote": "Cuando se resuelve un proveedor de decisión (el de la superficie dynorg, si no el predeterminado de la máquina: TypeSafe con una clave de Jev, o un proveedor que añadiste), el encargo de un trabajador va a él elijas lo que elijas aquí: Automático y TypeSafe Jev enrutan con él, y él elige el modelo y el esfuerzo que el agente principal deja abiertos. Los encargos solo se quedan en este equipo cuando no se resuelve ninguna clave de Jev ni proveedor, o cuando el servidor de ese proveedor es este ordenador (e incluso entonces el servidor local puede reenviarlos).",
     "router": {
       "auto": "Automático",
       "jev": "TypeSafe Jev",

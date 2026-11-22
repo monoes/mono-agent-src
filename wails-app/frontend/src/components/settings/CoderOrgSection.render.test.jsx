@@ -103,7 +103,7 @@ describe('CoderOrgSection, this computer', () => {
     // nothing may say a choice here keeps it local. The sentence follows
     // `coder set --help`: briefs stay only when no Jev key or provider
     // resolves, or that provider is on this computer.
-    const note = screen.getByText(/^When a decision provider resolves \(the dynorg feature's, else the machine default: TypeSafe with a Jev key set, or a provider you added\), a worker's brief goes to it whatever you pick here/)
+    const note = screen.getByText(/^When a decision provider resolves \(the dynorg surface's, else the machine default: TypeSafe with a Jev key set, or a provider you added\), a worker's brief goes to it whatever you pick here/)
     expect(note).toHaveTextContent("Briefs stay on this machine only when no Jev key or provider resolves, or when that provider's host is this computer (and even then the local server may forward them).")
     expect(note).not.toHaveTextContent(/The lead keeps|keeps it on this machine|Only removing the Jev key/)
     expect(router.parentElement).toContainElement(note)

@@ -2464,7 +2464,7 @@
     "machineHint": "How a coder chat's lead staffs its workers, and whether what agents send waits for you. For this whole computer.",
     "routerLabel": "Who picks a worker's role",
     "routerHint": "When a coder chat's lead starts a worker without naming its role and skills.",
-    "routerJevNote": "When a decision provider resolves (the dynorg feature's, else the machine default: TypeSafe with a Jev key set, or a provider you added), a worker's brief goes to it whatever you pick here: Automatic and TypeSafe Jev route with it, and it picks the model and effort the lead leaves open. Briefs stay on this machine only when no Jev key or provider resolves, or when that provider's host is this computer (and even then the local server may forward them).",
+    "routerJevNote": "When a decision provider resolves (the dynorg surface's, else the machine default: TypeSafe with a Jev key set, or a provider you added), a worker's brief goes to it whatever you pick here: Automatic and TypeSafe Jev route with it, and it picks the model and effort the lead leaves open. Briefs stay on this machine only when no Jev key or provider resolves, or when that provider's host is this computer (and even then the local server may forward them).",
     "router": {
       "auto": "Automatic",
       "jev": "TypeSafe Jev",

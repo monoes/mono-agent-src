@@ -250,10 +250,10 @@ models (Jev)" describes the result.
   two options and 0.75 on three. O2's "a unanimous 5-of-5 is p = 1.0" no longer holds, and
   Anthropic's early stop after three agreeing samples is gone.
 - A response is `sampled` when any question in it was sampled.
-- New kind `softmax` (`jev.ProbSoftmax`): `hf-zeroshot` reports it instead of `native`; Go code
-  treats it like `logprob`.
-- Gates use `jev.GateValue` everywhere (`jevpick`, `jev retry`).
-- `people_links` records a permanent "not the same" only from `native` or `logprob`.
+- New kind `softmax` (`jev.ProbSoftmax`): `hf-zeroshot` reports it instead of `native`. Go code
+  treats it like `logprob` where kinds are compared, except `people_links`' permanent "not the
+  same", which it records only from `native` or `logprob` (never `softmax` or `sampled`).
+- `jevpick` and the `retry` surface's triage gate on `jev.GateValue`, as the other gates do.
 
 **Keys and hosts (D5).**
 - Keyless only on this computer: a provider with no `secret_name` must have a loopback `base_url`,
