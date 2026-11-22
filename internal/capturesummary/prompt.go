@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,18 +65,19 @@ func LoadInput(dir string, meta capture.Meta, kind string, maxChars int) (*Input
 		candidates = []string{"transcript.md", capture.ArtifactReadable}
 	}
 	for _, name := range candidates {
-		text, err := os.ReadFile(filepath.Join(dir, name))
+		text, more, err := readEnds(filepath.Join(dir, name), int64(maxChars)*4)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(string(text)) == "" {
+		if strings.TrimSpace(text) == "" {
 			continue
 		}
 		in.Source = name
-		in.Content, in.Truncated = clip(string(text), maxChars)
+		in.Content, in.Truncated = clip(text, maxChars)
+		in.Truncated = in.Truncated || more
 		break
 	}
 	// A video with no captions still has its description, which is often
@@ -91,6 +93,38 @@ func LoadInput(dir string, meta capture.Meta, kind string, maxChars int) (*Input
 }
 
 // clip keeps the first 80% and the last 20% of maxChars runes of s.
+// readEnds reads a file for clip: the whole of it when it is small, else its
+// first and last n bytes, so a huge readable.md is never loaded whole just to
+// send its opening and its end. more reports that the middle was left out.
+func readEnds(path string, n int64) (text string, more bool, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", false, err
+	}
+	var buf []byte
+	if info.Size() <= 2*n {
+		buf, err = io.ReadAll(io.LimitReader(f, 2*n))
+	} else {
+		more = true
+		head := make([]byte, n)
+		if _, err = io.ReadFull(f, head); err == nil {
+			tail := make([]byte, n)
+			if _, err = f.ReadAt(tail, info.Size()-n); err == nil {
+				buf = append(head, tail...)
+			}
+		}
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return strings.ToValidUTF8(string(buf), ""), more, nil
+}
+
 func clip(s string, maxChars int) (string, bool) {
 	r := []rune(s)
 	if len(r) <= maxChars {
