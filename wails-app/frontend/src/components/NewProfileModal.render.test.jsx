@@ -5,16 +5,27 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import NewProfileModal from './NewProfileModal.jsx'
 import { pendingProfileSetup, clearProfileSetup } from '../onboarding/profileSetup.js'
+import OnboardingGate from '../onboarding/OnboardingGate.jsx'
+import { STEP_COMPONENTS } from '../onboarding/Onboarding.jsx'
 
 const mockCreateProfile = vi.fn()
 const mockChooseProfileFolder = vi.fn()
 const mockListMonomindProjects = vi.fn()
 
+// After the reload the onboarding gate reads the state: a completed install
+// whose selected profile is the new one, p2.
+const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
+const laterProfileState = () => ({ completed: true, currentStep: 'finish', profileId: 'p2',
+  steps: IDS.map(id => ({ id, status: ['about', 'monomind', 'browser', 'agents'].includes(id) ? 'todo' : 'done' })) })
 vi.mock('../wailsjs/go/main/App', () => ({
   CreateProfile: (...args) => mockCreateProfile(...args),
   ChooseProfileFolder: (...args) => mockChooseProfileFolder(...args),
   ListMonomindProjects: (...args) => mockListMonomindProjects(...args),
+  IsReady: () => Promise.resolve(true),
+  GetOnboardingState: () => Promise.resolve(laterProfileState()),
+  GetOnboardingStateFull: () => Promise.resolve(laterProfileState()),
 }))
+vi.mock('../App.jsx', () => ({ default: () => <div data-testid="app" /> }))
 
 // Matches Sidebar.render.test.jsx's convention: assert against the raw
 // translation key rather than bootstrapping real i18next in a unit test.
@@ -131,11 +142,24 @@ describe('the short setup for a later profile', () => {
     // Go selects only the first profile at once: a later one comes back not active
     mockCreateProfile.mockResolvedValue({ id: 'p2', name: 'Work', is_active: false })
     const order = []
-    render(<NewProfileModal open={true} onClose={() => order.push('close')} onCreated={() => order.push(`created:${pendingProfileSetup()}`)} />)
+    const { unmount } = render(<NewProfileModal open={true} onClose={() => order.push('close')} onCreated={() => order.push(`created:${pendingProfileSetup()}`)} />)
     fireEvent.change(screen.getByPlaceholderText('newProfileModal.namePlaceholder'), { target: { value: 'Work' } })
     fireEvent.click(screen.getByText('newProfileModal.create'))
     await waitFor(() => expect(order).toEqual(['created:p2', 'close']))
-    expect(pendingProfileSetup()).toBe('p2')
+    // The caller (Sidebar) switches to p2 and reloads the window; after the
+    // reload the gate opens the short setup for p2, over the app.
+    unmount()
+    const original = { ...STEP_COMPONENTS }
+    for (const id of IDS) STEP_COMPONENTS[id] = () => <div data-testid={`step-${id}`} />
+    try {
+      render(<OnboardingGate banners={null} />)
+      expect(await screen.findByTestId('step-about')).toBeInTheDocument()
+      expect(document.querySelector('.onb-root')).toHaveAttribute('data-mode', 'profile')
+      expect([...document.querySelectorAll('.onb-journey li')].map(li => li.getAttribute('data-step'))).toEqual(['about', 'monomind', 'browser'])
+      expect(pendingProfileSetup()).toBeNull()
+    } finally {
+      Object.assign(STEP_COMPONENTS, original)
+    }
   })
 
   it('creating the very first profile does not open the short flow', async () => {

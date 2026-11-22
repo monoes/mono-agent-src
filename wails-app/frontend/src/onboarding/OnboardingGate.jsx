@@ -92,6 +92,8 @@ export default function OnboardingGate({ banners = null }) {
     // opened from inside the app: the app is mounted, and stays so
     const prev = openRef.current
     if (prev === null) appFocusRef.current = document.activeElement
+    // a request from an earlier finish is never applied again
+    setNavRequest(null)
     setOpen({ stepId: typeof stepId === 'string' ? stepId : undefined, mode: mode === 'profile' ? 'profile' : 'full', over: prev === null || !!(prev && prev.over), n: ++openCount.current })
   }, [loadFull])
 

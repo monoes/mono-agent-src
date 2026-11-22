@@ -17,8 +17,7 @@ const go = vi.hoisted(() => ({
   RestartOnboarding: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('../wailsjs/go/main/App', () => go)
-const setup = vi.hoisted(() => ({ stale: 0 }))
-vi.mock('../pages/dashboard/setupSession.js', () => ({ markSetupStale: () => { setup.stale += 1 } }))
+const setup = { stale: 0 }
 const appLife = vi.hoisted(() => ({ mounts: 0, keys: [] }))
 vi.mock('../App.jsx', async () => {
   const { OnboardingContext } = await import('./onboardingContext.js')
@@ -51,12 +50,13 @@ import i18n from '../i18n.js'
 import OnboardingGate, { LATE_SWITCH_MS } from './OnboardingGate.jsx'
 import { STEP_COMPONENTS } from './Onboarding.jsx'
 import { requestProfileSetup, pendingProfileSetup, clearProfileSetup } from './profileSetup.js'
+import { onSetupStale, setupSnapshot, resetSetupSession } from '../pages/dashboard/setupSession.js'
 
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
 const original = { ...STEP_COMPONENTS }
 const seen = {}
 beforeAll(() => {
-  for (const id of IDS) STEP_COMPONENTS[id] = function StubStep(props) { seen[id] = props; return <div data-testid={`step-${id}`} /> }
+  for (const id of IDS) STEP_COMPONENTS[id] = function StubStep(props) { seen[id] = props; return <div data-testid={`step-${id}`}><input aria-label="field" type="text" /></div> }
 })
 afterAll(() => { Object.assign(STEP_COMPONENTS, original) })
 
@@ -300,7 +300,14 @@ describe('the short setup for a later profile, after the reload', () => {
 // Reopened from inside the app (the Finish setup card, "Run setup again", the
 // short setup): the app stays mounted underneath and keeps its state.
 describe('the onboarding over the running app', () => {
-  beforeEach(() => { appLife.mounts = 0; appLife.keys = []; setup.stale = 0 })
+  let offStale
+  beforeEach(() => {
+    appLife.mounts = 0; appLife.keys = []; setup.stale = 0
+    // the real session: the dashboard card hears markSetupStale through onSetupStale
+    resetSetupSession()
+    offStale = onSetupStale(() => { setup.stale += 1 })
+  })
+  afterEach(() => { offStale(); resetSetupSession() })
   const completed = () => go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'agents' }))
   const appHost = () => document.querySelector('.onb-app-host')
   const reopen = async () => {
@@ -325,7 +332,7 @@ describe('the onboarding over the running app', () => {
     expect(appLife.mounts).toBe(1)
   })
 
-  it('every close marks the Finish setup card\'s answer stale: Back, Escape, finishing', async () => {
+  it('every close tells the Finish setup card its answer is stale: Back, Escape, finishing', async () => {
     completed()
     render(<OnboardingGate banners={null} />)
     await screen.findByText('reopen at current')
@@ -340,6 +347,34 @@ describe('the onboarding over the running app', () => {
     await reopen()
     act(() => seen.agents.onFinish({ page: 'orgs' }))
     expect(setup.stale).toBe(3)
+    expect(setupSnapshot().fresh).toBe(false)
+  })
+
+  it('Escape in a text field keeps what was typed: it leaves the field, a second Escape closes', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    const field = screen.getByLabelText('field')
+    field.focus()
+    fireEvent.change(field, { target: { value: 'half typed' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.getByTestId('step-agents')).toBeInTheDocument()
+    expect(screen.getByLabelText('field')).toHaveValue('half typed')
+    expect(document.activeElement).not.toBe(field)
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(screen.queryByTestId('step-agents')).not.toBeInTheDocument()
+  })
+
+  it('opening clears an earlier nav request, so it is never applied again', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    act(() => seen.agents.onFinish({ page: 'orgs' }))
+    expect(screen.getByTestId('navRequest')).toHaveTextContent('{"page":"orgs"}')
+    await reopen()
+    expect(screen.getByTestId('navRequest')).toHaveTextContent('null')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to MonoAgent' }))
+    expect(screen.getByTestId('navRequest')).toHaveTextContent('null')
   })
 
   it('a first run that finishes marks it stale too', async () => {

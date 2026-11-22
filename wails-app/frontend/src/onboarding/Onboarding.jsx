@@ -67,6 +67,14 @@ function enterContinues(e, panel, root) {
   return true
 }
 
+// A place where the person types: a text-like input, a textarea, a select or
+// an editable element.
+function isTextField(el) {
+  if (!el || !el.tagName) return false
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable) return true
+  return el.tagName === 'INPUT' && TEXT_INPUTS.includes(el.type)
+}
+
 const Brand = () => (
   <svg viewBox="0 0 32 32" aria-hidden="true">
     <circle cx="16" cy="16" r="15" fill="oklch(0.22 0.06 290)" stroke="oklch(0.83 0.15 72 / .6)" />
@@ -194,6 +202,9 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
       if (over && e.key === 'Escape' && backRef.current && !busyRef.current && !e.defaultPrevented && !e.isComposing &&
         !document.querySelector('.onb-portal [role="dialog"]')) {
         e.preventDefault()
+        // Escape in a field never drops what was typed: it leaves the field;
+        // a second Escape, from outside a field, closes.
+        if (isTextField(e.target)) { e.target.blur(); return }
         backRef.current()
         return
       }
