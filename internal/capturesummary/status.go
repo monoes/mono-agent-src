@@ -111,7 +111,7 @@ func RequestOf(meta capture.Meta) (Request, bool) {
 // ReadStatus reads a capture's summary.json. os.ErrNotExist (wrapped) means
 // no summary was ever asked for.
 func ReadStatus(dir string) (*Status, error) {
-	blob, err := os.ReadFile(filepath.Join(dir, StatusFile))
+	blob, err := capture.ReadCapped(filepath.Join(dir, StatusFile), capture.MaxMetaFileBytes)
 	if err != nil {
 		return nil, err
 	}
