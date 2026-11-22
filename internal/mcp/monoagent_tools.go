@@ -411,7 +411,7 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "org_grant_set",
-			description: "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. This only proposes the change (the user confirms it in the org screen); so does revoke:true (a pending revoke the user confirms there).",
+			description: "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. This only proposes the change (the user confirms it in the org screen); so does revoke:true (a pending revoke the user confirms there). approval none is the user's to set and is refused here.",
 			schema: objSchema(map[string]interface{}{
 				"org_name":          strParam("The org's name"),
 				"role_id":           strParam("The agent role receiving the tool"),
@@ -419,7 +419,7 @@ func monoagentAdaptedTools() []tool {
 				"mode":              strParam("run | trigger | status"),
 				"wait":              boolParam("Wait for the run and return its output"),
 				"timeout_seconds":   intParam("Seconds to wait"),
-				"approval":          strParam("none | required"),
+				"approval":          strParam("required (none is the user's to set and is refused here)"),
 				"max_calls_per_run": intParam("Calls allowed per org run"),
 				"revoke":            boolParam("Revoke instead of set"),
 			}, "org_name", "role_id", "automation"),
@@ -429,16 +429,16 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "org_autonomy_set",
-			description: "Set who decides an org's approvals, questions, and gates: level manual, mid, or full, and the decider (model, boss, parent, or jev — Jev picks the verdict when its top probability reaches decider_threshold, default 0.8, else the model decider decides; Jev is TypeSafe, which needs a TypeSafe key, or the decision provider named by decider_provider). This only proposes the change: the user confirms it in the org screen.",
+			description: "Set who decides an org's approvals, questions, and gates: level manual or mid (full and the policy are the user's to set and are refused here), and the decider (model, boss, parent, or jev — Jev picks the verdict when its top probability reaches decider_threshold, default 0.8, else the model decider decides; Jev is TypeSafe, which needs a TypeSafe key, or the decision provider named by decider_provider). This only proposes the change: the user confirms it in the org screen.",
 			schema: objSchema(map[string]interface{}{
 				"org_name":           strParam("The org's name"),
-				"level":              strParam("manual | mid | full"),
+				"level":              strParam("manual | mid (full is the user's to set and is refused here)"),
 				"decider":            strParam(strings.Join(orgdesign.DeciderKinds, " | ")),
 				"decider_threshold":  map[string]interface{}{"type": "number", "description": "jev decider only: lowest top-verdict probability Jev decides at, in (0,1] (default 0.8)"},
 				"decider_provider":   strParam("jev decider only: decision provider that answers — typesafe or one the user configured (jev provider list); omit for the default"),
 				"decider_model":      strParam("Model id for the model decider"),
 				"decider_runtime":    strParam("Runtime for the model decider"),
-				"policy":             strParam("Instructions the decider follows"),
+				"policy":             strParam("Instructions the decider follows: the user writes them; a change from here is refused"),
 				"on_decider_failure": strParam("deny | human"),
 			}, "org_name"),
 			annotations: map[string]bool{"readOnlyHint": false},
