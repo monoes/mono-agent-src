@@ -92,6 +92,9 @@ func hilSection(ctx context.Context, o Options) *HILSection {
 	for _, c := range counts {
 		if err := o.DB.QueryRowContext(ctx, c.q, c.args...).Scan(c.dst); err != nil {
 			s.Error = err.Error()
+			// What was counted still counts: a caller that ignores Error
+			// must not read "nothing to review".
+			s.Total = s.WorkflowPending + s.PeopleReview + s.Drafts + s.LinkSuggestions
 			return s
 		}
 	}
