@@ -23,7 +23,10 @@ import (
 // Args are the leading arguments (after -C dir, before the subcommand) of a hardened call.
 func Args() []string {
 	return []string{
+		"--no-pager", // pager.<cmd> in an agent-writable config outranks core.pager
 		"-c", "core.fsmonitor=false",
+		"-c", "core.alternateRefsCommand=",
+		"-c", "sequence.editor=true",
 		"-c", "core.hooksPath=/dev/null",
 		"-c", "core.pager=cat",
 		"-c", "core.editor=true",
@@ -53,7 +56,7 @@ var dropped = map[string]bool{
 	"GIT_EXTERNAL_DIFF": true, "GIT_PAGER": true, "GIT_EDITOR": true, "GIT_SEQUENCE_EDITOR": true,
 	"GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true, "GIT_EXEC_PATH": true,
 	"GIT_TRACE": true, "GIT_TRACE2": true, "GIT_TRACE2_EVENT": true, "GIT_TRACE2_PERF": true,
-	"GIT_NO_LAZY_FETCH": true, "GIT_ALLOW_PROTOCOL": true,
+	"GIT_NO_LAZY_FETCH": true, "GIT_TEMPLATE_DIR": true, "GIT_ALLOW_PROTOCOL": true,
 }
 
 // Env returns environ without the variables that redirect git, inject configuration

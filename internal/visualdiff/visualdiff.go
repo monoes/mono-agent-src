@@ -16,9 +16,13 @@ import (
 	"image/draw"
 	_ "image/jpeg" // Decode reads JPEG screenshots too.
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 )
+
+// MaxPixels bounds the size of an image Decode accepts.
+const MaxPixels = 64 << 20
 
 // MaxThreshold is the largest per-channel threshold; at it nothing changes.
 const MaxThreshold = 255
@@ -114,6 +118,18 @@ func Decode(path string) (image.Image, error) {
 		return nil, err
 	}
 	defer f.Close()
+	// The header alone says how much memory the decode will take; refuse a
+	// decompression bomb before allocating for it.
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > MaxPixels/cfg.Height {
+		return nil, fmt.Errorf("decode %s: image %dx%d is too large (max %d pixels)", path, cfg.Width, cfg.Height, MaxPixels)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
 	img, _, err := image.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
