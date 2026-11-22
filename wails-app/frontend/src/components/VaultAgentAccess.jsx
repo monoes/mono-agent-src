@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { GetVaultAgentAccess, SetVaultAgentAccess } from '../wailsjs/go/main/App'
+import { useTranslation } from 'react-i18next'
 import { confirm } from './ConfirmDialog.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 
@@ -10,6 +11,7 @@ const levels = [
 ]
 
 export default function VaultAgentAccess({ isActive = true }) {
+  const { t } = useTranslation()
   const [policy, setPolicy] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -46,10 +48,8 @@ export default function VaultAgentAccess({ isActive = true }) {
     const request = ++generation.current
     try {
       if (level !== 'strict') {
-        const message = level === 'reveal'
-          ? 'Allow all agents to retrieve plaintext passwords from this profile’s vault?'
-          : 'Allow all agents to use this profile’s vault passwords through supported tools and workflows?'
-        if (!(await confirm(message, { title: 'Change vault agent access', confirmLabel: 'Allow access' }))) return
+        const message = level === 'reveal' ? t('vaultAccess.confirmReveal') : t('vaultAccess.confirmUse')
+        if (!(await confirm(message, { title: t('vaultAccess.confirmTitle'), confirmLabel: t('vaultAccess.confirmAllow') }))) return
       }
       const next = await SetVaultAgentAccess(level)
       if (request === generation.current) setPolicy(next)
