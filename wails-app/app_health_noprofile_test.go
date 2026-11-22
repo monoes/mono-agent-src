@@ -6,36 +6,61 @@ import (
 	"testing"
 )
 
-// Onboarding runs the health check before the first profile exists, so an
-// empty profile id builds the machine-wide doctor command.
+// Onboarding runs the health check before the first profile exists: the
+// machine-wide builders give the scoped argv without the profile flag.
 func TestHealthArgs_NoProfile(t *testing.T) {
 	for _, mode := range []string{healthModeBackground, healthModeLocal, healthModeDeep, healthModeProjects} {
-		got, err := healthArgs("", mode)
+		got, err := machineHealthArgs(mode)
 		if err != nil {
-			t.Fatalf("healthArgs(\"\", %s): %v", mode, err)
+			t.Fatalf("machineHealthArgs(%s): %v", mode, err)
 		}
 		scoped, err := healthArgs("work", mode)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := withoutProfileFlag(scoped)
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("healthArgs(\"\", %s) = %v, want %v", mode, got, want)
+		if want := withoutProfileFlag(scoped); !reflect.DeepEqual(got, want) {
+			t.Errorf("machineHealthArgs(%s) = %v, want %v", mode, got, want)
 		}
 		assertNoProfileFlag(t, got)
+	}
+	if _, err := machineHealthArgs("--deep"); err == nil {
+		t.Error("an unknown mode must be refused")
 	}
 }
 
 func TestHealthFixArgs_NoProfile(t *testing.T) {
-	got, err := healthFixArgs("", "monomind.install")
-	if err != nil {
-		t.Fatalf("healthFixArgs(\"\"): %v", err)
-	}
+	got := machineHealthFixArgs("monomind.install")
 	tail := []string{"doctor", "fix", "--", "monomind.install"}
 	if len(got) < len(tail) || !reflect.DeepEqual(got[len(got)-len(tail):], tail) {
-		t.Errorf("healthFixArgs(\"\") = %v, want it to end with %v", got, tail)
+		t.Errorf("machineHealthFixArgs = %v, want it to end with %v", got, tail)
 	}
 	assertNoProfileFlag(t, got)
+}
+
+// The bindings choose: the selected profile when there is one, machine-wide
+// while none is selected.
+func TestHealthArgv_FollowsTheSelection(t *testing.T) {
+	a := &App{}
+	check, err := a.healthCheckArgv(healthModeLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fix, err := a.healthFixArgv("monomind.install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoProfileFlag(t, check)
+	assertNoProfileFlag(t, fix)
+
+	a.selectForTest("work")
+	check, err = a.healthCheckArgv(healthModeLocal)
+	if err != nil || !namesProfile(check, "work") {
+		t.Errorf("healthCheckArgv with work selected = %v, %v", check, err)
+	}
+	fix, err = a.healthFixArgv("monomind.install")
+	if err != nil || !namesProfile(fix, "work") {
+		t.Errorf("healthFixArgv with work selected = %v, %v", fix, err)
+	}
 }
 
 // withoutProfileFlag drops "--profile <id>" (and any "--profile=<id>").

@@ -41,11 +41,26 @@ const (
 	healthModeProjects   = "projects"
 )
 
-// healthArgs builds `[--profile P] --json doctor [--skip-group runtimes |
-// --deep | --projects]` for a mode. An empty profile id is the check before
-// the first profile exists (onboarding): doctor then runs machine-wide.
+// healthArgs builds `--profile P --json doctor [--skip-group runtimes |
+// --deep | --projects]` for a mode. An empty profile is errNoProfile, as for
+// every scoped builder; machineHealthArgs is the check before the first
+// profile exists.
 func healthArgs(profileID, mode string) ([]string, error) {
-	args := doctorArgs(profileID, "doctor")
+	args, err := scopedCLIArgs(profileID, "doctor")
+	if err != nil {
+		return nil, err
+	}
+	return withHealthMode(args, mode)
+}
+
+// machineHealthArgs builds `--json doctor [mode flags]`: the machine-wide
+// check onboarding runs while no profile exists yet.
+func machineHealthArgs(mode string) ([]string, error) {
+	return withHealthMode(unscopedCLIArgs("doctor"), mode)
+}
+
+// withHealthMode appends a mode's flags to a doctor argv.
+func withHealthMode(args []string, mode string) ([]string, error) {
 	switch mode {
 	case healthModeBackground:
 		return append(args, "--skip-group", "runtimes"), nil
@@ -59,32 +74,43 @@ func healthArgs(profileID, mode string) ([]string, error) {
 	return nil, fmt.Errorf("unknown health check mode %q", mode)
 }
 
-// healthFixArgs builds `[--profile P] --json doctor fix -- <id>`; an empty
-// profile id runs the fix machine-wide, as healthArgs does.
+// healthFixArgs builds `--profile P --json doctor fix -- <id>`; an empty
+// profile is errNoProfile (machineHealthFixArgs is the unscoped one).
 func healthFixArgs(profileID, fixID string) ([]string, error) {
 	// "--" so a fix id can never be read as a flag.
-	return doctorArgs(profileID, "doctor", "fix", "--", fixID), nil
+	return scopedCLIArgs(profileID, "doctor", "fix", "--", fixID)
 }
 
-// doctorArgs is the argv of a doctor command: scoped to profileID, or
-// unscoped while there is no profile yet.
-func doctorArgs(profileID string, args ...string) []string {
-	if profileID == "" {
-		return unscopedCLIArgs(args...)
-	}
-	scoped, _ := scopedCLIArgs(profileID, args...) // only an empty id fails
-	return scoped
+// machineHealthFixArgs builds `--json doctor fix -- <id>`: a fix run before
+// the first profile exists.
+func machineHealthFixArgs(fixID string) []string {
+	return unscopedCLIArgs("doctor", "fix", "--", fixID)
 }
 
-// healthProfileID is the profile a health check or fix runs on: the
-// selected one, or "" (machine-wide) while no profile exists yet. Any other
-// failure to read the selection is returned.
-func (a *App) healthProfileID() (string, error) {
+// healthCheckArgv is the argv of a check from the bindings: on the selected
+// profile, or machine-wide (machineHealthArgs) while none is selected. Any
+// other failure to read the selection is returned.
+func (a *App) healthCheckArgv(mode string) ([]string, error) {
 	pid, err := a.profileID()
 	if errors.Is(err, errNoProfile) {
-		return "", nil
+		return machineHealthArgs(mode)
 	}
-	return pid, err
+	if err != nil {
+		return nil, err
+	}
+	return healthArgs(pid, mode)
+}
+
+// healthFixArgv is healthCheckArgv for a fix.
+func (a *App) healthFixArgv(fixID string) ([]string, error) {
+	pid, err := a.profileID()
+	if errors.Is(err, errNoProfile) {
+		return machineHealthFixArgs(fixID), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return healthFixArgs(pid, fixID)
 }
 
 // healthReportJSON returns the doctor report verbatim. doctor exits 1 when a
@@ -113,11 +139,7 @@ func (a *App) RunHealthCheck(mode string) string {
 		b, _ := json.Marshal(map[string]any{"error": err.Error(), "cli_missing": true})
 		return string(b)
 	}
-	pid, err := a.healthProfileID()
-	if err != nil {
-		return aiError(err)
-	}
-	args, err := healthArgs(pid, mode)
+	args, err := a.healthCheckArgv(mode)
 	if err != nil {
 		return aiError(err)
 	}
@@ -239,11 +261,7 @@ func (a *App) RunHealthFix(fixID string) string {
 	// One run per fix (per runtime for installs): two `doctor fix`
 	// processes for the same fix would start two daemons or two npm
 	// installs into one global folder.
-	pid, err := a.healthProfileID()
-	if err != nil {
-		return aiError(err)
-	}
-	args, err := healthFixArgs(pid, fixID)
+	args, err := a.healthFixArgv(fixID)
 	if err != nil {
 		return aiError(err)
 	}

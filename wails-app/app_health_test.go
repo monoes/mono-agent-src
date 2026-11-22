@@ -21,6 +21,9 @@ func TestHealthArgs(t *testing.T) {
 			t.Fatalf("healthArgs(%s) = %v, %v; want %v", mode, got, err, want)
 		}
 	}
+	if _, err := healthArgs("", "local"); !errors.Is(err, errNoProfile) {
+		t.Fatalf("no profile: %v, want errNoProfile", err)
+	}
 	if _, err := healthArgs("p1", "--deep"); err == nil {
 		t.Fatal("an unknown mode must be refused")
 	}
