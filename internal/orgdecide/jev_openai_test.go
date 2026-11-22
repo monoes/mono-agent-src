@@ -104,9 +104,9 @@ func (s *openAIDecider) set(mode string) int {
 // busy provider is asked twice at most (Client.Retries = 1 reaches the
 // adapter) before the model decides, the note naming only the status; and a
 // unanimous sample does not clear the 0.8 gate (add-one smoothing over the
-// three verdicts: 6/8 = 0.75), so the model decides. (Once the adapter has
+// three verdicts: 6/8 = 0.75), so the model decides. Once the adapter has
 // learned to sample, the budget is per request: each of the 5 samples may
-// be retried once.)
+// be retried once, up to 10 requests for one decision.
 func TestJevDeciderOnTheOpenAIAdapter(t *testing.T) {
 	db := newDB(t)
 	srv := newOpenAIDecider(t)
@@ -141,5 +141,18 @@ func TestJevDeciderOnTheOpenAIAdapter(t *testing.T) {
 	if err != nil || len(fallback.prompts) != 2 || out.Verdict.Verdict != "approve" ||
 		!strings.HasPrefix(out.Verdict.Rationale, "jev local/m: deny p=0.75 below 0.80 (") {
 		t.Fatalf("sampled: %+v %v", out, err)
+	}
+
+	// The budget is per request: a sampling adapter's 5 samples, sent at
+	// once, may each be retried once against a busy provider (the first to
+	// fail cancels the rest), all within the call's timeout.
+	srv.set("busy")
+	out, err = jd.Decide(context.Background(), gatePrompt("mid"))
+	if n := srv.set("logprob"); n <= 2 || n > 10 {
+		t.Fatalf("a busy provider got %d requests while sampling, want 3 to 10 (5 samples, one retry each)", n)
+	}
+	if err != nil || len(fallback.prompts) != 3 || !strings.HasPrefix(out.Verdict.Rationale, "jev local/m failed (HTTP 503); ") ||
+		out.Latency >= jd.callTimeout() {
+		t.Fatalf("busy while sampling: %+v %v (timeout %v)", out, err, jd.callTimeout())
 	}
 }
