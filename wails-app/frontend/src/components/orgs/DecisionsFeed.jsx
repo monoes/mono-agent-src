@@ -47,15 +47,12 @@ export function jevDistribution(probabilities) {
 }
 
 /** One-line summary of a decision's Jev answer, or null when Jev was not asked. */
-// A non-TypeSafe decision provider is named after "Jev" ("Jev · local p=0.93");
-// the CLI omits jev.provider for TypeSafe, which keeps the plain wording.
 export function jevSummary(d) {
   const j = d?.jev
   if (!j) return null
-  const jev = j.provider ? `Jev · ${j.provider}` : 'Jev'
-  if (j.decided) return `${jev} p=${fmtP(j.p)}`
+  if (j.decided) return `Jev p=${fmtP(j.p)}`
   const below = j.threshold != null ? ` below ${fmtThreshold(j.threshold)}` : ''
-  return `model decided (${jev} p=${fmtP(j.p)}${below})`
+  return `model decided (Jev p=${fmtP(j.p)}${below})`
 }
 
 const jevColor = (d) => (d.jev?.decided ? 'var(--cyan, #00b4d8)' : '#eab308')

@@ -3,12 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { JevAddProvider } from '../../wailsjs/go/main/App'
 import { mono, label, hint, errText, okText, input, testError } from './jevShared.jsx'
 
-// A preset fills the kind, the base URL and a model placeholder (and a name
+// A preset fills the kind, the base URL, a hosted service's model (and a name
 // when the name field is empty or still the last preset's). The key is sent
 // once, on Add, and the field is cleared when the provider is saved.
 export const PRESETS = [
   { id: 'openai', kind: 'openai', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', name: 'openai', needsKey: true },
-  { id: 'ollama', kind: 'openai', base: 'http://localhost:11434/v1', model: 'llama3.1', name: 'ollama', local: true },
+  { id: 'ollama', kind: 'openai', base: 'http://localhost:11434/v1', name: 'ollama', local: true },
   { id: 'openrouter', kind: 'openai', base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', name: 'openrouter', needsKey: true },
   { id: 'llamacpp', kind: 'openai', base: 'http://localhost:8080/v1', name: 'llamacpp', local: true },
   { id: 'vllm', kind: 'openai', base: 'http://localhost:8000/v1', name: 'vllm', local: true },
@@ -48,9 +48,12 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
     if (!name || name === preset.name) setName(next.name)
     setKind(next.kind || kinds[0] || '')
     setBase(next.base)
+    // A hosted preset's model is filled in, so what is shown is what is sent
+    // (an empty model means the adapter's default).
+    if (!model || model === (preset.needsKey ? preset.model : '')) setModel(next.needsKey ? next.model : '')
     setPresetId(id)
   }
-  const modelPlaceholder = preset.model || (preset.local ? t('settings.jev.providers.modelLocalPlaceholder') : '')
+  const modelPlaceholder = preset.local ? t('settings.jev.providers.modelLocalPlaceholder') : ''
   const valid = NAME_RE.test(name) && !!kind && !!base.trim() && (!preset.needsKey || !!key.trim())
 
   const submit = (e) => {

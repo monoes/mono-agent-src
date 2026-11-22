@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronUp, KeyRound, Zap, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { JevSetSurface, JevUseProvider } from '../../wailsjs/go/main/App'
-import { mono, card, hint, errText, errMsg, keyChip, formatUSD } from './jevShared.jsx'
+import { mono, card, hint, errText, errMsg, keyChip, formatUSD, defaultTarget } from './jevShared.jsx'
 import { useJevData } from './useJevData.js'
 import JevKeyRow, { useJevKey } from './JevKeyRow.jsx'
 import JevFeaturesBlock from './JevFeaturesBlock.jsx'
@@ -158,6 +158,7 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
   const hasKey = status.key_source && status.key_source !== 'none'
   const activeCount = (status.surfaces || []).filter(s => s.enabled).length
   const machine = part === 'machine'
+  const target = defaultTarget(status, providers)
 
   const featuresBlock = (
     <JevFeaturesBlock
@@ -258,10 +259,16 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
 
       {(!collapsible || isExpanded) && (
         <div style={card}>
-        <div style={hint}>
-          Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text,
-          and nothing is sent to TypeSafe until you turn a feature on{machine ? " in a profile's settings" : ' below'}. Get an API key at console.typesafe.ai.
-        </div>
+        {target.typesafe ? (
+          <div style={hint}>
+            Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text,
+            and nothing is sent to TypeSafe until you turn a feature on{machine ? " in a profile's settings" : ' below'}. Get an API key at console.typesafe.ai.
+          </div>
+        ) : (
+          <div style={hint}>
+            {t(machine ? 'settings.jev.providers.sectionIntroMachine' : 'settings.jev.providers.sectionIntro', { host: target.host })}
+          </div>
+        )}
 
         <JevProvidersBlock status={status} providers={providers} providersErr={providersErr} busy={busy} run={run} reload={load} />
 

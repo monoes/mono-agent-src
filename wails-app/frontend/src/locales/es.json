@@ -778,7 +778,10 @@
         "featureSwitchConfirm": "Enviar a {{host}}",
         "sendsTo": "Al activarla se envía lo siguiente a {{host}}:",
         "whatIsSentTo": "Qué se envía a {{host}}",
-        "usageProvider": "Proveedor"
+        "usageProvider": "Proveedor",
+        "sectionIntro": "Decisiones rápidas de elegir una opción y sí/no para algunas funciones de monoagent. Jev nunca escribe texto, y no se envía nada a {{host}} hasta que actives una función abajo.",
+        "sectionIntroMachine": "Decisiones rápidas de elegir una opción y sí/no para algunas funciones de monoagent. Jev nunca escribe texto, y no se envía nada a {{host}} hasta que actives una función en los ajustes de un perfil.",
+        "consentHost": "Activar una función es una decisión solo de este perfil: permite que este perfil envíe datos a {{host}}. Los demás perfiles siguen desactivados hasta que la activen ellos."
       }
     },
     "profile": {

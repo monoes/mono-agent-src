@@ -158,10 +158,11 @@ describe('Add provider', () => {
 
   it('pre-fills from a preset and adds a keyless local provider, showing the probe', async () => {
     const form = await open()
-    // Ollama is the first preset shown: kind, URL and a model placeholder.
+    // Ollama is the first preset shown: kind, URL and a model hint (no value).
     expect(within(form).getByLabelText('Base URL')).toHaveValue('http://localhost:11434/v1')
     expect(within(form).getByLabelText('Kind')).toHaveValue('openai')
-    expect(within(form).getByLabelText('Model')).toHaveAttribute('placeholder', 'llama3.1')
+    expect(within(form).getByLabelText('Model')).toHaveValue('')
+    expect(within(form).getByLabelText('Model')).toHaveAttribute('placeholder', 'The model name the server lists')
     expect(within(form).getByLabelText('API key (optional)')).toHaveAttribute('type', 'password')
     fireEvent.change(within(form).getByLabelText('Preset'), { target: { value: 'lmstudio' } })
     expect(within(form).getByLabelText('Base URL')).toHaveValue('http://localhost:1234/v1')
@@ -182,7 +183,9 @@ describe('Add provider', () => {
     const form = await open()
     fireEvent.change(within(form).getByLabelText('Preset'), { target: { value: 'openrouter' } })
     expect(within(form).getByLabelText('Base URL')).toHaveValue('https://openrouter.ai/api/v1')
-    const add = within(form).getByRole('button', { name: 'Add provider' })
+    // A hosted preset fills in its model, so the value shown is the one sent.
+    expect(within(form).getByLabelText('Model')).toHaveValue('openai/gpt-4o-mini')
+    const add =within(form).getByRole('button', { name: 'Add provider' })
     expect(add).toBeDisabled()
     const key = within(form).getByLabelText('API key')
     expect(key).toHaveAttribute('type', 'password')
@@ -190,7 +193,7 @@ describe('Add provider', () => {
     expect(add).toBeEnabled()
     App.JevAddProvider.mockResolvedValue({ ...ROUTER, probe: { ok: false, error: 'jev: HTTP 401: {"error":{"message":"No auth credentials found"}}' } })
     fireEvent.click(add)
-    await waitFor(() => expect(App.JevAddProvider).toHaveBeenCalledWith(expect.objectContaining({ name: 'openrouter', api_key: 'fake-router-key' })))
+    await waitFor(() => expect(App.JevAddProvider).toHaveBeenCalledWith(expect.objectContaining({ name: 'openrouter', model: 'openai/gpt-4o-mini', api_key: 'fake-router-key' })))
     expect(await within(form).findByText('Added router, but the test failed: HTTP 401 — No auth credentials found')).toBeInTheDocument()
     expect(key).toHaveValue('')
   })
@@ -252,6 +255,18 @@ describe('Per-feature provider', () => {
     fireEvent.change(within(srow('hil')).getByRole('combobox'), { target: { value: 'local' } })
     await waitFor(() => expect(App.JevUseProvider).toHaveBeenCalledWith('local', 'hil'))
     expect(screen.queryByTestId('jev-provider-confirm-hil')).not.toBeInTheDocument()
+  })
+
+  it('names the default provider host in the consent and the intro when it is not TypeSafe', async () => {
+    App.JevStatus.mockResolvedValue(status({}, { provider: 'router', provider_host: 'openrouter.ai' }))
+    App.JevProviders.mockResolvedValue(providers('router'))
+    await mountProfile()
+    expect(screen.getByText(/lets this profile send data to openrouter\.ai\./)).toBeInTheDocument()
+    expect(screen.queryByText(/send data to TypeSafe/)).not.toBeInTheDocument()
+    cleanup()
+    const { default: JevSection } = await import('./JevSection.jsx')
+    render(<JevSection part="machine" />)
+    expect(await screen.findByText(/nothing is sent to openrouter\.ai until you turn a feature on in a profile's settings/)).toBeInTheDocument()
   })
 
   it('shows the key warning only for features TypeSafe answers, and a provider column in usage', async () => {

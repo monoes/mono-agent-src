@@ -778,7 +778,10 @@
         "featureSwitchConfirm": "Send to {{host}}",
         "sendsTo": "Turning this on sends the following to {{host}}:",
         "whatIsSentTo": "What is sent to {{host}}",
-        "usageProvider": "Provider"
+        "usageProvider": "Provider",
+        "sectionIntro": "Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text, and nothing is sent to {{host}} until you turn a feature on below.",
+        "sectionIntroMachine": "Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text, and nothing is sent to {{host}} until you turn a feature on in a profile's settings.",
+        "consentHost": "Turning a feature on is a choice for this profile only: it lets this profile send data to {{host}}. Other profiles stay off until they turn it on themselves."
       }
     },
     "profile": {

@@ -66,6 +66,14 @@ export function hostOf(baseURL) {
   try { return new URL(baseURL).host } catch { return '' }
 }
 
+// defaultTarget is the machine-default provider and its host. typesafe (or a
+// CLI too old to report providers) means today's TypeSafe wording.
+export function defaultTarget(status, providers) {
+  const name = providers?.default || status?.provider || 'typesafe'
+  const p = (providers?.providers || []).find(x => x.name === name)
+  return { name, typesafe: name === 'typesafe', host: (p && hostOf(p.base_url)) || status?.provider_host || name }
+}
+
 // isThisComputer copies the CLI's loopback rule (jevconf checkOverride): the
 // host is exactly "localhost", a dotted IPv4 127.x.y.z or [::1]. Anything
 // else counts as another host, so the GUI asks before sending data there.

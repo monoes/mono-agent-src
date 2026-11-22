@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { mono, label, hint, errText, input, formatUSD, Switch, EgressList, hostOf, isThisComputer } from './jevShared.jsx'
+import { mono, label, hint, errText, input, formatUSD, Switch, EgressList, hostOf, isThisComputer, defaultTarget } from './jevShared.jsx'
 
 // Where a surface's data goes: its own provider, else the default. typesafe
 // (or a CLI too old to say) keeps today's wording.
@@ -206,11 +206,12 @@ export default function JevFeaturesBlock({ part, status, usage, usageErr, busy, 
   const disabled = !!busy
   const withProviders = !!onSetSurfaceProvider && (providers?.providers || []).some(p => !p.builtin)
   // The TypeSafe key only matters for features TypeSafe answers.
-  const needsTypeSafeKey = surfaces.some(s => s.enabled && surfaceTarget(s, status, providers).typesafe)
+  const defaultHost = defaultTarget(status, providers)
+  const needsTypeSafeKey =surfaces.some(s => s.enabled && surfaceTarget(s, status, providers).typesafe)
 
   return (
     <>
-      {part === 'profile' && <div style={hint}>{t('settings.jev.consent')}</div>}
+      {part === 'profile' && <div style={hint}>{defaultHost.typesafe ? t('settings.jev.consent') : t('settings.jev.providers.consentHost', { host: defaultHost.host })}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={label}>Features</span>
         {!hasKey && needsTypeSafeKey && (
