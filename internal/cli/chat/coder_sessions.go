@@ -91,7 +91,11 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 				return printQueueJSON(cmd, map[string]any{"host": hostStatus(cfg), "sessions": rows})
 			}
 			for _, r := range rows {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-12s access=%s mode=%s unattended=%v waiting=%d  %s\n", r.ConversationID, r.State, r.Access, r.ChatMode, r.Unattended, r.Waiting, r.Cwd)
+				boss := ""
+				if r.Boss { // the text list marks a run's boss as the JSON does (#1746)
+					boss = " boss=true"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-12s access=%s mode=%s unattended=%v waiting=%d%s  %s\n", r.ConversationID, r.State, r.Access, r.ChatMode, r.Unattended, r.Waiting, boss, r.Cwd)
 			}
 			return nil
 		},
