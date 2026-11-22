@@ -87,6 +87,7 @@ func TestImagesAProcessThatOutlivedAnEarlierTurnCannotAnswerTheNextOne(t *testin
 			firstFolder = givenFolder(o)
 			const loop = `while :; do printf '\211PNG\r\n\032\nPOISON' > "$1/0-poison.png"; mkdir -p "$2" && printf '\211PNG\r\n\032\nPOISON' > "$2/0-poison.png"; sleep 0.02; done`
 			cmd := exec.Command("sh", "-c", loop, "sh", o.Cwd, firstFolder)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 			if err := cmd.Start(); err != nil {
 				return nil, err
 			}
@@ -115,7 +116,9 @@ func TestImagesAProcessThatOutlivedAnEarlierTurnCannotAnswerTheNextOne(t *testin
 		mu.Lock()
 		defer mu.Unlock()
 		for _, c := range procs {
-			_ = c.Process.Kill()
+			// The whole group: killing only the shell leaves its sleep, and the
+			// loop's last write, to land in the folder as it is removed.
+			_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
 			_, _ = c.Process.Wait()
 		}
 	})
