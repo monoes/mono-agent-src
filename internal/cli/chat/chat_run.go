@@ -125,7 +125,7 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 		// result still finishes it.
 		defer func() {
 			if retErr != nil {
-				journal.fail(retErr)
+				journal.failOrStop(ctx, retErr)
 			}
 		}()
 		// A mission child's turn runs only with its task token (read from the pipe above); see coder_host_childtoken.go.
