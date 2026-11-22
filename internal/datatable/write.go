@@ -143,17 +143,17 @@ func insertRow(ctx context.Context, x execQuerier, t Table, data map[string]inte
 	return r, err
 }
 
-// write runs fn in a transaction and saves columns fn added to t.
+// write runs fn in a transaction and, when save is set, saves columns fn added to t (a dry run must not).
 // The write lock is taken first (dbconn.WithWriteTx): Update, Upsert and Delete read the rows before they write,
 // and a writer committing in between would otherwise fail them with SQLITE_BUSY_SNAPSHOT (#1460).
-func (s *Store) write(ctx context.Context, t *Table, fn func(tx dbconn.ConnTx) error) error {
+func (s *Store) write(ctx context.Context, t *Table, save bool, fn func(tx dbconn.ConnTx) error) error {
 	return dbconn.WithWriteTx(ctx, s.db, func(conn *sql.Conn) error {
 		tx := dbconn.ConnTx{Ctx: ctx, Conn: conn}
 		cols := len(t.Columns)
 		if err := fn(tx); err != nil {
 			return err
 		}
-		if len(t.Columns) != cols {
+		if save && len(t.Columns) != cols {
 			return s.saveColumns(ctx, tx, *t)
 		}
 		return nil
@@ -168,7 +168,7 @@ func (s *Store) Insert(ctx context.Context, t *Table, rows []map[string]interfac
 	out := make([]map[string]interface{}, 0, len(rows))
 	work := *t
 	work.Columns = append([]Column(nil), t.Columns...)
-	err := s.write(ctx, &work, func(tx dbconn.ConnTx) error {
+	err := s.write(ctx, &work, true, func(tx dbconn.ConnTx) error {
 		for i, data := range rows {
 			d, err := prepare(&work, data)
 			if err != nil {
@@ -217,12 +217,12 @@ func (s *Store) update(ctx context.Context, t *Table, f Filter, data map[string]
 	var out []map[string]interface{}
 	work := *t
 	work.Columns = append([]Column(nil), t.Columns...)
-	err = s.write(ctx, &work, func(tx dbconn.ConnTx) error {
+	err = s.write(ctx, &work, !dryRun, func(tx dbconn.ConnTx) error {
 		d, err := prepare(&work, data)
 		if err != nil {
 			return err
 		}
-		rows, err := loadRows(ctx, tx, work)
+		rows, err := loadRowsFor(ctx, tx, work, f)
 		if err != nil {
 			return err
 		}
@@ -294,8 +294,8 @@ func (s *Store) Delete(ctx context.Context, t Table, f Filter, dryRun bool) ([]m
 		return nil, err
 	}
 	out := []map[string]interface{}{}
-	err = s.write(ctx, &t, func(tx dbconn.ConnTx) error {
-		rows, err := loadRows(ctx, tx, t)
+	err = s.write(ctx, &t, false, func(tx dbconn.ConnTx) error {
+		rows, err := loadRowsFor(ctx, tx, t, f)
 		if err != nil {
 			return err
 		}
