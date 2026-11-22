@@ -303,7 +303,7 @@ export default function App({ banners = null, initialNav = null, navRequest = nu
     info: <Info isActive={activePage === 'info'} />,
     tasks: <Tasks isActive={activePage === 'tasks'} navData={activePage === 'tasks' ? navData : null} />,
     ...(controlRoom.show || activePage === 'controlroom' ? { controlroom: <ControlRoom isActive={activePage === 'controlroom'} /> } : {}),
-    ai: <Agents />,
+    ai: <Agents isActive={activePage === 'ai'} />,
     orgs: <Orgs isActive={activePage === 'orgs'} onNavigate={navigate} pendingSelectOrgName={pendingOrgSelect} onConsumePendingSelect={() => setPendingOrgSelect(null)} />,
     logs:      <Logs logs={logs} onClear={() => { api.clearLogs(); setLogs([]) }} onRefresh={refreshLogs} />,
     settings:  <SettingsPage onNavigate={navigate} navData={activePage === 'settings' ? navData : null} isActive={activePage === 'settings'} />,

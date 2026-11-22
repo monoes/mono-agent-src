@@ -2955,8 +2955,10 @@
       },
       "skipped": "Omitido",
       "back": "Atrás",
+      "backToApp": "Volver a MonoAgent",
       "skip": "Omitir por ahora",
       "continue": "Continuar",
+      "done": "Listo",
       "rail": {
         "welcome": "Bienvenida",
         "system": "Sistema",
@@ -3288,6 +3290,8 @@
       "goTo": "Ir a {{step}}",
       "idle": "Todavía no se ha ejecutado nada.",
       "addsWorkflow": "Al ejecutarla, este flujo de trabajo se añade a tu lista.",
+      "waiting": "Esperándote en Human-in-Loop: {{name}}",
+      "partial": "La ejecución terminó, pero algunos pasos informaron errores.",
       "progress": "Progreso de la ejecución",
       "nodeState": "{{name}}: {{state}}",
       "node": {
@@ -3394,6 +3398,7 @@
       "title": "Termina la configuración",
       "progress": "{{done}} de {{total}} hechos",
       "dismiss": "Ocultar esta tarjeta",
+      "refresh": "Comprobar de nuevo",
       "skipped": "omitido",
       "notDone": "sin hacer",
       "open": "Terminar esto",

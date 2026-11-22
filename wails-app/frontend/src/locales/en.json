@@ -2955,8 +2955,10 @@
       },
       "skipped": "Skipped",
       "back": "Back",
+      "backToApp": "Back to MonoAgent",
       "skip": "Skip for now",
       "continue": "Continue",
+      "done": "Done",
       "rail": {
         "welcome": "Welcome",
         "system": "System check",
@@ -3288,6 +3290,8 @@
       "goTo": "Go to {{step}}",
       "idle": "Nothing has run yet.",
       "addsWorkflow": "Running it adds this workflow to your list.",
+      "waiting": "Waiting for you in Human-in-Loop: {{name}}",
+      "partial": "The run finished, but some steps reported errors.",
       "progress": "Run progress",
       "nodeState": "{{name}}: {{state}}",
       "node": {
@@ -3394,6 +3398,7 @@
       "title": "Finish setting up",
       "progress": "{{done}} of {{total}} done",
       "dismiss": "Hide this card",
+      "refresh": "Check again",
       "skipped": "skipped",
       "notDone": "not done",
       "open": "Finish this",
