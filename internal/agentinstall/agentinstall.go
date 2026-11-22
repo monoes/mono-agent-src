@@ -144,7 +144,19 @@ type Installer struct {
 
 // New returns an Installer using the managed-Node-aware npm.
 func New() *Installer {
-	return &Installer{Node: nodemgr.New(), HTTP: &http.Client{Timeout: 2 * time.Minute}}
+	return &Installer{Node: nodemgr.New(), HTTP: &http.Client{Timeout: 2 * time.Minute, CheckRedirect: checkScriptRedirect}}
+}
+
+// checkScriptRedirect keeps a redirect from an allowed host inside the
+// allowlist: https, a ScriptHosts host, at most 3 hops.
+func checkScriptRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > 3 {
+		return errors.New("too many redirects")
+	}
+	if req.URL.Scheme != "https" || req.URL.User != nil || !ScriptHosts[strings.ToLower(req.URL.Host)] {
+		return fmt.Errorf("refusing redirect to %s: not an allowed installer host", req.URL.Host)
+	}
+	return nil
 }
 
 // ErrManual is returned for recipes that need the user.
