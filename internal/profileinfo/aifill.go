@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // The AI step: read what the profile's documents say and fill the fields that
@@ -91,12 +92,27 @@ func trimFacts(in []Fact) []Fact {
 		if len(r) > maxFactText {
 			t = string(r[:maxFactText])
 		}
-		out = append(out, Fact{Source: filepath.Base(f.Source), Text: t})
+		out = append(out, Fact{Source: cleanSource(filepath.Base(f.Source)), Text: t})
 		if len(out) == maxFacts {
 			break
 		}
 	}
 	return out
+}
+
+// cleanSource drops control characters from a document name (it may come from a synced mail's
+// attachment) and caps its length, so it cannot start a line of its own in the prompt.
+func cleanSource(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+	if r := []rune(s); len(r) > 80 {
+		s = string(r[:80])
+	}
+	return s
 }
 
 func buildPrompt(fields []Field, facts []Fact) string {
