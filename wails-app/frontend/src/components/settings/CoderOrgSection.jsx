@@ -56,7 +56,15 @@ function MachinePart() {
   }
 
   const setRouter = (orgRouter) => run('router', () => api.coderSet({ orgRouter }))
-  const setAppAccess = (on) => run('apps', () => api.coderSetAppAccess(on))
+  const setAppAccess = async (on) => {
+    if (on) {
+      const ok = await confirm(t('coderOrg.appAccessOnBody'), {
+        title: t('coderOrg.appAccessOnTitle'), confirmLabel: t('coderOrg.appAccessOnConfirm'), danger: true,
+      })
+      if (!ok) return
+    }
+    await run('apps', () => api.coderSetAppAccess(on))
+  }
   const setSendApproval = async (on) => {
     if (!on) {
       const ok = await confirm(t('coderOrg.sendApprovalOffBody'), {

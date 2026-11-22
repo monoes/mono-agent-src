@@ -2508,7 +2508,10 @@
     "alwaysAllowNoAccount": "any account",
     "alwaysAllowConfirm": "Send and always allow",
     "appAccess": "Coder agents are told about MonoAgent",
-    "appAccessHint": "On: coder prompts carry the profile's summary, and org workers are offered MonoAgent's tabs (tasks, documents, people, vault, workflows and apps) and told how to use them. Off: org workers aren't told about or offered MonoAgent's tabs, and agents get no profile summary; the coder lead keeps full access, operator-only commands and send approval still apply."
+    "appAccessHint": "On: coder prompts carry the profile's summary, and org workers are offered MonoAgent's tabs (tasks, documents, people, vault, workflows and apps) and told how to use them. Off: org workers aren't told about or offered MonoAgent's tabs, and agents get no profile summary; the coder lead keeps full access, operator-only commands and send approval still apply.",
+    "appAccessOnTitle": "Tell coder agents about MonoAgent?",
+    "appAccessOnBody": "Coder prompts will carry the profile's summary, and org workers will be offered MonoAgent's tabs (tasks, documents, people, vault, workflows and apps) and told how to use them.",
+    "appAccessOnConfirm": "Tell agents"
   },
   "toolLinks": {
     "open": "Open in {{tab}}",

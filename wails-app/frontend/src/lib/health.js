@@ -326,13 +326,21 @@ function runStreamed(key, start, onLine) {
 }
 
 let timer = null
+let subscribers = 0
 
 /** Start the start-up + every-30-minutes background check (idempotent). It
  * runs `doctor --skip-group runtimes`, which writes nothing outside
  * ~/.monoagent. */
 export function startBackgroundHealth() {
-  if (timer) return () => {}
-  runHealth({ background: true })
-  timer = setInterval(() => { runHealth({ background: true }) }, BACKGROUND_INTERVAL_MS)
-  return () => { clearInterval(timer); timer = null }
+  subscribers++
+  if (!timer) {
+    runHealth({ background: true })
+    timer = setInterval(() => { runHealth({ background: true }) }, BACKGROUND_INTERVAL_MS)
+  }
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    if (--subscribers === 0) { clearInterval(timer); timer = null }
+  }
 }

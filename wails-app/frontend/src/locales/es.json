@@ -2508,7 +2508,10 @@
     "alwaysAllowNoAccount": "cualquier cuenta",
     "alwaysAllowConfirm": "Enviar y permitir siempre",
     "appAccess": "Los agentes de código reciben información sobre MonoAgent",
-    "appAccessHint": "Activado: las instrucciones de código llevan el resumen del perfil, y a los trabajadores de la organización se les ofrecen las pestañas de MonoAgent (tareas, documentos, personas, bóveda, flujos de trabajo y aplicaciones) y se les explica cómo usarlas. Desactivado: a los trabajadores de la organización no se les habla de las pestañas de MonoAgent ni se les ofrecen, y los agentes no reciben el resumen del perfil; el agente principal de código conserva el acceso completo, y los comandos solo del operador y la aprobación de envíos siguen aplicándose."
+    "appAccessHint": "Activado: las instrucciones de código llevan el resumen del perfil, y a los trabajadores de la organización se les ofrecen las pestañas de MonoAgent (tareas, documentos, personas, bóveda, flujos de trabajo y aplicaciones) y se les explica cómo usarlas. Desactivado: a los trabajadores de la organización no se les habla de las pestañas de MonoAgent ni se les ofrecen, y los agentes no reciben el resumen del perfil; el agente principal de código conserva el acceso completo, y los comandos solo del operador y la aprobación de envíos siguen aplicándose.",
+    "appAccessOnTitle": "¿Informar a los agentes de código sobre MonoAgent?",
+    "appAccessOnBody": "Las instrucciones de código llevarán el resumen del perfil, y a los trabajadores de la org se les ofrecerán las pestañas de MonoAgent (tareas, documentos, personas, bóveda, flujos y apps) y se les dirá cómo usarlas.",
+    "appAccessOnConfirm": "Informar a los agentes"
   },
   "toolLinks": {
     "open": "Abrir en {{tab}}",
