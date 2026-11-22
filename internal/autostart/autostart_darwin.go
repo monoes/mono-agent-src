@@ -60,7 +60,7 @@ func renderPlist(exe, logs string) (string, error) {
 	err := tmpl.Execute(&b, struct {
 		Label, Exe, LogDir string
 		ExitTimeOut        int
-	}{Label, exe, logs, int(stopGrace / time.Second)})
+	}{Label, xmlText(exe), xmlText(logs), int(stopGrace / time.Second)})
 	return b.String(), err
 }
 

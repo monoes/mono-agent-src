@@ -39,6 +39,12 @@ func (windowsInstaller) Install(ctx context.Context) (Result, error) {
 	// StandardOutPath or systemd's journal), so the task runs a cmd
 	// wrapper that appends both streams to a file instead. /rl limited
 	// avoids requiring admin rights for a per-user task.
+	if err := checkTaskPath(exe); err != nil {
+		return Result{}, err
+	}
+	if err := checkTaskPath(logPath); err != nil {
+		return Result{}, err
+	}
 	trArg := taskCommand(exe, logPath)
 
 	cmd := exec.CommandContext(ctx, "schtasks", "/create", "/tn", taskName,
