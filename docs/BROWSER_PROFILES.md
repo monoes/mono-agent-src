@@ -1,8 +1,8 @@
 # Many profiles per browser
 
-Every browser profile with the MonoAgent Bridge extension installed (a Chrome
-profile, an Edge profile, a separate browser) connects to the bridge on its
-own. Choose which monoagent profiles run in it and those profiles' browser
+Every browser profile with the MonoAgent Bridge extension installed (a
+profile of any Chromium-based browser: Chrome, Edge, Brave, Arc, Vivaldi,
+Opera, Chromium, or another browser) connects to the bridge on its own. Choose which monoagent profiles run in it and those profiles' browser
 actions (workflow browser nodes, `capture page`, `login`, `node run`,
 `application apply`) run there, signed in as that browser's accounts.
 
@@ -13,12 +13,20 @@ run at the same time, including two accounts on the same site.
 ## Set it up
 
 1. Run `monoagentcli extension install`, then load it in each browser
-   profile (`chrome://extensions` → Developer mode → Load unpacked →
-   `~/.monoagent/extension`) and pair it: `monoagentcli extension pair --open`
-   opens a pairing page that pairs the browser it opens in (or paste the output
-   of `monoagentcli extension pair` into the side panel's Connection settings).
+   profile: open the browser's extensions page, turn on Developer mode, click
+   Load unpacked and choose `~/.monoagent/extension`. The extensions page is
+   `chrome://extensions` (Chrome and Chromium), `edge://extensions` (Edge),
+   `brave://extensions` (Brave), `arc://extensions` (Arc),
+   `vivaldi://extensions` (Vivaldi) or `opera://extensions` (Opera); in
+   another Chromium-based browser it is usually under Menu, then Extensions.
+   The Developer mode switch is at the top right, except in Edge (left
+   sidebar). Then pair it: `monoagentcli extension pair --open` opens a
+   pairing page that pairs the browser it opens in (or paste the output of
+   `monoagentcli extension pair` into the side panel's Connection settings).
+   The desktop app's first-run setup walks through this, for the profile you
+   are setting up, in its "Connect your browser" step.
 2. Choose the profiles, in whichever place suits you:
-   - **Desktop app → Settings → Browsers.** One row per monoagent profile;
+   - **Desktop app → Settings → Profile, the Browsers card.** One row per monoagent profile;
      pick the browser it runs in (or "Any browser (default)"). Several
      profiles can pick the same browser.
    - **The browser's side panel → Connection settings → Automations in this
@@ -114,8 +122,8 @@ The CLI side is `--all-profiles` on `summary`, `workflow list`,
 ## Upgrading
 
 Sharing a browser between profiles needs extension 1.12.0: reload the
-extension from the browser's extensions page (`chrome://extensions` or
-`edge://extensions`) in every browser profile, and restart the daemon or
+extension from the browser's extensions page (`chrome://extensions`,
+`edge://extensions` and so on, listed above) in every browser profile, and restart the daemon or
 `monoagentcli extension serve`.
 
 Upgrade the bridge and the extension together. An older bridge routes only by

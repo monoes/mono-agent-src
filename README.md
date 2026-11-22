@@ -581,13 +581,13 @@ Workflow triggers (`trigger.schedule`, `trigger.webhook`) only fire while a proc
 
 ## Chrome Extension
 
-The MonoAgent Bridge browser extension lets workflow nodes drive **your real, already-logged-in Chrome browser** — the same model as consumer RPA tools. No separate automation profile, no re-authenticating for sites (like Google) that invalidate sessions ported into a scripted browser.
+The MonoAgent Bridge browser extension lets workflow nodes drive **your real, already-logged-in browser** (any Chromium-based one: Chrome, Edge, Brave, Arc, Vivaldi, Opera, …) — the same model as consumer RPA tools. No separate automation profile, no re-authenticating for sites (like Google) that invalidate sessions ported into a scripted browser.
 
 - **Loopback by default** — the bridge server binds loopback, and the extension refuses non-loopback servers. A per-session "Allow non-loopback server (unsafe)" checkbox in the side panel overrides this for one save; it is never persisted
 - **Paired channel** — the bridge requires a shared secret (`~/.monoagent/extension.token`) as the first frame on every connection; run `monoagentcli extension pair --open` once (or paste the token `extension pair` prints into the side panel). An unpaired connection is rejected and can never replace an already-paired one. Run `monoagentcli extension reset` to revoke and re-pair
 - **Access to every site** — the extension asks for access to all sites (`<all_urls>`) when you install it, plus `debugger`, `cookies`, `tabs` and `scripting`: it has to read and act on whatever page a workflow or a capture targets, in your own signed-in browser. Its scripts load on every page so it can show your saved highlights there and act when asked; it sends page content only to the bridge on this machine (loopback, paired), and only for a capture, highlight, task or automation you start
 - **Shared connection** — multiple CLI processes share the bridge instead of fighting over the browser
-- **Many profiles per browser** — every browser profile with the extension connects on its own; choose which monoagent profiles run in it (any number may share one browser) and their automations run there, in parallel with profiles on other browsers. `monoagentcli extension browsers` lists them; `extension bind <browser> <profile>` adds a profile to a browser, `extension unbind <browser> [profile]` removes one and `extension assign <profile> [browser]` makes a browser the profile's only one (the desktop app: **Settings → Browsers**). See [docs/BROWSER_PROFILES.md](docs/BROWSER_PROFILES.md)
+- **Many profiles per browser** — every browser profile with the extension connects on its own; choose which monoagent profiles run in it (any number may share one browser) and their automations run there, in parallel with profiles on other browsers. `monoagentcli extension browsers` lists them; `extension bind <browser> <profile>` adds a profile to a browser, `extension unbind <browser> [profile]` removes one and `extension assign <profile> [browser]` makes a browser the profile's only one (the desktop app: the **Browsers** card in **Settings → Profile**). See [docs/BROWSER_PROFILES.md](docs/BROWSER_PROFILES.md)
 - **Tasks from the browser** — right-click selected text or a page and choose MonoAgent, *Add selection as task* or *Add page as task*; type one under *Add a task* in the side panel; or press the *add-task* shortcut (Ctrl+Shift+K, Cmd+Shift+K on a Mac; change it at `chrome://extensions/shortcuts`), which opens the side panel's task box and adds the selection if there is one. Each task lands in the Inbox of the profile the side panel is *Saving into* (with no profile chosen, the extension asks for one first), and an AI agent sees it only after you approve it. While MonoAgent is not running, tasks wait in the extension and sync later; a MonoAgent too old to take them keeps them waiting and says it needs updating; a task MonoAgent refuses (its profile was deleted, say) is listed under *Add a task* with its text, to copy. The extension files into MonoAgent's default database (`~/.monoagent/monoagent.db`), as its profile picker does. It is installed unpacked: after updating MonoAgent, reload the extension from `chrome://extensions` to get these.
 
 [SECURITY.md](SECURITY.md) covers what the app and the extension contact.
@@ -595,11 +595,11 @@ The MonoAgent Bridge browser extension lets workflow nodes drive **your real, al
 Install (unpacked, not on the Web Store):
 
 1. Run `monoagentcli extension install`. The full extension folder ships inside the CLI (and the app), so nothing is downloaded: it unpacks the exact version that matches your CLI into `~/.monoagent/extension`. The app's **Settings → Browser Extension** shows that path and these steps. MonoAgent drives a browser only through this extension; it never launches one of its own
-2. Open `chrome://extensions` (Edge: `edge://extensions`) and enable **Developer mode** (top-right toggle)
+2. In any Chromium-based browser, open its extensions page and enable **Developer mode**: `chrome://extensions` (Chrome; Chromium too), `edge://extensions` (Edge), `brave://extensions` (Brave), `arc://extensions` (Arc), `vivaldi://extensions` (Vivaldi) or `opera://extensions` (Opera); in another one, usually Menu, then Extensions. The switch is at the top right, except in Edge, where it is in the left sidebar
 3. Click **Load unpacked** and choose `~/.monoagent/extension`
 4. Pair it: run `monoagentcli extension pair --open`. It opens a one-time pairing page in your browser and the extension pairs itself. (Or run `monoagentcli extension pair` and paste the token it prints into the side panel.)
 
-Run any browser node and look for `Chrome extension connected -- using your browser` in the output. After updating MonoAgent, run `monoagentcli extension install` again and click **Reload** on the extension in `chrome://extensions`.
+Run any browser node and look for `Chrome extension connected -- using your browser` in the output. After updating MonoAgent, run `monoagentcli extension install` again and click **Reload** on the extension on the browser's extensions page.
 
 ---
 
@@ -608,7 +608,7 @@ Run any browser node and look for `Chrome extension connected -- using your brow
 ### Prerequisites
 
 - Go 1.26+ (`brew install go`) — only for maintainers building from the private source tree; release binaries need nothing
-- Chrome/Chromium (for browser nodes — optional for everything else)
+- A Chromium-based browser such as Chrome, Edge, Brave, Arc, Vivaldi or Opera (for browser nodes — optional for everything else)
 - That's it — SQLite is embedded, no external database
 
 ### Install
@@ -634,6 +634,8 @@ wails build    # production build
 ```
 
 Profile folders (per-profile vault and data) and the assistant-tools toggle are managed in the GUI's Settings.
+
+**First run.** The desktop app opens with a setup flow: a system check, your first profile, monomind, your AI agents, the browser extension (any Chromium-based browser) and what agents may do in it, and a first workflow run. Most steps can be skipped and finished later. No profile exists until you make one there (or with `monoagentcli profile create`). Run the flow again from **Settings → Application Info → Run setup again**; what is already done stays done.
 
 ### Docker
 
