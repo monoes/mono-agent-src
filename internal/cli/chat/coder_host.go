@@ -167,6 +167,9 @@ func ensureHost(cfg *Deps) error {
 	if hostRunning(cfg) {
 		return nil
 	}
+	if err := requireCoderEnabled(cfg); err != nil {
+		return err
+	}
 	if err := startHostProcess(cfg); err != nil {
 		return fmt.Errorf("starting the coder host: %w", err)
 	}
@@ -177,6 +180,23 @@ func ensureHost(cfg *Deps) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("the coder host did not start; see %s", filepath.Join(hostDir(cfg), "host.log"))
+}
+
+// requireCoderEnabled refuses with the coder-disabled error while coder mode is off: no host starts for it.
+func requireCoderEnabled(cfg *Deps) error {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	s, err := loadCoderSettings(db.DB)
+	if err != nil {
+		return err
+	}
+	if !s.Enabled {
+		return errCoderDisabled()
+	}
+	return nil
 }
 
 func newCoderHostCmd(cfg *Deps) *cobra.Command {
