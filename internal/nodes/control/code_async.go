@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -43,15 +44,24 @@ func settle(val goja.Value) (goja.Value, error) {
 	return nil, fmt.Errorf("the returned promise never settled")
 }
 
+// copyJSON deep-copies an item's JSON: goja wraps Go maps and slices by
+// reference, so a shallow copy would let a script mutate upstream data.
+func copyJSON(src map[string]interface{}) map[string]interface{} {
+	m := make(map[string]interface{}, len(src))
+	if b, err := json.Marshal(src); err == nil && json.Unmarshal(b, &m) == nil {
+		return m
+	}
+	for k, v := range src {
+		m[k] = v
+	}
+	return m
+}
+
 // jsonMaps copies each item's JSON for the JS runtime.
 func jsonMaps(items []workflow.Item) []interface{} {
 	out := make([]interface{}, len(items))
 	for i, item := range items {
-		m := make(map[string]interface{}, len(item.JSON))
-		for k, v := range item.JSON {
-			m[k] = v
-		}
-		out[i] = m
+		out[i] = copyJSON(item.JSON)
 	}
 	return out
 }

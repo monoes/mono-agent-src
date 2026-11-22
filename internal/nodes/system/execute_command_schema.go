@@ -25,7 +25,7 @@ type ExecuteCommandNodeSchema struct {
 
 	WorkingDir string `json:"working_dir" schema:"label=Working Directory,type=text,placeholder=/tmp"`
 
-	Timeout float64 `json:"timeout" schema:"label=Timeout (seconds),type=number,default=60,help=Clamped to 3600s max. A value of 0 or blank uses the default."`
+	Timeout float64 `json:"timeout" schema:"label=Timeout (seconds),type=number,default=30,help=Clamped to 3600s max. A value of 0 or blank uses the default."`
 
 	Env string `json:"env" schema:"label=Extra Environment Variables (JSON object),type=textarea,rows=3,placeholder={ \"API_KEY\": \"{{$env.API_KEY}}\" },help=Merged on top of the process's own environment for the child command."`
 }

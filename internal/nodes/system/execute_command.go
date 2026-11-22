@@ -3,9 +3,11 @@ package system
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/nodemgr"
@@ -94,16 +96,24 @@ func (n *ExecuteCommandNode) Execute(ctx context.Context, input workflow.NodeInp
 	}
 	cmd := exec.CommandContext(runCtx, bin, args...)
 	cmd.Env = nodemgr.UserEnv(os.Environ())
+	// Own session; cancel kills the whole tree and WaitDelay stops a
+	// descendant holding the output pipe from blocking Run past the timeout.
+	nodemgr.Isolate(cmd)
 
 	if workingDir != "" {
 		cmd.Dir = workingDir
 	}
 
 	// Extra environment variables
-	if envMap, ok := config["env"].(map[string]interface{}); ok {
-		for k, v := range envMap {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%v", k, v))
+	envMap, _ := config["env"].(map[string]interface{})
+	if s, ok := config["env"].(string); ok && strings.TrimSpace(s) != "" {
+		// The GUI saves env as a JSON object in a text field.
+		if err := json.Unmarshal([]byte(s), &envMap); err != nil {
+			return nil, fmt.Errorf("system.execute_command: env must be a JSON object: %w", err)
 		}
+	}
+	for k, v := range envMap {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%v", k, v))
 	}
 	// Last, so the env above can't clear it: what a workflow runs is never the operator.
 	cmd.Env = workflow.RunEnvFor(ctx, cmd.Env, input.ExecutionID)

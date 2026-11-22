@@ -102,9 +102,7 @@ func (n *CodeNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	// $json — first item's JSON, or empty map.
 	firstJSON := make(map[string]interface{})
 	if len(input.Items) > 0 && input.Items[0].JSON != nil {
-		for k, v := range input.Items[0].JSON {
-			firstJSON[k] = v
-		}
+		firstJSON = copyJSON(input.Items[0].JSON)
 	}
 	if err := rt.Set("$json", firstJSON); err != nil {
 		return nil, fmt.Errorf("code node: failed to set $json: %w", err)
