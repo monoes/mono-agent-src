@@ -158,7 +158,20 @@ func (d Deps) SaveDocument(ctx context.Context, store *workflow.HybridWorkflowSt
 	}
 	for _, c := range doc.Connections {
 		c.WorkflowID = ""
+		if c.SourceHandle == "" {
+			c.SourceHandle = "main"
+		}
+		if c.TargetHandle == "" {
+			c.TargetHandle = "main"
+		}
 		wf.Connections = append(wf.Connections, c)
+	}
+	// A metadata-only edit carries no nodes; a document with nodes gets the
+	// structural checks `workflow import` and the HTTP API apply.
+	if len(wf.Nodes) > 0 {
+		if err := workflow.ValidateForSave(wf); err != nil {
+			return nil, d.InvalidInput("%v", err)
+		}
 	}
 	if err := store.SaveWorkflow(ctx, wf); err != nil {
 		return nil, fmt.Errorf("save workflow: %w", err)
