@@ -31,6 +31,7 @@ import Vault from './pages/Vault.jsx'
 import Applications from './pages/Applications.jsx'
 import Documents from './pages/Documents.jsx'
 import Info from './pages/Info.jsx'
+import Help from './pages/Help/Help.jsx'
 import Tasks from './pages/Tasks.jsx'
 import ControlRoom from './pages/ControlRoom/ControlRoom.jsx'
 import { useControlRoomProbe } from './lib/useControlRoomProbe.js'
@@ -282,6 +283,7 @@ export default function App({ banners = null }) {
     applications: <Applications isActive={activePage === 'applications'} navData={activePage === 'applications' ? navData : null} onNavigate={navigate} onOpenCoderChat={openCoderChat} />,
     documents: <Documents isActive={activePage === 'documents'} />,
     info: <Info isActive={activePage === 'info'} />,
+    help: <Help onNavigate={navigate} />,
     tasks: <Tasks isActive={activePage === 'tasks'} navData={activePage === 'tasks' ? navData : null} />,
     ...(controlRoom.show || activePage === 'controlroom' ? { controlroom: <ControlRoom isActive={activePage === 'controlroom'} /> } : {}),
     ai: <Agents />,
