@@ -179,7 +179,11 @@ func checkEndpointAuth(req *http.Request, row *orggrant.EndpointRow) (string, in
 			return "endpoint credential unavailable", http.StatusServiceUnavailable
 		}
 		got := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(string(want))), []byte(got)) != 1 {
+		w := strings.TrimSpace(string(want))
+		if w == "" {
+			return "endpoint credential unavailable", http.StatusServiceUnavailable
+		}
+		if got == "" || subtle.ConstantTimeCompare([]byte(w), []byte(got)) != 1 {
 			return "missing or invalid bearer credential", http.StatusUnauthorized
 		}
 		return "", 0
