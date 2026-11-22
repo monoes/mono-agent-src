@@ -13,6 +13,7 @@ import {
   loadSort, saveSort, sourceOptions, filterBySource, tagOptions, filterByTags,
 } from '../lib/documentSort.js'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
+import { useMonomindNotInitialized } from '../lib/useMonomindNotInitialized.js'
 
 // maxInlinePreviewBytes mirrors the backend's own GetProfileDocumentData
 // cap (wails-app/app_files.go) so an oversized file is routed straight to
@@ -146,8 +147,9 @@ export default function Documents({ isActive = true }) {
   // Per-profile check, independent of any single document's own
   // indexed/index_error outcome -- lets us suggest setup BEFORE the user
   // uploads anything, not just after a failed upload. Mirrors Agents.jsx's
-  // identical notInitialized check.
-  const [notInitialized, setNotInitialized] = useState(false)
+  // identical notInitialized check. Re-read after any finished init and
+  // whenever the page becomes active again (useMonomindNotInitialized).
+  const [notInitialized] = useMonomindNotInitialized(isActive)
   const [initStatus, setInitStatus] = useState('idle') // idle | running | error
   const initRunningRef = useRef(false)
   const [viewingDoc, setViewingDoc] = useState(null)
@@ -218,7 +220,6 @@ export default function Documents({ isActive = true }) {
 
   useEffect(() => { load() }, [load])
   useReloadOnActivate(isActive, load)
-  useEffect(() => { api.isMonomindInitialized().then(v => setNotInitialized(!v)) }, [])
 
   // Live-refresh: the background document watcher (wails-app/app_documents_watch.go)
   // discovers files added to the profile folder from outside the app (e.g.
@@ -233,9 +234,9 @@ export default function Documents({ isActive = true }) {
       setInitStatus('error')
       notify('initialize monomind', payload.message || 'failed')
     } else if (payload.kind === 'done') {
+      // the banner itself goes once useMonomindNotInitialized re-reads
       initRunningRef.current = false
       setInitStatus('idle')
-      setNotInitialized(false)
     }
   }), [])
 

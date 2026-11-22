@@ -14,7 +14,7 @@ vi.mock('../lib/agentRuntimes.js', async importOriginal => ({
   invalidateAgentScan: vi.fn(),
 }))
 vi.mock('../lib/health.js', () => ({ installRuntime: vi.fn(), runHealth: vi.fn() }))
-vi.mock('../services/api.js', () => ({ api: { isMonomindInitialized: () => Promise.resolve(h.initialized) } }))
+vi.mock('../services/api.js', () => ({ api: { isMonomindInitialized: () => Promise.resolve(h.initialized) }, onMonomindInitEvent: () => () => {} }))
 vi.mock('../services/taskSessions.js', () => ({ sessionsApi: { list: () => Promise.resolve({ sessions: h.sessions }) } }))
 vi.mock('../components/MonomindInitPrompt.jsx', () => ({ default: () => <div data-testid="init-prompt" /> }))
 vi.mock('../components/agents/AgentRoster.jsx', () => ({ default: () => null }))

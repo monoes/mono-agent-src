@@ -4,9 +4,9 @@ import { RefreshCw, Bot, MessageSquare, Download, Copy, Loader2, ArrowUpCircle }
 import { cachedAgentScan, invalidateAgentScan, installRecipe, recipeCommand } from '../lib/agentRuntimes.js'
 import { runtimeLabel } from '../lib/runtimeLabels.js'
 import { installRuntime, runHealth } from '../lib/health.js'
-import { api } from '../services/api.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import MonomindInitPrompt from '../components/MonomindInitPrompt.jsx'
+import { useMonomindNotInitialized } from '../lib/useMonomindNotInitialized.js'
 import FixMonomindButton from '../components/FixMonomindButton.jsx'
 import AgentRoster from '../components/agents/AgentRoster.jsx'
 import OpenRunBoss from '../components/agents/OpenRunBoss.jsx'
@@ -181,10 +181,9 @@ export default function Agents() {
   // globally (scanError below only fires when the binary itself is
   // missing/outdated) while this profile's own folder has never been
   // initialized — a separate, per-profile check.
-  const [notInitialized, setNotInitialized] = useState(false)
-  useEffect(() => {
-    api.isMonomindInitialized().then(v => setNotInitialized(!v))
-  }, [])
+  // Re-read after any finished init (from this page, Documents, Orgs or the
+  // onboarding), not only the prompt's own run.
+  const [notInitialized, recheckInit] = useMonomindNotInitialized()
 
   // Install / update / copy-steps per runtime — all through monoagentcli
   // (`agent install`), shown inline on the tile.
@@ -274,7 +273,7 @@ export default function Agents() {
               </div>
             </div>
           ) : notInitialized ? (
-            <MonomindInitPrompt onInitialized={() => { setNotInitialized(false); loadAgents() }} />
+            <MonomindInitPrompt onInitialized={() => { recheckInit(); loadAgents() }} />
           ) : agents.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon"><Bot size={36} /></div>

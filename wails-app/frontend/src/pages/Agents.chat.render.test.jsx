@@ -34,7 +34,7 @@ vi.mock('../lib/health.js', () => ({
   installRuntime: (...a) => mockInstall(...a),
   runHealth: vi.fn(),
 }))
-vi.mock('../services/api.js', () => ({ api: { isMonomindInitialized: () => Promise.resolve(true) } }))
+vi.mock('../services/api.js', () => ({ api: { isMonomindInitialized: () => Promise.resolve(true) }, onMonomindInitEvent: () => () => {} }))
 vi.mock('../components/ConfirmDialog.jsx', () => ({ confirm: (...a) => mockConfirm(...a) }))
 vi.mock('../components/MonomindInitPrompt.jsx', () => ({ default: () => null }))
 vi.mock('../components/agents/AgentRoster.jsx', () => ({ default: () => null }))

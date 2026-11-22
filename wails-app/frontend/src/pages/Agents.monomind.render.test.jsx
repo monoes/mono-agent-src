@@ -4,7 +4,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within, act } from '@testing-library/react'
 import '../i18n.js'
 
 const { go, api, events, notify, scanRef } = vi.hoisted(() => ({
@@ -37,6 +37,7 @@ import Agents from './Agents.jsx'
 
 const SCAN = { v: 1, agents: [{ id: 'claude', installed: true, version: '2.1.0', install_hint: 'npm install -g @anthropic-ai/claude-code' }] }
 const setUp = () => screen.findByRole('button', { name: 'Set up agents for this profile' })
+const emit = (payload) => act(() => { for (const cb of [...(events.init || [])]) cb(payload) })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,6 +57,27 @@ describe('Agents page and monomind', () => {
     const fix = screen.getByTestId('fix-monomind')
     expect(fix).toBeInTheDocument()
     expect(within(fix).getByRole('button', { name: /Fix monomind/i })).toBeEnabled()
+  })
+
+  it('the set-up prompt goes away when a set-up started elsewhere finishes', async () => {
+    render(<Agents />)
+    expect(await setUp()).toBeInTheDocument()
+    api.isMonomindInitialized.mockResolvedValue(true)
+    // the Documents page or the onboarding ran it; the prompt here did not
+    emit({ kind: 'done', message: '' })
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up agents for this profile' })).not.toBeInTheDocument())
+  })
+
+  it('a remount after a profile switch reads the new profile', async () => {
+    api.isMonomindInitialized.mockResolvedValue(true)
+    const first = render(<Agents />)
+    await waitFor(() => expect(api.isMonomindInitialized).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('button', { name: 'Set up agents for this profile' })).not.toBeInTheDocument()
+    first.unmount()
+    // every switch reloads the window (Sidebar.jsx handleSwitchProfile), so the page mounts again
+    api.isMonomindInitialized.mockResolvedValue(false)
+    render(<Agents />)
+    expect(await setUp()).toBeInTheDocument()
   })
 
   it('a sign-in refusal of the set-up stops the spinner and says to sign in', async () => {
