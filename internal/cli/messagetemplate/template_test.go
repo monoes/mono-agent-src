@@ -134,6 +134,21 @@ func TestTemplateListJSONIsAnArray(t *testing.T) {
 // different-width IDs (1 vs 100, via direct SQL rather than the `create`
 // command, which can't control the autoincrement value) and asserts the
 // shorter ID is left-padded to align with the wider one.
+// A template id with trailing text must be rejected, not read as its leading digits.
+func TestTemplateIDRejectsTrailingText(t *testing.T) {
+	dbPath := newTestDB(t)
+	for _, sub := range []string{"get", "delete"} {
+		cmd := NewCommand(testDeps(dbPath, false))
+		cmd.SetArgs([]string{sub, "12abc"})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "invalid template ID") {
+			t.Fatalf("%s 12abc: want invalid template ID error, got %v", sub, err)
+		}
+	}
+}
+
 func TestTemplateListTableRightAlignsNumericIDColumn(t *testing.T) {
 	dbPath := newTestDB(t)
 	db, err := storage.NewDatabase(dbPath)
