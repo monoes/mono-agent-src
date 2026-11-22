@@ -8,10 +8,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as GoApp from '../../wailsjs/go/main/App'
-import { onAgentValidate, onAgentValidateClosed } from '../../services/api.js'
+import { onAgentValidate, onAgentValidateClosed, subscribeEvent } from '../../services/api.js'
 import { callStep } from '../callStep.js'
 import { installRecipe, invalidateAgentScan, isMonomindNotFound } from '../../lib/agentRuntimes.js'
 import { installRuntime } from '../../lib/health.js'
+import { beginAgentTestRun, refusedAgentTestRun } from '../agentTestRuns.js'
 import AgentTile, { rosterReady, runtimeName } from './AgentTile.jsx'
 import './Agents.css'
 
@@ -43,9 +44,15 @@ export default function Agents({ reload, goTo, setCanContinue }) {
   const [picked, setPicked] = useState({})
   const [test, setTestState] = useState(null)
   const [installs, setInstalls] = useState({})
+  // The roster read after a test failed: the test's answer is known, the
+  // roster (what Continue goes by) is not.
+  const [rosterFailed, setRosterFailed] = useState(null)
   const live = useRef(true)
   const testRef = useRef(null)
   const resultRef = useRef(null)
+  const skipCloses = useRef(0)
+  const scanSeq = useRef(0)
+  const ownInstalls = useRef(new Set())
   const modelsAsked = useRef(new Set())
   const reloadRef = useRef(reload)
   reloadRef.current = reload
@@ -53,11 +60,14 @@ export default function Agents({ reload, goTo, setCanContinue }) {
   const setTest = (v) => { testRef.current = v; setTestState(v) }
   const setInstall = (id, patch) => setInstalls(m => ({ ...m, [id]: patch && { ...(m[id] || {}), ...patch } }))
 
+  // Resolves to the runtimes, or to the callStep failure.
   const loadRoster = useCallback(async () => {
     const r = await callStep(() => GoApp.AgentRoster())
-    if (!live.current || !r.ok) return null
+    if (!live.current) return r
+    if (!r.ok) return r
     const runtimes = Array.isArray(r.value?.runtimes) ? r.value.runtimes : []
     setRoster(runtimes)
+    setRosterFailed(null)
     return runtimes
   }, [])
 
@@ -69,7 +79,7 @@ export default function Agents({ reload, goTo, setCanContinue }) {
     if (!live.current) return
     if (!r.ok) {
       modelsAsked.current.delete(agent.id) // Check again asks once more
-      setModels(m => ({ ...m, [agent.id]: { loading: false, list: [], error: r.message } }))
+      setModels(m => ({ ...m, [agent.id]: { loading: false, list: [], error: r.message, loginRequired: r.loginRequired } }))
       return
     }
     const list = (Array.isArray(r.value) ? r.value : []).filter(x => x && x.id && !x.alias_of)
@@ -77,10 +87,13 @@ export default function Agents({ reload, goTo, setCanContinue }) {
     setPicked(p => (p[agent.id] ? p : { ...p, [agent.id]: list[0]?.id || '' }))
   }, [])
 
+  // Scans can overlap (Check again while an install's rescan runs): only the
+  // latest one's answer is applied.
   const load = useCallback(async () => {
+    const seq = ++scanSeq.current
     setScan(s => ({ ...s, scanning: true }))
     const [r] = await Promise.all([callStep(() => GoApp.ScanAgentRuntimes()), loadRoster()])
-    if (!live.current) return
+    if (!live.current || seq !== scanSeq.current) return
     if (!r.ok) {
       setScan({ scanning: false, agents: null, failed: { message: r.message, loginRequired: r.loginRequired, missing: isMonomindNotFound(r.message) } })
       return
@@ -105,17 +118,40 @@ export default function Agents({ reload, goTo, setCanContinue }) {
     })
     // Every closed run reads the roster again: a test started before the
     // person went Back and returned ends while this mount knows nothing of it.
+    // A test started while earlier runs were still open first sees their
+    // closes (a run its start killed ends "cancelled"); those are not its own.
     const offClosed = onAgentValidateClosed(async (res) => {
       const cur = testRef.current
+      let ended = false
       if (cur && cur.phase === 'running') {
-        const r = resultRef.current
-        if (r && works(r.status)) setTest({ ...cur, phase: 'passed' })
-        else setTest({ ...cur, phase: 'failed', message: r ? (r.detail || r.status || '') : (res?.error || '') })
+        if (skipCloses.current > 0) {
+          skipCloses.current -= 1
+          resultRef.current = null
+        } else {
+          ended = true
+          const r = resultRef.current
+          if (r && works(r.status)) setTest({ ...cur, phase: 'passed' })
+          else setTest({ ...cur, phase: 'failed', message: r ? (r.detail || r.status || '') : (res?.error || '') })
+        }
       }
       const runtimes = await loadRoster()
-      if (live.current && runtimes && runtimes.some(rosterReady)) reloadRef.current?.()
+      if (!live.current) return
+      if (!Array.isArray(runtimes)) {
+        if (ended) setRosterFailed(runtimes)
+        return
+      }
+      if (runtimes.some(rosterReady)) reloadRef.current?.()
     })
-    return () => { live.current = false; offLine(); offClosed() }
+    // An install that ends while this mount did not start it (started before
+    // the person left the step and came back) still rescans.
+    const offInstall = subscribeEvent('health:fixProgress', (ev) => {
+      const id = String(ev?.fix_id || '')
+      if (ev?.kind !== 'done' || !id.startsWith('agent.install:')) return
+      if (ownInstalls.current.has(id.slice('agent.install:'.length))) return
+      invalidateAgentScan()
+      load()
+    })
+    return () => { live.current = false; offLine(); offClosed(); offInstall() }
   }, [load, loadRoster])
 
   const ready = roster.some(rosterReady)
@@ -125,9 +161,12 @@ export default function Agents({ reload, goTo, setCanContinue }) {
     const model = picked[agent.id]
     if (!model || testRef.current?.phase === 'running') return
     resultRef.current = null
+    setRosterFailed(null)
+    skipCloses.current = beginAgentTestRun()
     const run = { runtime: agent.id, model, phase: 'running' }
     setTest(run)
     const r = await callStep(() => GoApp.StartAgentValidation([agent.id], [model], false))
+    if (!r.ok) refusedAgentTestRun()
     if (!r.ok && live.current && testRef.current === run) {
       setTest({ ...run, phase: 'failed', message: r.message, loginRequired: r.loginRequired })
     }
@@ -135,9 +174,11 @@ export default function Agents({ reload, goTo, setCanContinue }) {
 
   const onInstall = async (agent) => {
     setInstall(agent.id, { running: true, lines: [], error: '', busy: false, loginRequired: false })
+    ownInstalls.current.add(agent.id)
     const res = await installRuntime(agent.id, false, (line) => {
       if (live.current) setInstalls(m => ({ ...m, [agent.id]: { ...m[agent.id], lines: [...(m[agent.id]?.lines || []), line].slice(-MAX_LINES) } }))
     })
+    ownInstalls.current.delete(agent.id)
     if (!live.current) return
     if (res.ok) {
       setInstall(agent.id, null)
@@ -204,6 +245,11 @@ export default function Agents({ reload, goTo, setCanContinue }) {
             {t('onboarding.agents.checkAgain')}
           </button>
         </div>
+      )}
+      {rosterFailed && (
+        <p className="onb-error" role="alert">
+          {rosterFailed.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.agents.rosterFailed', { message: rosterFailed.message })}
+        </p>
       )}
       {body}
       <p className="onb-pointer"><Pin /><span>{t('onboarding.agents.pointer')}</span></p>

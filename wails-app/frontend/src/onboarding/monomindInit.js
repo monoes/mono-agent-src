@@ -4,15 +4,21 @@
 // once and reports through "monomind:initProgress" events ({kind: "line" |
 // "error" | "done", message}), see wails-app/app_monomind_init.go.
 //
-// Only events of a run this store started count: the Documents, Orgs and
-// Agents pages start the same init and emit the same event. On "done" the
-// store calls the reload it was given, mounted step or not, so the shell's
-// state reads monomind as on.
+// Events count only while this store has a run going: while it is idle, the
+// runs the Documents, Orgs and Agents pages start (same init, same event) are
+// ignored. While it runs, Go refuses any other start with an "already being
+// set up" error on the same event; that refusal is not this run's failure
+// (this store's own refused start is read from the binding's return value).
+// On "done" the store calls the reload it was given, mounted step or not, so
+// the shell's state reads monomind as on.
 import * as GoApp from '../wailsjs/go/main/App'
 import { subscribeEvent } from '../services/api.js'
 import { callStep } from './callStep.js'
 
 const MAX_LINES = 200
+// wails-app/app_monomind_init.go InitializeMonomindProfile's refusal of a
+// second run, emitted as an "error" event and returned.
+const BUSY_REFUSAL = "this profile's folder is already being set up"
 const IDLE = Object.freeze({ status: 'idle', profileId: '', lines: [], message: '', loginRequired: false })
 
 let snap = IDLE
@@ -34,6 +40,7 @@ function onEvent(ev) {
   if (ev.kind === 'line') {
     set({ lines: [...snap.lines, String(ev.message ?? '')].slice(-MAX_LINES) })
   } else if (ev.kind === 'error') {
+    if (String(ev.message || '').includes(BUSY_REFUSAL)) return
     stopListening()
     set({ status: 'error', message: String(ev.message || ''), loginRequired: false })
   } else if (ev.kind === 'done') {

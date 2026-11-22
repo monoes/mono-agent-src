@@ -33,7 +33,7 @@ function tagFor(agent, rr, install) {
   if (agent.execution_supported === false) return { key: 'unsupported', tone: 'off' }
   if (rosterReady(rr)) return { key: 'ready', tone: 'ok' }
   if (signInFailed(rr)) return { key: 'signIn', tone: 'warn' }
-  return { key: 'installed', tone: 'ok' }
+  return { key: 'installed', tone: 'neutral' }
 }
 
 function Tag({ tag }) {
@@ -90,7 +90,7 @@ function TestArea({ agent, name, rr, models, picked, onPick, test, testBusy, onT
   if (!models || models.loading) {
     picker = <span className="onb-ag-busy"><span className="onb-spinner" />{t('onboarding.agents.readingModels')}</span>
   } else if (models.error) {
-    picker = <p className="onb-error" role="alert">{t('onboarding.agents.modelsFailed', { message: models.error })}</p>
+    picker = <p className="onb-error" role="alert">{models.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.agents.modelsFailed', { message: models.error })}</p>
   } else if (models.list.length === 0) {
     picker = <p className="onb-hint">{t('onboarding.agents.noModels', { name })}</p>
   } else {
@@ -120,6 +120,7 @@ function TestArea({ agent, name, rr, models, picked, onPick, test, testBusy, onT
         <p className="onb-hint">{t('onboarding.agents.signInRun')} <code>{hint}</code> {t('onboarding.agents.signInThen')}</p>
       )}
       {picker}
+      {mine?.phase === 'passed' && <p className="onb-ag-ok" role="status">{t('onboarding.agents.readyNote', { name })}</p>}
       {mine?.phase === 'failed' && (
         <p className="onb-error" role="alert">
           {mine.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.agents.testFailed', { message: mine.message || t('onboarding.agents.noResult') })}

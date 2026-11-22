@@ -157,6 +157,56 @@ describe('Monomind step', () => {
     expect(props.reload).toHaveBeenCalledTimes(1)
   })
 
+  it('shows a quiet checking state, not the button, until IsMonomindInitialized answers', async () => {
+    let answer
+    go.IsMonomindInitialized.mockReturnValue(new Promise(r => { answer = r }))
+    render(<Monomind {...props} />)
+    expect(await screen.findByText('Checking this profile…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Turn on for/ })).not.toBeInTheDocument()
+    await act(async () => { answer(true) })
+    expect(await screen.findByText('monomind is on for Work.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Turn on for/ })).not.toBeInTheDocument()
+    expect(go.InitializeMonomindProfile).not.toHaveBeenCalled()
+  })
+
+  it('a refusal of another start while this run goes is not this run\'s failure', async () => {
+    render(<Monomind {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn on for Work' }))
+    await screen.findByText('Turning on monomind for Work')
+    // the Documents page tried to start one too; Go refused it on the same event
+    emit({ kind: 'error', message: "this profile's folder is already being set up" })
+    expect(screen.getByText('Turning on monomind for Work')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    emit({ kind: 'done', message: '' })
+    expect(await screen.findByText('monomind is on for Work.')).toBeInTheDocument()
+    expect(props.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('its own start refused as busy shows that refusal once', async () => {
+    const busy = "this profile's folder is already being set up"
+    go.InitializeMonomindProfile.mockImplementation(() => {
+      events['monomind:initProgress']?.({ kind: 'error', message: busy })
+      return Promise.resolve(JSON.stringify({ error: busy }))
+    })
+    render(<Monomind {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn on for Work' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(`monomind could not be turned on: ${busy}`)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Turn on for Work' })).toBeEnabled()
+  })
+
+  it('a start that both emits and returns an error shows one alert with the message', async () => {
+    go.InitializeMonomindProfile.mockImplementation(() => {
+      events['monomind:initProgress']?.({ kind: 'error', message: 'monoagentcli not found' })
+      return Promise.resolve(JSON.stringify({ error: 'monoagentcli not found' }))
+    })
+    render(<Monomind {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn on for Work' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('monomind could not be turned on: monoagentcli not found')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Turn on for Work' })).toBeEnabled()
+  })
+
   it('falls back to the profile id when the profile cannot be read', async () => {
     go.GetActiveProfile.mockRejectedValue('Log in to monoes.me first: monoagentcli account login')
     render(<Monomind {...props} />)

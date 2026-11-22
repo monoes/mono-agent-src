@@ -23,9 +23,11 @@ const { go, events } = vi.hoisted(() => ({
 }))
 vi.mock('../../wailsjs/go/main/App', () => go)
 vi.mock('../../services/api.js', () => {
+  // several listeners per event: the step, the install helper and the
+  // test-run counter all listen
   const subscribeEvent = (name, cb) => {
-    events[name] = cb
-    return () => { if (events[name] === cb) delete events[name] }
+    (events[name] ||= new Set()).add(cb)
+    return () => { events[name]?.delete(cb) }
   }
   return {
     api: {},
@@ -36,8 +38,9 @@ vi.mock('../../services/api.js', () => {
 })
 
 import Agents from './Agents.jsx'
+import { resetAgentTestRuns } from '../agentTestRuns.js'
 
-const emit = (name, payload) => act(() => { events[name]?.(payload) })
+const emit = (name, payload) => act(() => { for (const cb of [...(events[name] || [])]) cb(payload) })
 
 const claude = { id: 'claude', installed: true, binary: '/usr/local/bin/claude', version: '2.1.0', install_hint: 'npm install -g @anthropic-ai/claude-code', login_hint: 'claude /login', execution_supported: true }
 const codex = { id: 'codex', installed: true, binary: '/usr/local/bin/codex', version: '0.50', install_hint: 'npm install -g @openai/codex', login_hint: 'codex login' }
@@ -52,6 +55,7 @@ let props
 beforeEach(async () => {
   await i18n.changeLanguage('en')
   vi.clearAllMocks()
+  resetAgentTestRuns()
   for (const k of Object.keys(events)) delete events[k]
   go.ScanAgentRuntimes.mockResolvedValue(scanOf(claude, codex, opencode, cursor))
   go.GetAgentRuntimeModels.mockImplementation((id) => Promise.resolve(JSON.stringify(
@@ -86,7 +90,7 @@ describe('Agents step', () => {
     expect(screen.getByText('Looking for AI coding tools on this machine')).toBeInTheDocument()
     await waitFor(() => expect(tile('cursor')).toBeInTheDocument())
     expect(within(tile('claude')).getByText('Claude Code')).toBeInTheDocument()
-    expect(within(tile('claude')).getByText('Installed')).toBeInTheDocument()
+    expect(within(tile('claude')).getByText('Installed')).toHaveClass('onb-tag', 'neutral')
     expect(within(tile('codex')).getByText('Codex')).toBeInTheDocument()
     expect(within(tile('opencode')).getByText('Not installed')).toBeInTheDocument()
     expect(within(tile('opencode')).getByRole('button', { name: 'Install OpenCode' })).toBeInTheDocument()
@@ -150,6 +154,65 @@ describe('Agents step', () => {
     emit('agents:validateClosed', { ok: true })
     await waitFor(() => expect(lastCanContinue()).toBe(true))
     expect(props.reload).toHaveBeenCalled()
+  })
+
+  it('a test started after a remount does not take the earlier run\'s cancelled close as its own', async () => {
+    const first = render(<Agents {...props} />)
+    fireEvent.click(await tested())
+    await waitFor(() => expect(go.StartAgentValidation).toHaveBeenCalledTimes(1))
+    first.unmount()
+    render(<Agents {...props} />)
+    fireEvent.click(await tested())
+    await waitFor(() => expect(go.StartAgentValidation).toHaveBeenCalledTimes(2))
+    // the second start killed the first run, which now closes
+    emit('agents:validateClosed', { ok: false, error: 'validation cancelled after 0 of 1 tests' })
+    await waitFor(() => expect(go.AgentRoster).toHaveBeenCalledTimes(3))
+    expect(within(tile('claude')).getByText('Sending a test message…')).toBeInTheDocument()
+    expect(within(tile('claude')).queryByRole('alert')).not.toBeInTheDocument()
+    go.AgentRoster.mockResolvedValue(READY_ROSTER)
+    emit('agents:validate', { type: 'validate.result', result: { runtime: 'claude', model: 'sonnet', status: 'ok' } })
+    emit('agents:validateClosed', { ok: true })
+    await waitFor(() => expect(lastCanContinue()).toBe(true))
+    expect(within(tile('claude')).queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('a test that passes while the roster cannot be read says so and points to Check again', async () => {
+    render(<Agents {...props} />)
+    fireEvent.click(await tested())
+    await waitFor(() => expect(go.StartAgentValidation).toHaveBeenCalled())
+    go.AgentRoster.mockResolvedValue(JSON.stringify({ error: 'agent roster: database is locked' }))
+    emit('agents:validate', { type: 'validate.result', result: { runtime: 'claude', model: 'sonnet', status: 'ok' } })
+    emit('agents:validateClosed', { ok: true })
+    expect(await screen.findByText('The test finished, but the list of checked agents could not be read: agent roster: database is locked Press Check again.')).toBeInTheDocument()
+    expect(within(tile('claude')).getByText('Claude Code answered the test message.')).toBeInTheDocument()
+    expect(lastCanContinue()).toBe(false)
+    go.AgentRoster.mockResolvedValue(READY_ROSTER)
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    await waitFor(() => expect(lastCanContinue()).toBe(true))
+    expect(screen.queryByText(/could not be read/)).not.toBeInTheDocument()
+  })
+
+  it('a sign-in refusal of the model read shows the shared sign-in message', async () => {
+    go.GetAgentRuntimeModels.mockResolvedValue(JSON.stringify({ error: 'Log in to monoes.me first: monoagentcli account login', login_required: true }))
+    render(<Agents {...props} />)
+    const claudeTile = await findTile('claude')
+    expect(await within(claudeTile).findByRole('alert')).toHaveTextContent(i18n.t('onboarding.shell.signIn'))
+    expect(within(claudeTile).queryByText(/Log in to monoes.me first/)).not.toBeInTheDocument()
+  })
+
+  it('applies only the latest scan when scans overlap', async () => {
+    let first
+    go.ScanAgentRuntimes.mockReturnValueOnce(new Promise(r => { first = r }))
+    render(<Agents {...props} />)
+    await waitFor(() => expect(go.ScanAgentRuntimes).toHaveBeenCalledTimes(1))
+    go.ScanAgentRuntimes.mockResolvedValue(scanOf(claude, codex, { ...opencode, installed: true, binary: '/bin/opencode' }, cursor))
+    // an install finished elsewhere: the step rescans while the first scan is still out
+    emit('health:fixProgress', { fix_id: 'agent.install:opencode', kind: 'done', message: '' })
+    await waitFor(() => expect(go.ScanAgentRuntimes).toHaveBeenCalledTimes(2))
+    expect(await within(await findTile('opencode')).findByText('Installed')).toBeInTheDocument()
+    await act(async () => { first(scanOf(claude, codex, opencode, cursor)) })
+    expect(within(tile('opencode')).getByText('Installed')).toBeInTheDocument()
+    expect(within(tile('opencode')).queryByText('Not installed')).not.toBeInTheDocument()
   })
 
   it('starts with Continue enabled when the roster already holds a passed entry', async () => {

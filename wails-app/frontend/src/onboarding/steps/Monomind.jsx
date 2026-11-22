@@ -54,11 +54,16 @@ export default function Monomind({ profileId, reload, setCanContinue }) {
   const run = useSyncExternalStore(subscribeMonomindInit, getMonomindInit)
   const [already, setAlready] = useState(false)
   const [name, setName] = useState(profileId)
+  // The button waits for both first answers: a click on a profile that is
+  // already on would run init again, and the label would change under it.
+  const [checked, setChecked] = useState(false)
 
   useEffect(() => {
     let live = true
-    callStep(() => GoApp.IsMonomindInitialized()).then(r => { if (live && r.ok && r.value === true) setAlready(true) })
-    callStep(() => GoApp.GetActiveProfile()).then(r => { if (live && r.ok && r.value?.name) setName(r.value.name) })
+    Promise.all([
+      callStep(() => GoApp.IsMonomindInitialized()).then(r => { if (live && r.ok && r.value === true) setAlready(true) }),
+      callStep(() => GoApp.GetActiveProfile()).then(r => { if (live && r.ok && r.value?.name) setName(r.value.name) }),
+    ]).then(() => { if (live) setChecked(true) })
     return () => { live = false }
   }, [])
 
@@ -92,6 +97,8 @@ export default function Monomind({ profileId, reload, setCanContinue }) {
         )}
       </div>
     )
+  } else if (!checked) {
+    action = <p className="onb-muted onb-mm-note" role="status">{t('onboarding.monomind.checking')}</p>
   } else {
     action = (
       <div>

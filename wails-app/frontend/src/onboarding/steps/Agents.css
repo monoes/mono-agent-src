@@ -11,6 +11,7 @@
 .onb-root .onb-ag-tile .onb-error{margin:0;font-size:12.5px;overflow-wrap:anywhere}
 .onb-root .onb-ag-tile .onb-log{margin:0;max-height:110px}
 .onb-root .onb-ag-tile select.onb-input{width:100%}
+.onb-root .onb-tag.neutral{background:oklch(0.97 0.01 290 / .08);color:var(--onb-ink-2)}
 .onb-root .onb-ag-busy{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--onb-accent)}
 .onb-root .onb-ag-ok{margin:0;font-size:13px;color:var(--onb-ok);font-weight:600}
 .onb-root .onb-ag-empty{padding:18px;border-radius:16px;border:1px dashed var(--onb-line-2);margin-bottom:12px}
