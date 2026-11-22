@@ -33,6 +33,25 @@ export function testError(raw) {
   return raw
 }
 
+// removeError rewrites the CLI's in-use refusal of `jev provider remove`
+//   jev: provider "x" is still in use (jev.provider, jev.<profile>.<surface>.provider,
+//   org decider of <profile>/<org>): choose another provider there first
+// into a sentence naming each place; any other error keeps its text.
+export function removeError(name, raw, t) {
+  const text = String(raw || '').replace(/^(?:Error:\s*)?jev:\s*/, '')
+  const m = /provider "([^"]+)" is still in use \((.+)\): choose another provider there first/.exec(text)
+  if (!m) return t('settings.jev.providers.removeFailed', { name, error: text || 'unknown error' })
+  const uses = m[2].split(', ').map(u => {
+    if (u === 'jev.provider') return t('settings.jev.providers.usedByDefault')
+    const s = /^jev\.(.+?)\.(node:.+|[a-z0-9_]+)\.provider$/.exec(u)
+    if (s) return t('settings.jev.providers.useSurface', { surface: s[2], profile: s[1] })
+    const o = /^org decider of ([^/]+)\/(.+)$/.exec(u)
+    if (o) return t('settings.jev.providers.useOrg', { org: o[2], profile: o[1] })
+    return u
+  })
+  return t('settings.jev.providers.removeInUse', { name: m[1], uses: uses.join('; ') })
+}
+
 export function keyChip(st, t) {
   switch (st?.key_source) {
     case 'profile-vault': return { text: t('settings.jev.keyProfileVault'), color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }

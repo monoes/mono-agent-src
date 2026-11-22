@@ -90,10 +90,34 @@ describe('Decision model block', () => {
     expect(App.JevRemoveProvider).not.toHaveBeenCalled()
     const box = screen.getByTestId('jev-provider-remove-confirm-router')
     expect(box).toHaveTextContent('Delete provider "router" and its saved key?')
-    App.JevRemoveProvider.mockRejectedValue(new Error('router is the provider of the people_review surface in profile work'))
+    App.JevRemoveProvider.mockRejectedValue(new Error('the CLI could not open its database'))
     fireEvent.click(within(box).getByRole('button', { name: 'Delete provider' }))
     await waitFor(() => expect(App.JevRemoveProvider).toHaveBeenCalledWith('router'))
-    expect(await screen.findByText(/provider of the people_review surface/)).toHaveAttribute('role', 'alert')
+    const live = screen.getByTestId('jev-provider-remove-error-router')
+    expect(prow('router')).toContainElement(live)
+    expect(await within(live).findByRole('alert')).toHaveTextContent('Could not remove router: the CLI could not open its database')
+  })
+
+  // Remove is disabled only for a provider this profile uses; a use the GUI
+  // cannot see (another profile, an org decider) comes back as the CLI's refusal.
+  it('shows the in-use refusal in the row, readable and announced', async () => {
+    await mount()
+    const live = screen.getByTestId('jev-provider-remove-error-router')
+    expect(live).toHaveAttribute('aria-live', 'assertive')
+    expect(live).toBeEmptyDOMElement()
+    fireEvent.click(within(prow('router')).getByRole('button', { name: 'Remove router' }))
+    App.JevRemoveProvider.mockRejectedValue(new Error('jev: provider "router" is still in use ' +
+      '(jev.provider, jev.work.people_review.provider, jev.work.node:ai.decide.provider, org decider of work/growth): choose another provider there first'))
+    fireEvent.click(within(screen.getByTestId('jev-provider-remove-confirm-router')).getByRole('button', { name: 'Delete provider' }))
+    const alert = await within(live).findByRole('alert')
+    expect(alert).toHaveTextContent('router is still used by the machine default; people_review in profile work; ' +
+      'node:ai.decide in profile work; the decider of org growth in profile work. Choose another provider there first.')
+    expect(alert).not.toHaveTextContent('jev.work')
+    // The confirm closes; Remove is offered again, and pressing it clears the refusal.
+    expect(screen.queryByTestId('jev-provider-remove-confirm-router')).not.toBeInTheDocument()
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1)
+    fireEvent.click(within(prow('router')).getByRole('button', { name: 'Remove router' }))
+    expect(live).toBeEmptyDOMElement()
   })
 
   it('probes a provider and announces latency or the error', async () => {

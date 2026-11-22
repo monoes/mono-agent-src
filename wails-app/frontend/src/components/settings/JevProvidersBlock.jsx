@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ShieldAlert, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { JevUseProvider, JevProbeProvider, JevRemoveProvider } from '../../wailsjs/go/main/App'
-import { mono, label, hint, errText, okText, pill, hostOf, isThisComputer, testError, EgressList } from './jevShared.jsx'
+import { mono, label, hint, errText, okText, pill, hostOf, isThisComputer, testError, removeError, EgressList } from './jevShared.jsx'
 import JevAddProviderForm from './JevAddProviderForm.jsx'
 
 // Settings → Jev → "Decision model": the saved decision providers (machine-wide),
@@ -19,7 +19,7 @@ const PROB_STYLE = {
   none: ['var(--text-muted)', 'rgba(255,255,255,.05)', 'var(--border)'],
 }
 
-function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove, confirmRemove, onCancelRemove, onConfirmRemove }) {
+function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove, confirmRemove, removeErr, onCancelRemove, onConfirmRemove }) {
   const { t } = useTranslation()
   const prob = p.caps?.probability || 'none'
   const why = p.builtin ? t('settings.jev.providers.whyBuiltin')
@@ -79,6 +79,11 @@ function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove
           </button>
         </div>
       )}
+      {/* The CLI's refusal (in use in another profile, or by an org decider),
+          next to the row; always rendered so it is announced when it appears. */}
+      <div aria-live="assertive" data-testid={`jev-provider-remove-error-${p.name}`}>
+        {removeErr && <div role="alert" style={errText}>{removeErr}</div>}
+      </div>
       {/* Always rendered so a screen reader announces the result when it appears. */}
       <div aria-live="polite" data-testid={`jev-probe-${p.name}`}>
         {probe && !probe.running && (probe.ok ? (
@@ -136,6 +141,7 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
   const [note, setNote] = useState('')
   const [err, setErr] = useState('')
   const [confirmRemove, setConfirmRemove] = useState('')
+  const [removeErr, setRemoveErr] = useState({ name: '', text: '' })
   const [confirmSwitch, setConfirmSwitch] = useState('')
   const [adding, setAdding] = useState(false)
 
@@ -143,7 +149,7 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
   const defaultName = providers?.default || status?.provider || 'typesafe'
   const inUse = new Set((status?.surfaces || []).map(s => s.provider).filter(Boolean))
   const disabled = !!busy
-  const start = () => { setErr(''); setNote('') }
+  const start = () => { setErr(''); setNote(''); setRemoveErr({ name: '', text: '' }) }
 
   const doUse = (name) => run(`provider:use:${name}`, async () => {
     await JevUseProvider(name, '')
@@ -164,12 +170,15 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
       setProbes(m => ({ ...m, [name]: r || { ok: false, error: '' } }))
     }, e => setProbes(m => ({ ...m, [name]: { ok: false, error: e } })))
   }
-  const remove = (name) => run(`provider:remove:${name}`, async () => {
-    await JevRemoveProvider(name)
-    setConfirmRemove('')
-    setNote(t('settings.jev.providers.removed', { name }))
-    await reload()
-  }, setErr)
+  const remove = (name) => {
+    setRemoveErr({ name: '', text: '' })
+    run(`provider:remove:${name}`, async () => {
+      await JevRemoveProvider(name)
+      setConfirmRemove('')
+      setNote(t('settings.jev.providers.removed', { name }))
+      await reload()
+    }, e => { setConfirmRemove(''); setRemoveErr({ name, text: removeError(name, e, t) }) })
+  }
 
   const switching = list.find(p => p.name === confirmSwitch)
 
@@ -192,6 +201,7 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
         <ProviderRow
           key={p.name} p={p} isDefault={p.name === defaultName} inUse={inUse.has(p.name)} busy={disabled}
           probe={probes[p.name]} confirmRemove={confirmRemove === p.name}
+          removeErr={removeErr.name === p.name ? removeErr.text : ''}
           onUse={() => use(p)} onTest={() => test(p.name)}
           onRemove={() => { start(); setConfirmSwitch(''); setConfirmRemove(p.name) }}
           onCancelRemove={() => setConfirmRemove('')} onConfirmRemove={() => remove(p.name)}
