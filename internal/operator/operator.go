@@ -148,7 +148,9 @@ func restartAdvice(goos string) string {
 
 // InheritedHint is the hint as a sentence of its own, for a refusal
 // that does not go through Refusal.
-func InheritedHint() string { return "If" + strings.TrimPrefix(inheritedHintFor(runtime.GOOS), "if") + "." }
+func InheritedHint() string {
+	return "If" + strings.TrimPrefix(inheritedHintFor(runtime.GOOS), "if") + "."
+}
 
 // InheritedHintClause is the hint as a clause, for a refusal that gives
 // it in parentheses after its reason, as Refusal does.
