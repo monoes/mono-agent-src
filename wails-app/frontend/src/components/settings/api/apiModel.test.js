@@ -194,6 +194,11 @@ describe('missingIsAboutJev', () => {
   it('is true for what the Jev section fixes', () => {
     expect(missingIsAboutJev('the api_auto surface switched on for the profile (monoagentcli jev enable api_auto)')).toBe(true)
     expect(missingIsAboutJev('a Jev key for the profile (monoagentcli jev key set, or TYPESAFE_API_KEY)')).toBe(true)
+    // With a decision provider other than TypeSafe on the api_auto surface.
+    expect(missingIsAboutJev('the key of "router", the Jev decision provider of the api_auto surface ' +
+      '(jev: provider "router" has no key: store it in the machine vault entry "decision-router")')).toBe(true)
+    expect(missingIsAboutJev('a usable Jev decision provider for the api_auto surface: "gone" cannot be used ' +
+      '(jev: unknown decision provider "gone")')).toBe(true)
   })
   it('is false for what only the server can fix, and for nothing', () => {
     expect(missingIsAboutJev("at least one model the listener's policy allows")).toBe(false)

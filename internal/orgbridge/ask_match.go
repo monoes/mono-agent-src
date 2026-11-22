@@ -193,18 +193,14 @@ func (m *AskMatcher) ask(ctx context.Context, profileID, org, endpointRole, subj
 		m.logf("orgbridge: asks: jev match for %s:%s: %v", org, endpointRole, err)
 		return AskMatch{}, false
 	}
-	id, p := jev.Top(resp.Answers["ask"])
+	id, p := jev.GateValue(resp, resp.Answers["ask"]) // no probability gates as 0 (plan D7)
 	if id == askNone || id == "" || criteria[id] == nil {
 		return AskMatch{}, false
 	}
 	if p < jevconf.Threshold(m.DB, profileID, jevconf.Asks, jevconf.DefaultThreshold[jevconf.Asks]) {
 		return AskMatch{}, false
 	}
-	model := resp.Model
-	if model == "" {
-		model = c.Model
-	}
-	return AskMatch{AskID: id, P: p, Model: model}, true
+	return AskMatch{AskID: id, P: p, Model: jev.ResponseLabel(resp, c.Model)}, true
 }
 
 func truncateRunes(s string, max int) string {

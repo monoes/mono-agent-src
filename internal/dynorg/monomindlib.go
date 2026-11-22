@@ -282,6 +282,14 @@ func (j JevChooser) Choose(ctx context.Context, state any, question string, opti
 	if !ok {
 		return "", 0, fmt.Errorf("jev: no answer")
 	}
+	if resp.Probability == jev.ProbNone {
+		// No confidence to act on: as no answer, so the rule picks (plan D7).
+		return "", 0, errNoProbability
+	}
 	choice, p := jev.Top(a)
 	return choice, p, nil
 }
+
+// errNoProbability is JevChooser's answer from a decision provider that gives
+// no probability: every caller then falls back as on any Chooser error.
+var errNoProbability = fmt.Errorf("jev: the decision provider gives no probability, so the rule decides")

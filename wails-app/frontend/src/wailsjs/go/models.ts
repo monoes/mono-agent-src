@@ -1723,6 +1723,48 @@ export namespace main {
 	        this.hil_ref = source["hil_ref"];
 	    }
 	}
+	export class JevAddProbe {
+	    ok: boolean;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevAddProbe(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.error = source["error"];
+	    }
+	}
+	export class JevAddProviderRequest {
+	    name: string;
+	    kind: string;
+	    base_url: string;
+	    model: string;
+	    api_key: string;
+	    usd_per_mtok_in: number;
+	    usd_per_mtok_out: number;
+	    no_probe: boolean;
+	    replace: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevAddProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.base_url = source["base_url"];
+	        this.model = source["model"];
+	        this.api_key = source["api_key"];
+	        this.usd_per_mtok_in = source["usd_per_mtok_in"];
+	        this.usd_per_mtok_out = source["usd_per_mtok_out"];
+	        this.no_probe = source["no_probe"];
+	        this.replace = source["replace"];
+	    }
+	}
 	export class JevKeyRemoveResult {
 	    removed: string;
 	
@@ -1769,6 +1811,159 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class JevProviderCaps {
+	    kinds: string[];
+	    probability: string;
+	    max_choice_options: number;
+	    options_per_request?: number;
+	    questions_per_request: number;
+	    models: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevProviderCaps(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kinds = source["kinds"];
+	        this.probability = source["probability"];
+	        this.max_choice_options = source["max_choice_options"];
+	        this.options_per_request = source["options_per_request"];
+	        this.questions_per_request = source["questions_per_request"];
+	        this.models = source["models"];
+	    }
+	}
+	export class JevProbeResult {
+	    ok: boolean;
+	    caps: JevProviderCaps;
+	    latency_ms: number;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevProbeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.caps = this.convertValues(source["caps"], JevProviderCaps);
+	        this.latency_ms = source["latency_ms"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class JevProviderInfo {
+	    name: string;
+	    kind: string;
+	    base_url: string;
+	    model: string;
+	    key_set: boolean;
+	    builtin: boolean;
+	    caps: JevProviderCaps;
+	    probe?: JevAddProbe;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevProviderInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.base_url = source["base_url"];
+	        this.model = source["model"];
+	        this.key_set = source["key_set"];
+	        this.builtin = source["builtin"];
+	        this.caps = this.convertValues(source["caps"], JevProviderCaps);
+	        this.probe = this.convertValues(source["probe"], JevAddProbe);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class JevProviderList {
+	    default: string;
+	    providers: JevProviderInfo[];
+	    kinds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new JevProviderList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.default = source["default"];
+	        this.providers = this.convertValues(source["providers"], JevProviderInfo);
+	        this.kinds = source["kinds"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class JevRemoveProviderResult {
+	    removed: boolean;
+	    name: string;
+	    key_removed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevRemoveProviderResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.removed = source["removed"];
+	        this.name = source["name"];
+	        this.key_removed = source["key_removed"];
+	    }
+	}
 	export class JevSurface {
 	    surface: string;
 	    title: string;
@@ -1777,6 +1972,8 @@ export namespace main {
 	    enabled: boolean;
 	    threshold: number;
 	    default_threshold: number;
+	    provider: string;
+	    provider_pinned?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new JevSurface(source);
@@ -1791,6 +1988,8 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.threshold = source["threshold"];
 	        this.default_threshold = source["default_threshold"];
+	        this.provider = source["provider"];
+	        this.provider_pinned = source["provider_pinned"];
 	    }
 	}
 	export class JevStatusInfo {
@@ -1800,6 +1999,12 @@ export namespace main {
 	    model: string;
 	    base_url: string;
 	    surfaces: JevSurface[];
+	    provider: string;
+	    provider_kind: string;
+	    provider_host: string;
+	    probability: string;
+	    provider_key_source?: string;
+	    provider_error?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new JevStatusInfo(source);
@@ -1813,6 +2018,12 @@ export namespace main {
 	        this.model = source["model"];
 	        this.base_url = source["base_url"];
 	        this.surfaces = this.convertValues(source["surfaces"], JevSurface);
+	        this.provider = source["provider"];
+	        this.provider_kind = source["provider_kind"];
+	        this.provider_host = source["provider_host"];
+	        this.probability = source["probability"];
+	        this.provider_key_source = source["provider_key_source"];
+	        this.provider_error = source["provider_error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1856,9 +2067,11 @@ export namespace main {
 	}
 	export class JevUsageRow {
 	    surface: string;
+	    provider: string;
 	    calls: number;
 	    failures: number;
 	    input_tokens: number;
+	    output_tokens: number;
 	    estimated_usd: number;
 	    avg_latency_ms: number;
 	
@@ -1869,9 +2082,11 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.surface = source["surface"];
+	        this.provider = source["provider"];
 	        this.calls = source["calls"];
 	        this.failures = source["failures"];
 	        this.input_tokens = source["input_tokens"];
+	        this.output_tokens = source["output_tokens"];
 	        this.estimated_usd = source["estimated_usd"];
 	        this.avg_latency_ms = source["avg_latency_ms"];
 	    }
@@ -1913,6 +2128,24 @@ export namespace main {
 		}
 	}
 	
+	export class JevUseResult {
+	    scope: string;
+	    surface: string;
+	    provider: string;
+	    cleared: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new JevUseResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.surface = source["surface"];
+	        this.provider = source["provider"];
+	        this.cleared = source["cleared"];
+	    }
+	}
 	export class KeyringPassphraseFile {
 	    source: string;
 	    configured: boolean;

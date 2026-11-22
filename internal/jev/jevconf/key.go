@@ -228,12 +228,19 @@ func redact(b string) string {
 	return b
 }
 
-// ResolveClient resolves the key for profileID as ResolveKey does and builds
-// its client: the one place a client is built from a resolved key, so the key
-// goes where BaseURL says and nowhere else. The source is derived here, never
-// taken from the caller, so a caller cannot pair a stored key with a host only
-// an env key may have. It is returned for display (`jev key test`).
+// ResolveClient builds the client of the machine's default decision provider
+// (DefaultProvider; ResolveProviderClient). For TypeSafe, the default, it
+// resolves the key for profileID as ResolveKey does: the one place a TypeSafe
+// client is built from a resolved key, so the key goes where BaseURL says and
+// nowhere else. The source is derived here, never taken from the caller, so a
+// caller cannot pair a stored key with a host only an env key may have. It is
+// returned for display (`jev key test`).
 func ResolveClient(ctx context.Context, db *sql.DB, profileID, explicit, model string) (c *jev.Client, source string, err error) {
+	return ResolveProviderClient(ctx, db, profileID, "", explicit, model)
+}
+
+// resolveTypeSafeClient is ResolveClient for the TypeSafe provider.
+func resolveTypeSafeClient(ctx context.Context, db *sql.DB, profileID, explicit, model string) (c *jev.Client, source string, err error) {
 	key, source, err := ResolveKey(ctx, db, profileID, explicit)
 	if err != nil {
 		return nil, "", err

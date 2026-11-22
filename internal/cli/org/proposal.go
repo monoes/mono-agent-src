@@ -120,7 +120,7 @@ func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 			"text the user is shown and the hash they confirm. grant.add takes role, automation and optionally mode, wait, " +
 			"timeout_seconds, max_calls_per_run, max_calls_per_day, max_output_bytes (a grant a proposal makes always asks first). " +
 			"grant.remove takes role and automation (the grant must exist). " +
-			"autonomy.set takes level (manual or mid), decider, decider_runtime, decider_model, decider_threshold, on_decider_failure. " +
+			"autonomy.set takes level (manual or mid), decider, decider_runtime, decider_model, decider_threshold, decider_provider (jev only), on_decider_failure. " +
 			"A newer proposal for the same role and automation (or the same org's autonomy) supersedes the older pending one; a conversation label holds at most 5 pending per org (conversation_id is a label, never ownership).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

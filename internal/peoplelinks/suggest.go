@@ -60,9 +60,11 @@ func personState(p Person) map[string]any {
 
 // Suggest asks Jev, one request per pair, whether each pair is the same
 // human, and records the answer: p ≥ threshold ⇒ a "suggested" link
-// (relation "same", confidence p, source "jev:<model>"); p ≤ DismissAt ⇒ a
-// "dismissed" link (relation "not_same", source "jev") so the pair is never
-// asked again; anything in between records nothing. Pairs already linked are
+// (relation "same", confidence p, source "jev:<model>", "jev:<provider>/<model>"
+// for a provider other than TypeSafe); p ≤ DismissAt with a native or logprob
+// probability ⇒ a "dismissed" link (relation "not_same", source "jev") so the
+// pair is never asked again;
+// anything in between, and any answer with no probability, records nothing. Pairs already linked are
 // skipped without a request. It returns ErrDisabled, making no request,
 // unless the profile enabled the people_links surface. When every request
 // fails, the first error is returned with the counts.
@@ -133,22 +135,32 @@ func Suggest(ctx context.Context, c *jev.Client, db *storage.Database, profileID
 	return res, nil
 }
 
+// calibrated reports whether resp's low probability may settle a pair for
+// good: only a native (TypeSafe) or logprob probability. A sampled count, a
+// forced softmax over the labels or no probability at all leaves the pair
+// undecided, to be asked again.
+func calibrated(resp *jev.Response) bool {
+	return resp.Probability == jev.ProbNative || resp.Probability == jev.ProbLogprob
+}
+
 func suggestOne(ctx context.Context, c *jev.Client, db *storage.Database, profileID string, a, b Person, threshold float64) (string, error) {
 	state := map[string]any{"a": personState(a), "b": personState(b)}
 	resp, err := c.Ask(ctx, state, question())
 	if err != nil {
 		return "", err
 	}
-	_, p := jev.Top(resp.Answers[QuestionID])
-	model := resp.Model
-	if model == "" {
-		model = c.Model
+	if resp.Probability == jev.ProbNone {
+		// No probability (plan D7): neither "same" nor a confident "not
+		// same" — record nothing, as for an undecided pair.
+		return "", nil
 	}
+	_, p := jev.GateValue(resp, resp.Answers[QuestionID])
+	model := jev.ResponseLabel(resp, c.Model)
 	link := &storage.PersonLink{ProfileID: profileID, PersonA: a.ID, PersonB: b.ID, Confidence: p, Model: model}
 	switch {
 	case p >= threshold:
 		link.Relation, link.Status, link.Source = storage.PersonLinkSame, storage.PersonLinkSuggested, "jev:"+model
-	case p <= DismissAt:
+	case p <= DismissAt && calibrated(resp):
 		link.Relation, link.Status, link.Source = storage.PersonLinkNotSame, storage.PersonLinkDismissed, "jev"
 	default:
 		return "", nil

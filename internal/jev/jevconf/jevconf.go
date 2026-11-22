@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"os"
@@ -53,6 +54,43 @@ func NodeSurface(nodeType string) Surface { return Surface("node:" + nodeType) }
 // Surfaces lists the surfaces `jev enable` accepts, in display order.
 var Surfaces = []Surface{ActionFallback, HIL, PeopleReview, Capture, Inbox, PeopleLinks, Asks, Retry, APIAuto}
 
+// SurfaceKinds lists the question kinds each surface asks (every surface in
+// Surfaces, and Decider and DynamicOrg): a provider whose probed kinds lack
+// one cannot serve that surface (CheckSurfaceKinds).
+var SurfaceKinds = map[Surface][]string{
+	ActionFallback: {jev.TypeChoice},                // internal/jevpick
+	HIL:            {jev.TypeChoice, jev.TypeScore}, // internal/hilsuggest: decision, risk
+	PeopleReview:   {jev.TypeChoice},                // internal/peoplereview
+	Capture:        {jev.TypeChoice},                // internal/captureclassify
+	Inbox:          {jev.TypeChoice, jev.TypeNoul},  // intent, should_reply
+	PeopleLinks:    {jev.TypeNoul},                  // internal/peoplelinks
+	Asks:           {jev.TypeChoice},                // internal/orgbridge ask matching
+	Retry:          {jev.TypeChoice},                // jev retry triage
+	APIAuto:        {jev.TypeChoice},                // internal/openaiapi
+	Decider:        {jev.TypeChoice},                // internal/orgdecide
+	DynamicOrg:     {jev.TypeChoice},                // internal/dynorg
+}
+
+// CheckSurfaceKinds refuses provider p for surface s when p's capabilities
+// name the question kinds it answers (a probe found them) and lack one that s
+// asks. Unknown capabilities pass.
+func CheckSurfaceKinds(p Provider, s Surface) error {
+	if len(p.Caps.Kinds) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, k := range SurfaceKinds[s] {
+		if !p.Caps.Supports(k) {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("jev: provider %q does not answer %s questions, which surface %s asks (it answers %s; `jev provider probe %s` checks again)",
+		p.Name, strings.Join(missing, " and "), s, strings.Join(p.Caps.Kinds, ", "), p.Name)
+}
+
 // Egress lists, per surface, the data sent to TypeSafe (plan §5); `jev enable`
 // prints it before switching a surface on.
 var Egress = map[Surface][]string{
@@ -93,39 +131,65 @@ var DefaultThreshold = map[Surface]float64{
 	APIAuto: 0,
 }
 
-// NewClient resolves the machine-wide key and returns a client whose every
-// call is recorded in jev_usage under profileID and surface s (db may be nil:
-// no recording).
+// NewClient returns a client of the provider surface s uses for profileID
+// (ActiveProvider: TypeSafe with the machine-wide key unless one is chosen)
+// whose every call is recorded in jev_usage under profileID and surface s
+// (db may be nil: no recording).
 func NewClient(ctx context.Context, db *sql.DB, profileID, explicitKey, model string, s Surface) (*jev.Client, error) {
-	if profileID == "" {
-		return nil, fmt.Errorf("jev: %w", profiledir.ErrNoProfile)
-	}
-	c, _, err := ResolveClient(ctx, db, profileID, explicitKey, model)
-	if err != nil {
-		return nil, err
-	}
-	if db != nil {
-		c.OnResult = Recorder(db, profileID, s)
-	}
-	return c, nil
+	return NewClientFor(ctx, db, profileID, "", explicitKey, model, s)
 }
 
-// Recorder returns an OnResult hook writing one jev_usage row per call.
-// Recording failures are ignored: bookkeeping must never fail a decision.
+// Recorder returns an OnResult hook writing one jev_usage row per call of a
+// TypeSafe client, exactly as before providers existed (provider NULL means
+// TypeSafe). Recording failures are ignored: bookkeeping must never fail a
+// decision.
 func Recorder(db *sql.DB, profileID string, s Surface) func(*jev.Request, *jev.Response, time.Duration, error) {
+	return recorder(db, profileID, s, jev.ProviderTypeSafe, 0, 0)
+}
+
+// recorder is Recorder for provider, pricing a call by usdIn/usdOut per
+// million tokens when the provider reports no cost (0, 0: unpriced; a
+// TypeSafe row's cost is derived at read time).
+func recorder(db *sql.DB, profileID string, s Surface, provider string, usdIn, usdOut float64) func(*jev.Request, *jev.Response, time.Duration, error) {
 	return func(req *jev.Request, resp *jev.Response, latency time.Duration, err error) {
+		// One client's calls run concurrently: the response's provider is
+		// this call's, never written back to the shared one.
+		provider := provider
 		model, tokens, ok := req.Model, 0, 1
+		var out sql.NullInt64
+		var kind sql.NullString
+		var cost sql.NullFloat64
 		if resp != nil {
 			tokens = resp.Usage.InputTokens
 			if resp.Model != "" {
 				model = resp.Model
 			}
+			if resp.Provider != "" {
+				provider = resp.Provider
+			}
+			out = sql.NullInt64{Int64: int64(resp.Usage.OutputTokens), Valid: true}
+			kind = sql.NullString{String: string(resp.Probability), Valid: resp.Probability != ""}
+			switch {
+			case resp.Usage.CostUSD != nil:
+				cost = sql.NullFloat64{Float64: *resp.Usage.CostUSD, Valid: true}
+			case usdIn > 0 || usdOut > 0:
+				cost = sql.NullFloat64{Float64: (float64(tokens)*usdIn + float64(resp.Usage.OutputTokens)*usdOut) / 1e6, Valid: true}
+			}
 		}
 		if err != nil {
 			ok = 0
 		}
-		_, _ = db.Exec(`INSERT INTO jev_usage (profile_id, surface, model, questions, input_tokens, latency_ms, ok)
-			VALUES (?,?,?,?,?,?,?)`, profileID, string(s), model, len(req.Questions), tokens, latency.Milliseconds(), ok)
+		if provider == jev.ProviderTypeSafe {
+			// Today's row: provider NULL is TypeSafe (native probabilities,
+			// free output, cost derived from input tokens at read time).
+			_, _ = db.Exec(`INSERT INTO jev_usage (profile_id, surface, model, questions, input_tokens, latency_ms, ok)
+				VALUES (?,?,?,?,?,?,?)`, profileID, string(s), model, len(req.Questions), tokens, latency.Milliseconds(), ok)
+			return
+		}
+		_, _ = db.Exec(`INSERT INTO jev_usage (profile_id, surface, model, questions, input_tokens, latency_ms, ok,
+			provider, output_tokens, probability_kind, cost_usd)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?)`, profileID, string(s), model, len(req.Questions), tokens, latency.Milliseconds(), ok,
+			provider, out, kind, cost)
 	}
 }
 
@@ -248,10 +312,14 @@ func LoadSuggestion(db *sql.DB, profileID string, s Surface, subjectID string, v
 
 // Usage is an aggregate over jev_usage.
 type Usage struct {
-	Surface      string  `json:"surface"`
+	Surface string `json:"surface"`
+	// Provider is the decision provider that answered (rows from before
+	// providers existed are TypeSafe's).
+	Provider     string  `json:"provider"`
 	Calls        int     `json:"calls"`
 	Failures     int     `json:"failures"`
 	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
 	EstimatedUSD float64 `json:"estimated_usd"`
 	AvgLatencyMS int     `json:"avg_latency_ms"`
 }
@@ -259,10 +327,16 @@ type Usage struct {
 // USDPerInputToken is TypeSafe's list price ($0.042 per million input tokens).
 const USDPerInputToken = 0.042 / 1e6
 
-// UsageSince aggregates the profile's calls since t, by surface.
+// UsageSince aggregates the profile's calls since t, by surface and provider.
+// A row's recorded cost counts as is; a TypeSafe row without one is priced at
+// USDPerInputToken, and another provider's row without one counts as 0
+// (unknown, e.g. a local server).
 func UsageSince(db *sql.DB, profileID string, since time.Time) ([]Usage, error) {
-	rows, err := db.Query(`SELECT surface, COUNT(*), SUM(1-ok), COALESCE(SUM(input_tokens),0), COALESCE(AVG(latency_ms),0)
-		FROM jev_usage WHERE profile_id = ? AND created_at >= ? GROUP BY surface ORDER BY surface`,
+	rows, err := db.Query(`SELECT surface, COALESCE(provider,'typesafe') AS prov, COUNT(*), SUM(1-ok),
+		COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
+		COALESCE(SUM(CASE WHEN cost_usd IS NULL AND COALESCE(provider,'typesafe') = 'typesafe' THEN input_tokens ELSE 0 END),0),
+		COALESCE(SUM(cost_usd),0), COALESCE(AVG(latency_ms),0)
+		FROM jev_usage WHERE profile_id = ? AND created_at >= ? GROUP BY surface, prov ORDER BY surface, prov`,
 		profileID, since.UTC().Format("2006-01-02T15:04:05.000Z"))
 	if err != nil {
 		return nil, err
@@ -271,12 +345,13 @@ func UsageSince(db *sql.DB, profileID string, since time.Time) ([]Usage, error) 
 	var out []Usage
 	for rows.Next() {
 		var u Usage
-		var avg float64
-		if err := rows.Scan(&u.Surface, &u.Calls, &u.Failures, &u.InputTokens, &avg); err != nil {
+		var avg, cost float64
+		var priced int
+		if err := rows.Scan(&u.Surface, &u.Provider, &u.Calls, &u.Failures, &u.InputTokens, &u.OutputTokens, &priced, &cost, &avg); err != nil {
 			return nil, err
 		}
 		u.AvgLatencyMS = int(avg)
-		u.EstimatedUSD = float64(u.InputTokens) * USDPerInputToken
+		u.EstimatedUSD = float64(priced)*USDPerInputToken + cost
 		out = append(out, u)
 	}
 	return out, rows.Err()

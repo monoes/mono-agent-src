@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
@@ -17,10 +19,10 @@ import (
 func apiAutoTools() []tool {
 	return []tool{{
 		name:        "api_auto_set",
-		description: "Switch the auto model of the OpenAI-compatible API (the Jev surface api_auto) on or off for the call's profile, as `monoagentcli jev enable|disable api_auto`. Switching on sends request text to TypeSafe, so it needs the operator's --allow-api-exposure and acknowledge_egress: true. " + apiToolsDetails,
+		description: "Switch the auto model of the OpenAI-compatible API (the Jev surface api_auto) on or off for the call's profile, as `monoagentcli jev enable|disable api_auto`. Switching on sends request text to the api_auto surface's decision provider (TypeSafe by default), so it needs the operator's --allow-api-exposure and acknowledge_egress: true. " + apiToolsDetails,
 		schema: objSchema(map[string]interface{}{
 			"enabled":            boolParam("true switches the auto model on for the call's profile, false switches it off"),
-			"acknowledge_egress": boolParam("Needed with enabled true, on a server whose operator started it with --allow-api-exposure: says that the user knows what is sent to TypeSafe while it is on (the refusal lists it). Not needed to switch off"),
+			"acknowledge_egress": boolParam("Needed with enabled true, on a server whose operator started it with --allow-api-exposure: says that the user knows what is sent to the api_auto surface's decision provider (TypeSafe by default) while it is on (the refusal lists it). Not needed to switch off"),
 		}, "enabled"),
 		annotations: map[string]bool{"readOnlyHint": false},
 		mutating:    true,
@@ -43,11 +45,15 @@ func toolAPIAutoSet(ctx context.Context, s *Server, args json.RawMessage) (inter
 	// What leaves the machine is the operator's decision, made when the server starts (the flag of the
 	// exposure of the API's server), and not one that a model makes by setting an argument; then the
 	// caller's acknowledgement makes the data visible before it moves. Switching off sends nothing.
-	if *a.Enabled && !s.opts.AllowAPIExposure {
-		return nil, egressNotAllowed(surface)
-	}
-	if *a.Enabled && !a.AcknowledgeEgress {
-		return nil, egressRefusal(surface)
+	if *a.Enabled && (!s.opts.AllowAPIExposure || !a.AcknowledgeEgress) {
+		dest := genericDestination
+		if rt, err := s.runtime(); err == nil {
+			dest = autoDestination(rt.db.DB, profileOf(ctx))
+		}
+		if !s.opts.AllowAPIExposure {
+			return nil, egressNotAllowed(surface, dest)
+		}
+		return nil, egressRefusal(surface, dest)
 	}
 	rt, err := s.runtime()
 	if err != nil {
@@ -74,11 +80,32 @@ func toolAPIAutoSet(ctx context.Context, s *Server, args json.RawMessage) (inter
 	return doc, nil
 }
 
+// genericDestination names where the data goes when the profile's settings cannot be read.
+const genericDestination = "the api_auto surface's Jev decision provider"
+
+// autoDestination names where the api_auto surface of profileID sends its data: "TypeSafe (Jev)", as
+// before decision providers, or the provider it resolves to and that provider's host.
+func autoDestination(db *sql.DB, profileID string) string {
+	name := jevconf.ActiveProvider(db, profileID, jevconf.APIAuto)
+	p, ok, err := jevconf.FindProvider(db, name)
+	switch {
+	case err != nil || !ok:
+		return fmt.Sprintf("the Jev decision provider %q (not among the configured ones)", name)
+	case p.Builtin():
+		return "TypeSafe (Jev)"
+	}
+	host := p.BaseURL
+	if u, err := url.Parse(p.BaseURL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	return fmt.Sprintf("the Jev decision provider %q at %s", p.Name, host)
+}
+
 // egressNotAllowed is the refusal to switch a surface on on a server whose operator did not allow it:
-// what would leave the machine, why no argument can allow it, and what the user can do.
-func egressNotAllowed(surface jevconf.Surface) error {
+// what would leave the machine and where to, why no argument can allow it, and what the user can do.
+func egressNotAllowed(surface jevconf.Surface, dest string) error {
 	var b strings.Builder
-	b.WriteString("Switching the auto model on sends data to TypeSafe (Jev) for every request that asks for the model auto:")
+	b.WriteString("Switching the auto model on sends data to " + dest + " for every request that asks for the model auto:")
 	for _, e := range jevconf.Egress[surface] {
 		b.WriteString("\n- " + e)
 	}
@@ -89,10 +116,10 @@ func egressNotAllowed(surface jevconf.Surface) error {
 }
 
 // egressRefusal is the refusal to switch a surface on without the acknowledgement: what would leave
-// the machine, in the words `jev enable` prints, and how to go on.
-func egressRefusal(surface jevconf.Surface) error {
+// the machine and where to, in the words `jev enable` prints, and how to go on.
+func egressRefusal(surface jevconf.Surface, dest string) error {
 	var b strings.Builder
-	b.WriteString("Switching the auto model on sends data to TypeSafe (Jev) for every request that asks for the model auto:")
+	b.WriteString("Switching the auto model on sends data to " + dest + " for every request that asks for the model auto:")
 	for _, e := range jevconf.Egress[surface] {
 		b.WriteString("\n- " + e)
 	}

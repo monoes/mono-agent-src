@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
@@ -118,28 +117,6 @@ func NewService(db *sql.DB, roots func(ctx context.Context) ([]ProfileRoot, erro
 	}
 	s.NewDecider = s.defaultDecider
 	return s
-}
-
-// defaultDecider builds the model decider, wrapped in a JevDecider when the
-// org chose kind jev (that choice is the opt-in, plan D2) and a TypeSafe key
-// resolves for its profile. Without a key the model decides alone, and the
-// daemon log says so once per org.
-func (s *Service) defaultDecider(a *Autonomy) DeciderImpl {
-	model := &ModelDecider{Runtime: a.Decider.Runtime, Model: a.Decider.Model, Timeout: time.Duration(a.Decider.TimeoutSeconds) * time.Second}
-	if a.Decider.Kind != orgdesign.DeciderJev {
-		return model
-	}
-	client, err := jevconf.NewClient(context.Background(), s.DB, a.ProfileID, "", "", jevconf.Decider)
-	if err != nil {
-		if _, seen := s.jevWarned.LoadOrStore(a.ProfileID+"/"+a.OrgName, struct{}{}); !seen && s.Logf != nil {
-			s.Logf("orgdecide: %s/%s: decider jev has no key, the model decides instead: %v", a.ProfileID, a.OrgName, err)
-		}
-		return model
-	}
-	s.jevWarned.Delete(a.ProfileID + "/" + a.OrgName)
-	// One retry at most: the fallback model shares the decision's budget.
-	client.Retries = 1
-	return &JevDecider{Client: client, Fallback: model, Threshold: a.Decider.Threshold}
 }
 
 func (s *Service) clock() time.Time {

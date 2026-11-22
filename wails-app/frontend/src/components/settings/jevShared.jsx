@@ -33,6 +33,25 @@ export function testError(raw) {
   return raw
 }
 
+// removeError rewrites the CLI's in-use refusal of `jev provider remove`
+//   jev: provider "x" is still in use (jev.provider, jev.<profile>.<surface>.provider,
+//   org decider of <profile>/<org>): choose another provider there first
+// into a sentence naming each place; any other error keeps its text.
+export function removeError(name, raw, t) {
+  const text = String(raw || '').replace(/^(?:Error:\s*)?jev:\s*/, '')
+  const m = /provider "([^"]+)" is still in use \((.+)\): choose another provider there first/.exec(text)
+  if (!m) return t('settings.jev.providers.removeFailed', { name, error: text || 'unknown error' })
+  const uses = m[2].split(', ').map(u => {
+    if (u === 'jev.provider') return t('settings.jev.providers.usedByDefault')
+    const s = /^jev\.(.+?)\.(node:.+|[a-z0-9_]+)\.provider$/.exec(u)
+    if (s) return t('settings.jev.providers.useSurface', { surface: s[2], profile: s[1] })
+    const o = /^org decider of ([^/]+)\/(.+)$/.exec(u)
+    if (o) return t('settings.jev.providers.useOrg', { org: o[2], profile: o[1] })
+    return u
+  })
+  return t('settings.jev.providers.removeInUse', { name: m[1], uses: uses.join('; ') })
+}
+
 export function keyChip(st, t) {
   switch (st?.key_source) {
     case 'profile-vault': return { text: t('settings.jev.keyProfileVault'), color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
@@ -41,6 +60,111 @@ export function keyChip(st, t) {
     case 'config': return { text: 'Set in configuration', color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
     default: return { text: 'Not set', color: 'var(--yellow)', bg: 'rgba(234,179,8,.08)', bd: 'rgba(234,179,8,.22)' }
   }
+}
+
+// A small rounded badge, the style of the key chip.
+export const pill = (color, bg, bd) => ({
+  display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: mono, fontSize: 10,
+  color, background: bg, border: `1px solid ${bd}`, borderRadius: 99, padding: '1px 8px', whiteSpace: 'nowrap',
+})
+
+// What a feature sends, as the CLI reports it.
+export function EgressList({ items }) {
+  if (!items?.length) return <div style={hint}>No details reported by the CLI.</div>
+  return (
+    <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {items.map((e, i) => (
+        <li key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{e}</li>
+      ))}
+    </ul>
+  )
+}
+
+// hostOf is a provider URL's host:port ('' when it does not parse).
+export function hostOf(baseURL) {
+  try { return new URL(baseURL).host } catch { return '' }
+}
+
+// defaultTarget is the machine-default provider and its host. typesafe (or a
+// CLI too old to report providers) means today's TypeSafe wording.
+export function defaultTarget(status, providers) {
+  const name = providers?.default || status?.provider || 'typesafe'
+  const p = (providers?.providers || []).find(x => x.name === name)
+  return { name, typesafe: name === 'typesafe', host: (p && hostOf(p.base_url)) || status?.provider_host || name }
+}
+
+// isThisComputer copies the CLI's loopback rule (jevconf.Loopback): the host
+// is exactly "localhost" (case matters, as in Go), a dotted IPv4 127.x.y.z
+// whose octets have no leading zero (what net.ParseIP reads) or [::1]. It
+// may be stricter than the CLI, never looser: anything else counts as
+// another host, so the GUI asks before sending data there.
+export function isThisComputer(baseURL) {
+  const m = /^https?:\/\/([^/?#@]+?)(?::\d+)?(?:[/?#]|$)/i.exec(baseURL || '')
+  if (!m) return false
+  const h = m[1]
+  if (h === 'localhost' || h === '[::1]') return true
+  const ip = /^127\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(h)
+  return !!ip && ip.slice(1).every(o => Number(o) <= 255)
+}
+
+// surfacePinned says whether a `jev status` surface has a provider choice
+// of its own (provider_pinned; its provider may name the default). A CLI
+// that reports no provider_pinned (it leaves out false) gave a surface's
+// provider only when it differed from the default.
+export function surfacePinned(s, defaultName) {
+  if (typeof s?.provider_pinned === 'boolean') return s.provider_pinned
+  return !!s?.provider && s.provider !== defaultName
+}
+
+// SURFACE_KINDS is jevconf.SurfaceKinds: the question kinds each surface
+// asks. A provider whose probed kinds lack one cannot serve it (the CLI
+// refuses it; JevProviders.render.test.jsx pins this table to the Go source).
+export const SURFACE_KINDS = {
+  action_fallback: ['choice'],
+  hil: ['choice', 'score'],
+  people_review: ['choice'],
+  capture: ['choice'],
+  inbox: ['choice', 'noul'],
+  people_links: ['noul'],
+  asks: ['choice'],
+  retry: ['choice'],
+  api_auto: ['choice'],
+  decider: ['choice'],
+  dynorg: ['choice'],
+}
+
+// missingKinds lists the kinds surface asks that provider p does not
+// answer; [] when p's kinds are unknown (not probed), as CheckSurfaceKinds.
+export function missingKinds(p, surface) {
+  const kinds = p?.caps?.kinds || []
+  if (!kinds.length) return []
+  return (SURFACE_KINDS[surface] || []).filter(k => !kinds.includes(k))
+}
+
+// sampledMax is the highest top probability a sampled provider reports on a
+// question of n options (jev.SampledProbs: 5 samples, add-one smoothed, so
+// (5+1)/(5+n)): 6/7 ≈ 0.857 on two, 0.75 on three. A threshold above it is
+// never reached.
+export const sampledMax = (n) => 6 / (5 + Math.max(2, n))
+
+// SURFACE_OPTIONS is the number of options of the question a surface gates
+// on, where it is fixed: hil's decision (approve, reject, needs_human) and
+// people_links' yes/no. Other surfaces have at least two.
+const SURFACE_OPTIONS = { hil: 3, people_links: 2 }
+
+// sampledCeiling is the highest top probability a sampled provider can give
+// surface's gated question.
+export const sampledCeiling = (surface) => sampledMax(SURFACE_OPTIONS[surface] || 2)
+
+// capabilityError rewrites the CLI's refusal of a provider for a surface
+//   jev: provider "x" does not answer score questions, which surface hil asks
+//   (it answers choice, noul; `jev provider probe x` checks again)
+// into a sentence; any other error keeps its text ('' for none).
+export function capabilityError(raw, t) {
+  const text = String(raw || '').replace(/^(?:Error:\s*)?(?:invalid input:\s*)?jev:\s*/, '')
+  const m = /provider "([^"]+)" does not answer (.+?) questions, which surface (\S+) asks \(it answers ([^;)]*)/.exec(text)
+  if (!m) return text
+  return t('settings.jev.providers.capRefused', { name: m[1], kinds: m[2], surface: m[3], answers: m[4] })
 }
 
 export function formatUSD(v) {

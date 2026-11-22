@@ -169,14 +169,20 @@ What to expect:
 
 ### Let Jev pick: the `auto` model
 
-With `"model": "auto"`, [TypeSafe Jev](https://docs.typesafe.ai/api) chooses the
-model of each request among the ones this listener serves: a cheaper, faster
-one for a simple prompt, a stronger one for a hard or long one. It is off until
-you switch it on for the key's profile, and it needs the machine-wide Jev key (one key for all profiles):
+With `"model": "auto"`, Jev chooses the model of each request among the ones
+this listener serves: a cheaper, faster one for a simple prompt, a stronger one
+for a hard or long one. Jev's decision provider is
+[TypeSafe Jev](https://docs.typesafe.ai/api) unless you chose another (see
+"Decision models (Jev)" in `AGENTS.md`). It is off until
+you switch it on for the key's profile, and it needs a decision provider it can
+use: with TypeSafe, the machine-wide Jev key (one key for all profiles); with a
+provider you added, that provider's own key, or none for a keyless server on
+this computer (`monoagentcli --profile work jev provider use local --surface
+api_auto` points just this surface at it). With TypeSafe:
 
 ```bash
 printf '%s' "$TYPESAFE_KEY" | monoagentcli jev key set   # or TYPESAFE_API_KEY in the server's environment
-monoagentcli --profile work jev enable api_auto    # prints what is sent to TypeSafe, then asks (--yes in a script)
+monoagentcli --profile work jev enable api_auto    # prints what is sent and to which host, then asks (--yes in a script)
 monoagentcli --profile work api models             # its last line says whether auto works
 ```
 
@@ -186,7 +192,8 @@ server's agent turns do not inherit it. `api models` and `api status` run in
 your shell, so for a key from the environment they report this shell's, not the
 server's.
 
-`jev enable` lists what leaves the machine: to TypeSafe, besides the prompt
+`jev enable` lists what leaves the machine: to the decision provider
+(TypeSafe by default), besides the prompt
 going to the runtime that answers, the first 4,000 characters of the last user
 message and the names, descriptions and validated cost and latency of the
 models Jev picks among. Then:
@@ -200,8 +207,10 @@ curl -si http://127.0.0.1:9322/v1/chat/completions \
 
 The response's `model` and `X-Monoagent-Model` name the pick, and
 `X-Monoagent-Auto` says who chose: `jev`, or `rule` when Jev could not (no
-answer within 8 seconds, an answer that is not one of the options, or one under
-the surface's threshold, which `jev enable api_auto --threshold 0.8` raises) or
+answer within 8 seconds, an answer that is not one of the options, one with no
+probability, or one under the surface's threshold, which `jev enable api_auto
+--threshold 0.8` raises; a provider that samples reaches at most 0.857, so
+above that it never picks) or
 when only one model was left to pick. Of the models that passed
 `monoagentcli agent validate` (which records the cost and latency to compare),
 the rule takes the most confined, then the cheapest, then the fastest; with none
@@ -310,7 +319,8 @@ What to expect:
   chat-only until you start the server with `--auto-confinement sandboxed` (or
   `any`): image runtimes are sandboxed or unconfined, so by default it is a 404
   `model_not_found` that says what to raise. Raised, `jev enable api_auto` sends
-  TypeSafe the first 4,000 characters of the image prompt, as it does for chat.
+  the decision provider (TypeSafe by default) the first 4,000 characters of the
+  image prompt, as it does for chat.
 - Read `SECURITY.md` ("Image generation"): the runtime may read and copy files
   from outside its folder, and the server returns any file it left in the
   turn's folder that begins like an image (the test is on the first bytes).
@@ -675,7 +685,7 @@ reach further than it did is refused there unless you started the MCP server
 with `--allow-api-exposure`: a model cannot confirm it, and its refusal says
 which setting and why, and that you can run `api config set ... --yes` yourself.
 `api_auto_set` is held by the same flag when it switches the `auto` model on,
-since prompts then go to TypeSafe: what leaves the machine is your decision too.
+since prompts then go to the decision provider (TypeSafe by default): what leaves the machine is your decision too.
 That flag guards those two tools, not the machine: a host that also lets the
 model run shell commands as you lets it run `--yes` too, and `--allow-mutations`
 itself is such a host: it also serves `workflow_node_add` (which accepts the node
@@ -747,7 +757,7 @@ on, and `--allow-mutations` to leave it only the four read-only tools.
 | 400 | `image_generation_unsupported` | The runtime replied `NO_IMAGE_TOOL`: it has no image tool |
 | 401 | `invalid_api_key` | Missing, unknown or revoked key. The legacy HTTP API token is not a key |
 | 403 | `policy_denied` | A completion or an image request names a model whose confinement class is above the listener's `--confinement`, or above `--context-confinement` for a key created with `--context`; a completion that declares `tools` (without `tool_choice` `none`) with a key created with `--context` while its cap, the lower of the listener's `--confinement` and `--context-confinement`, is chat-only; an image request without a model when the key's policy allows no runtime that can write a file (the message says what to raise); or its sandbox could not be applied; or the runtime started with less confinement than the policy allows |
-| 404 | `model_not_found` | Unknown model. `GET /v1/models/{id}` also answers 404 for a model the listener does not serve (a completion for it is a 403). `auto` is a 404 too while it is not set up for the key's profile: the message says what is missing (the `api_auto` Jev surface, a Jev key, or a model the policy allows). For an image request without a model also: no runtime of `MONOAGENT_API_IMAGE_RUNTIMES` can make images here (the message says, for each, not installed or installed but chat-only), or image generation is switched off (`none`) |
+| 404 | `model_not_found` | Unknown model. `GET /v1/models/{id}` also answers 404 for a model the listener does not serve (a completion for it is a 403). `auto` is a 404 too while it is not set up for the key's profile: the message says what is missing (the `api_auto` Jev surface, a Jev key or a usable decision provider for that surface, or a model the policy allows). For an image request without a model also: no runtime of `MONOAGENT_API_IMAGE_RUNTIMES` can make images here (the message says, for each, not installed or installed but chat-only), or image generation is switched off (`none`) |
 | 413 | `request_too_large` | Body over 2 MiB (64 KiB for an image request) |
 | 429 | `rate_limit_exceeded`, `insufficient_quota` | The server is full (`Retry-After: 2`), or the runtime is rate limited or out of quota |
 | 500 | `internal_error` | An internal failure. The message is generic; the detail is in the server log under the response's `X-Request-Id` |

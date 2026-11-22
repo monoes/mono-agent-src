@@ -429,12 +429,13 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "org_autonomy_set",
-			description: "Set who decides an org's approvals, questions, and gates: level manual, mid, or full, and the decider (model, boss, parent, or jev — TypeSafe Jev picks the verdict when its top probability reaches decider_threshold, default 0.8, else the model decider decides; needs a TypeSafe key). This only proposes the change: the user confirms it in the org screen.",
+			description: "Set who decides an org's approvals, questions, and gates: level manual, mid, or full, and the decider (model, boss, parent, or jev — Jev picks the verdict when its top probability reaches decider_threshold, default 0.8, else the model decider decides; Jev is TypeSafe, which needs a TypeSafe key, or the decision provider named by decider_provider). This only proposes the change: the user confirms it in the org screen.",
 			schema: objSchema(map[string]interface{}{
 				"org_name":           strParam("The org's name"),
 				"level":              strParam("manual | mid | full"),
 				"decider":            strParam(strings.Join(orgdesign.DeciderKinds, " | ")),
 				"decider_threshold":  map[string]interface{}{"type": "number", "description": "jev decider only: lowest top-verdict probability Jev decides at, in (0,1] (default 0.8)"},
+				"decider_provider":   strParam("jev decider only: decision provider that answers — typesafe or one the user configured (jev provider list); omit for the default"),
 				"decider_model":      strParam("Model id for the model decider"),
 				"decider_runtime":    strParam("Runtime for the model decider"),
 				"policy":             strParam("Instructions the decider follows"),

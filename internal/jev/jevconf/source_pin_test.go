@@ -25,6 +25,11 @@ var keyOnlyChecks = map[string]string{
 	"internal/cli/jevcli/jev.go":           "`jev enable` reports whether a key resolves, sends nothing",
 }
 
+// backendClientUse is the finding for jev.NewBackendClient: only jevconf
+// builds a provider's client, so its key goes only to its own base URL and
+// its read is gated (ResolveProviderClient).
+const backendClientUse = "uses jev.NewBackendClient: only jevconf builds a decision provider's client"
+
 // bypasses lists the ways the source of one non-test file builds a TypeSafe
 // client itself, reads its host, or resolves a key apart from jevconf's
 // ResolveClient. It resolves imports (so an aliased import counts) and reads
@@ -78,6 +83,9 @@ func bypasses(file string, src []byte) []string {
 			if isJev(x, "NewClient") {
 				add(x, "uses jev.NewClient (a call, a method value, through any import alias)")
 			}
+			if isJev(x, "NewBackendClient") {
+				add(x, backendClientUse)
+			}
 			if id, ok := x.X.(*ast.Ident); ok && confNames[id.Name] && x.Sel.Name == "ResolveKey" {
 				if _, ok := keyOnlyChecks[file]; !ok {
 					add(x, "uses jevconf.ResolveKey: build the client with jevconf.ResolveClient")
@@ -117,6 +125,8 @@ func TestThePinSeesEveryShapeOfBypass(t *testing.T) {
 		want       int
 	}{
 		{"aliased constructor call", "func f() { j.NewClient(\"k\", \"\") }", 1},
+		{"backend client constructor", "func f() { j.NewBackendClient(\"p\", \"\", nil) }", 1},
+		{"backend client constructor as a value", "var g = j.NewBackendClient", 1},
 		{"method value", "func f() { g := j.NewClient; _ = g }", 1},
 		{"new", "func f() { _ = new(j.Client) }", 1},
 		{"address of a literal", "func f() { _ = &j.Client{APIKey: \"k\", BaseURL: \"http://x\"} }", 1},
@@ -164,14 +174,20 @@ func TestEveryUserOfTheTypeSafeKeyGoesThroughJevconf(t *testing.T) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasPrefix(rel, "internal/jev/") {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasPrefix(rel, "internal/jev/jevconf/") {
 			return nil
 		}
 		b, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return rerr
 		}
+		// Inside internal/jev (the client itself, jevtest, the provider
+		// adapters) only a provider client built apart from jevconf counts.
+		inJev := strings.HasPrefix(rel, "internal/jev/")
 		for _, f := range bypasses(rel, b) {
+			if inJev && !strings.HasSuffix(f, backendClientUse) {
+				continue
+			}
 			t.Errorf("%s\n\tbuild the client with jevconf.NewClient or jevconf.ResolveClient, so the key goes only where jevconf.BaseURL says and its read is gated", f)
 		}
 		return nil
@@ -192,6 +208,51 @@ func TestEveryUserOfTheTypeSafeKeyGoesThroughJevconf(t *testing.T) {
 	}
 	if n := strings.Count(key, "entryValue("); n != 3 { // its definition, readEntry, Adopt
 		t.Errorf("entryValue( appears %d times in key.go, want 3 (definition, readEntry, Adopt): a new caller reads the vault key without the gate", n)
+	}
+	// A decision provider's key is read under the same gate, from its
+	// machine-vault entry only.
+	pb, err := os.ReadFile(filepath.Join(filepath.Dir(here), "provider.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := string(pb)
+	if !strings.Contains(prov, "secrets.RefusedReference(ctx, secretRef(p.SecretName))") || !strings.Contains(prov, "readEntry(ctx, db, VaultScope, p.SecretName)") {
+		t.Error("providerKey no longer refuses and audits the read of a provider's key before using it")
+	}
+	// ProviderKeySourceOf only looks whether a provider's entry exists:
+	// availability checks never decrypt (no keyring or passphrase prompt).
+	kb, err := os.ReadFile(filepath.Join(filepath.Dir(here), "provider_keysource.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := strings.Index(string(kb), "func ProviderKeySourceOf("); i < 0 {
+		t.Error("provider_keysource.go has no ProviderKeySourceOf")
+	} else {
+		body := string(kb)[i:]
+		if j := strings.Index(body[1:], "\nfunc "); j >= 0 {
+			body = body[:j+1]
+		}
+		for _, read := range []string{"readEntry(", "DecryptFields(", "providerKey(", "secrets.Resolve"} {
+			if strings.Contains(body, read) {
+				t.Errorf("ProviderKeySourceOf calls %s: it must list the vault entry, never read it", read)
+			}
+		}
+	}
+	others, err := filepath.Glob(filepath.Join(filepath.Dir(here), "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range others {
+		if strings.HasSuffix(f, "_test.go") || filepath.Base(f) == "key.go" {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "entryValue(") {
+			t.Errorf("%s calls entryValue: a vault key read there skips the gate (use readEntry)", filepath.Base(f))
+		}
 	}
 
 	// vector.store's embedding block sends its provider key only to the host

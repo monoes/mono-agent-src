@@ -11,9 +11,11 @@ import (
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/nodes/decisionclient"
 )
 
-// RuntimeJev selects the TypeSafe Jev backend ("jev" or "jev:<model>").
+// RuntimeJev selects the Jev backend: "jev" or "jev:<model>" (the active
+// decision provider), "jev@<provider>" or "jev@<provider>:<model>".
 const RuntimeJev = "jev"
 
 // jevSurface labels this backend's calls in jev_usage.
@@ -61,24 +63,32 @@ var jevGates = []jevGate{
 }
 
 // jevRuntime reports whether runtime selects the Jev backend and, if so,
-// which model ("" = default).
-func jevRuntime(runtime string) (model string, ok bool) {
-	runtime = strings.TrimSpace(runtime)
-	if runtime == RuntimeJev {
-		return "", true
+// which provider and model ("" = the default).
+func jevRuntime(runtime string) (provider, model string, ok bool) {
+	rest, found := strings.CutPrefix(strings.TrimSpace(runtime), RuntimeJev)
+	switch {
+	case !found:
+		return "", "", false
+	case rest == "":
+		return "", "", true
+	case rest[0] == ':':
+		return "", strings.TrimSpace(rest[1:]), true
+	case rest[0] == '@':
+		provider, model, _ = strings.Cut(rest[1:], ":")
+		return strings.TrimSpace(provider), strings.TrimSpace(model), true
 	}
-	if m, found := strings.CutPrefix(runtime, RuntimeJev+":"); found {
-		return strings.TrimSpace(m), true
-	}
-	return "", false
+	return "", "", false
 }
 
-// newJevClient resolves the TypeSafe key for the profile. There is no
-// fallback: the caller explicitly chose runtime jev.
-func newJevClient(ctx context.Context, db *sql.DB, profileID, model string) (*jev.Client, error) {
-	c, err := jevconf.NewClient(ctx, db, profileID, "", model, jevSurface)
-	if err != nil {
+// newJevClient builds the client of provider ("" = the active one) for the
+// profile. There is no fallback: the caller explicitly chose runtime jev.
+func newJevClient(ctx context.Context, db *sql.DB, profileID, provider, model string) (*jev.Client, error) {
+	c, resolved, err := decisionclient.New(ctx, db, profileID, decisionclient.Config{Provider: provider, Model: model}, jevSurface)
+	if err != nil && resolved == jev.ProviderTypeSafe {
 		return nil, fmt.Errorf("runtime jev needs a TypeSafe API key (store the machine-wide key with `monoagentcli jev key set`, or set TYPESAFE_API_KEY): %w", err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("runtime jev (decision provider %q): %w", resolved, err)
 	}
 	return c, nil
 }
@@ -146,7 +156,8 @@ func jevQuestions() map[string]jev.Question {
 
 // evaluateJev asks every gate and dimension in one Jev request and computes
 // the verdict in Go (plan D7). It returns the verdict and the runtime label
-// to store ("jev:<model>").
+// to store ("jev:<model>"; "jev@<provider>:<model>" for a provider other
+// than TypeSafe).
 func evaluateJev(ctx context.Context, c *jev.Client, app *applications.Application, excerpts []monomind.KnowledgeResult) (*FitVerdict, string, error) {
 	resp, err := c.Ask(ctx, jevState(app, excerpts), jevQuestions())
 	if err != nil {
@@ -156,17 +167,28 @@ func evaluateJev(ctx context.Context, c *jev.Client, app *applications.Applicati
 	if model == "" {
 		model = c.Model
 	}
-	return verdictFromJev(resp.Answers, model, len(excerpts) == 0), RuntimeJev + ":" + model, nil
+	label := RuntimeJev + ":" + model
+	if resp.Provider != "" && resp.Provider != jev.ProviderTypeSafe {
+		// "jev@<provider>" when no model is known: never "jev@hf:".
+		if label = RuntimeJev + "@" + resp.Provider; model != "" {
+			label += ":" + model
+		} else {
+			model = resp.Provider
+		}
+	}
+	return verdictFromJev(resp, model, len(excerpts) == 0), label, nil
 }
 
 // verdictFromJev turns validated answers into a FitVerdict with a
 // deterministic rationale.
-func verdictFromJev(answers map[string]jev.Answer, model string, noExcerpts bool) *FitVerdict {
+func verdictFromJev(resp *jev.Response, model string, noExcerpts bool) *FitVerdict {
+	answers := resp.Answers
 	v := &FitVerdict{}
 	var gates []string
 	pass := map[string]bool{}
 	for _, g := range jevGates {
-		p := answers[g.key].Noul
+		// D7: no probability is no evidence, so the gate passes, as unclear does.
+		p := decisionclient.Gate(resp, answers[g.key].Noul)
 		ok := p < gateFailP
 		pass[g.key] = ok
 		label := "pass"

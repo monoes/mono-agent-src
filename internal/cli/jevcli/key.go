@@ -1,6 +1,7 @@
 package jevcli
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -53,22 +54,13 @@ func newJevKeySetCmd(d Deps) *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
-			ctx := cmd.Context()
-			fields := map[string]string{"secret": key}
-			entry, replaced := jevconf.VaultKeyName(ctx, db.DB)
-			if replaced {
-				id, err := jevVaultEntryID(cmd, db.DB, entry)
-				if err != nil {
-					return err
-				}
-				if err := secrets.Update(ctx, db.DB, jevconf.VaultScope, id, nil, nil, nil, nil, fields); err != nil {
-					return fmt.Errorf("updating vault entry %q: %w", entry, err)
-				}
-			} else {
+			entry, ok := jevconf.VaultKeyName(cmd.Context(), db.DB)
+			if !ok {
 				entry = jevconf.SecretName
-				if _, err := secrets.Add(ctx, db.DB, jevconf.VaultScope, "secret", entry, fields, "", "", "TypeSafe Jev API key"); err != nil {
-					return fmt.Errorf("storing key in the machine vault: %w", err)
-				}
+			}
+			replaced, err := putMachineKey(cmd, db.DB, entry, key, "TypeSafe Jev API key")
+			if err != nil {
+				return err
 			}
 			out := cmd.OutOrStdout()
 			if d.JSONOutput() {
@@ -149,7 +141,8 @@ func newJevKeyTestCmd(d Deps) *cobra.Command {
 				}
 				return jevKeyErr(e)
 			}
-			c, source, err := jevconf.ResolveClient(cmd.Context(), db.DB, d.ProfileID(), "", "")
+			// The TypeSafe key, whichever provider is the machine default.
+			c, source, err := jevconf.ResolveProviderClient(cmd.Context(), db.DB, d.ProfileID(), jev.ProviderTypeSafe, "", "")
 			if source != "" {
 				res["key_source"] = source
 			}
@@ -209,15 +202,49 @@ func newJevKeyRemoveCmd(d Deps) *cobra.Command {
 	}
 }
 
-func jevVaultEntryID(cmd *cobra.Command, db *sql.DB, name string) (string, error) {
-	entries, err := secrets.List(cmd.Context(), db, jevconf.VaultScope)
+// putMachineKey stores key in the machine-vault entry name: it updates the
+// entry when one of that name exists (replaced), else adds it.
+func putMachineKey(cmd *cobra.Command, db *sql.DB, name, key, notes string) (replaced bool, err error) {
+	ctx := cmd.Context()
+	fields := map[string]string{"secret": key}
+	id, found, err := machineEntryID(ctx, db, name)
 	if err != nil {
-		return "", err
+		return false, err
+	}
+	if found {
+		if err := secrets.Update(ctx, db, jevconf.VaultScope, id, nil, nil, nil, nil, fields); err != nil {
+			return false, fmt.Errorf("updating vault entry %q: %w", name, err)
+		}
+		return true, nil
+	}
+	if _, err := secrets.Add(ctx, db, jevconf.VaultScope, "secret", name, fields, "", "", notes); err != nil {
+		return false, fmt.Errorf("storing key in the machine vault: %w", err)
+	}
+	return false, nil
+}
+
+// machineEntryID finds the machine-vault entry name by listing names (it
+// decrypts nothing).
+func machineEntryID(ctx context.Context, db *sql.DB, name string) (id string, found bool, err error) {
+	entries, err := secrets.List(ctx, db, jevconf.VaultScope)
+	if err != nil {
+		return "", false, err
 	}
 	for _, e := range entries {
 		if e.Name == name {
-			return e.ID, nil
+			return e.ID, true, nil
 		}
 	}
-	return "", clicore.NotFound("vault entry %q not found", name)
+	return "", false, nil
+}
+
+func jevVaultEntryID(cmd *cobra.Command, db *sql.DB, name string) (string, error) {
+	id, found, err := machineEntryID(cmd.Context(), db, name)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", clicore.NotFound("vault entry %q not found", name)
+	}
+	return id, nil
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
+	// Every decision-provider kind, for every binary that runs nodes (the CLI, its daemon, the GUI).
+	_ "github.com/monoes/mono-agent/internal/jev/providers/all"
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/vault"

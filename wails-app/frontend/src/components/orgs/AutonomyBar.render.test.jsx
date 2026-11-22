@@ -17,6 +17,7 @@ vi.mock('../../services/api.js', () => ({
     setOrgAutonomy: vi.fn(),
     pauseOrgAutonomy: vi.fn(),
     resumeOrgAutonomy: vi.fn(),
+    jevProviders: vi.fn(),
     listOrgGrants: vi.fn(),
     getOrgGates: vi.fn(),
   },
@@ -37,6 +38,8 @@ beforeEach(async () => {
   api.setOrgAutonomy.mockResolvedValue({ v: 1 })
   api.pauseOrgAutonomy.mockResolvedValue({ v: 1 })
   api.resumeOrgAutonomy.mockResolvedValue({ v: 1 })
+  // No provider configured: only the built-in TypeSafe one.
+  api.jevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['openai'], providers: [{ name: 'typesafe', kind: 'typesafe', builtin: true }] })
   api.listOrgGrants.mockResolvedValue({
     v: 1, org: 'growth', grants: [
       { role: 'lead', alias: 'publish_post', workflow_name: 'Publish post', tier: 'irreversible', approval: 'required' },
@@ -212,5 +215,94 @@ describe('AutonomyBar', () => {
     expect(open).toHaveBeenCalled()
     // No threshold stored yet: the field shows the CLI default.
     expect(screen.getByLabelText('Jev ≥')).toHaveValue(0.8)
+  })
+
+  it('reads providers only for the jev decider, and shows no select with only TypeSafe', async () => {
+    await renderBar()
+    expect(api.jevProviders).not.toHaveBeenCalled()
+    cleanup()
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: '' } })
+    await renderBar()
+    await waitFor(() => expect(api.jevProviders).toHaveBeenCalled())
+    expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument()
+    expect(screen.getByTestId('jev-decider-note')).toHaveTextContent('Needs a TypeSafe key')
+  })
+
+  it('picks the jev decider provider, and Default clears it', async () => {
+    api.jevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['openai'], providers: [
+      { name: 'typesafe', kind: 'typesafe', builtin: true }, { name: 'local', kind: 'openai', builtin: false },
+    ] })
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: '' } })
+    await renderBar()
+    const sel = await screen.findByLabelText('Provider')
+    expect(sel).toHaveValue('')
+    expect(within(sel).getAllByRole('option').map(o => o.textContent)).toEqual(['Default', 'typesafe', 'local'])
+    fireEvent.change(sel, { target: { value: 'local' } })
+    await waitFor(() => expect(api.setOrgAutonomy).toHaveBeenCalledWith('growth', { decider: { kind: 'jev', provider: 'local' } }))
+    cleanup()
+    api.setOrgAutonomy.mockClear()
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: 'local' } })
+    await renderBar()
+    const sel2 = await screen.findByLabelText('Provider')
+    await waitFor(() => expect(sel2).toHaveValue('local'))
+    // A provider other than TypeSafe needs no TypeSafe key.
+    expect(screen.getByTestId('jev-decider-note')).not.toHaveTextContent('Needs a TypeSafe key')
+    fireEvent.change(sel2, { target: { value: '' } })
+    await waitFor(() => expect(api.setOrgAutonomy).toHaveBeenCalledWith('growth', { decider: { kind: 'jev', provider: '' } }))
+  })
+
+  // An unset decider provider resolves through the profile's decider choice
+  // before the machine default, and neither JSON reports that choice: the
+  // option must not name the machine default as if it were the answer.
+  it('labels the unset provider "Default" without naming the machine default', async () => {
+    api.jevProviders.mockResolvedValue({ default: 'local', kinds: ['openai'], providers: [
+      { name: 'typesafe', kind: 'typesafe', builtin: true }, { name: 'local', kind: 'openai', builtin: false },
+    ] })
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: '' } })
+    await renderBar()
+    const sel = await screen.findByLabelText('Provider')
+    const first = within(sel).getAllByRole('option')[0]
+    expect(first).toHaveValue('')
+    expect(first).toHaveTextContent(/^Default$/)
+    expect(within(sel).queryByText('Default (local)')).not.toBeInTheDocument()
+    expect(sel.closest('label')).toHaveAttribute('title', expect.stringContaining('else the machine default'))
+  })
+
+  // A sampled provider's verdict reaches at most 0.75 on mid's three
+  // verdicts and 6/7 on full's two (5 answers, add-one smoothed).
+  describe('a sampled decider provider', () => {
+    const sampled = (level, threshold) => {
+      api.jevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['anthropic'], providers: [
+        { name: 'typesafe', kind: 'typesafe', builtin: true, caps: { probability: 'native' } },
+        { name: 'claude', kind: 'anthropic', builtin: false, caps: { kinds: ['choice'], probability: 'sampled' } },
+      ] })
+      api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, level, effective_level: level, decider: { ...AUTONOMY.decider, kind: 'jev', provider: 'claude', threshold } })
+    }
+
+    it('says it cannot reach the default 0.8 at level mid', async () => {
+      sampled('mid', 0.8)
+      await renderBar()
+      expect(await screen.findByTestId('jev-decider-sampled')).toHaveTextContent(
+        "This provider estimates from 5 answers: on the decider's 3 verdicts it reaches at most 0.75, so it cannot reach this threshold and the model decider decides.")
+    })
+
+    it('says 0.75 at level mid takes all five answers', async () => {
+      sampled('mid', 0.75)
+      await renderBar()
+      expect(await screen.findByTestId('jev-decider-sampled')).toHaveTextContent(
+        "on the decider's 3 verdicts it reaches 0.75 only when all 5 agree.")
+    })
+
+    it('says nothing at 0.8 on full (two verdicts, up to 0.86), and warns at 0.9', async () => {
+      sampled('full', 0.8)
+      await renderBar()
+      await waitFor(() => expect(api.jevProviders).toHaveBeenCalled())
+      await screen.findByLabelText('Provider')
+      expect(screen.queryByTestId('jev-decider-sampled')).not.toBeInTheDocument()
+      cleanup()
+      sampled('full', 0.9)
+      await renderBar()
+      expect(await screen.findByTestId('jev-decider-sampled')).toHaveTextContent("on the decider's 2 verdicts it reaches at most 0.86")
+    })
   })
 })

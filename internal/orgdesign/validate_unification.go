@@ -58,6 +58,16 @@ func ValidDeciderKind(kind string) bool {
 	return false
 }
 
+// deciderProviderRe is a decision provider's name (jevconf.Provider.Name).
+var deciderProviderRe = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+
+// ValidDeciderProvider reports whether name is shaped like a decision
+// provider's name ("typesafe" or a configured one). Whether it exists is
+// checked against the providers when the enforced settings are set.
+func ValidDeciderProvider(name string) bool {
+	return deciderProviderRe.MatchString(name)
+}
+
 // LevelRank orders levels by how much they let run without a human; -1 for
 // an unknown level.
 func LevelRank(level string) int {
@@ -303,6 +313,9 @@ func validateAutonomy(a *Autonomy) []string {
 		}
 		if dc.TimeoutSeconds < 0 {
 			errs = append(errs, "autonomy: decider.timeout_seconds cannot be negative")
+		}
+		if dc.Provider != "" && !ValidDeciderProvider(dc.Provider) {
+			errs = append(errs, fmt.Sprintf("autonomy: decider.provider %q must be 1 to 32 of a-z, 0-9 and -", dc.Provider))
 		}
 	}
 	keys := make([]string, 0, len(a.Tiers))

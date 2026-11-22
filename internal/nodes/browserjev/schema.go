@@ -8,9 +8,11 @@ type NodeSchema struct {
 
 	Goal string `json:"goal" schema:"label=Goal,type=textarea,required,rows=4,help=What to achieve in plain language — include every value to enter. The run stops at DONE or BLOCKED."`
 
-	APIKey string "json:\"api_key\" schema:\"label=TypeSafe API Key,type=password,default=@secret:typesafe,help=Falls back to the profile's vault secret `typesafe`， then TYPESAFE_API_KEY.\""
+	Provider string "json:\"provider\" schema:\"label=Decision Provider,type=text,help=A decision provider added with `monoagentcli jev provider add`. Empty = the default.\""
 
-	Model string `json:"model" schema:"label=Jev Model,type=text,default=jev-latest"`
+	APIKey string "json:\"api_key\" schema:\"label=TypeSafe API Key,type=password,default=@secret:typesafe,help=Applies to the TypeSafe provider. Falls back to the profile's vault secret `typesafe`， then TYPESAFE_API_KEY.\""
+
+	Model string `json:"model" schema:"label=Jev Model,type=text,default=jev-latest,help=Applies to the TypeSafe provider (another provider uses its own model unless this node also names that provider)."`
 
 	Values string `json:"values" schema:"label=Values,type=code,language=json,rows=5,placeholder={\"From\": \"Zurich\"， \"email\": \"@secret:my-email\"},help=Name → value pairs typed into matching fields instead of asking the text runtime. Jev sees only the names (typed values are shown to it as <value:NAME>). @secret: values need an email/tel field or one whose label names the value (password inputs are never observed)."`
 

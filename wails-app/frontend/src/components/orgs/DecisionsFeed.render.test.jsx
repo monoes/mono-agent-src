@@ -44,6 +44,12 @@ describe('jevSummary', () => {
     expect(jevSummary({ jev: { decided: false, p: 0.4, threshold: null } })).toBe('model decided (Jev p=0.40)')
     expect(jevSummary(DECISIONS[2])).toBeNull()
   })
+  it('names a decision provider other than TypeSafe', () => {
+    // As the CLI prints rows answered by provider "local" (resolver jev:local/<model>).
+    expect(jevSummary({ jev: { decided: true, p: 0.93, threshold: null, provider: 'local' } })).toBe('Jev · local p=0.93')
+    expect(jevSummary({ jev: { decided: false, p: 0.62, threshold: 0.8, provider: 'openrouter' } }))
+      .toBe('model decided (Jev · openrouter p=0.62 below 0.8)')
+  })
   it('orders the distribution highest first', () => {
     expect(jevDistribution(DECISIONS[0].probabilities).map(x => x.verdict)).toEqual(['approve', 'deny', 'escalate'])
   })
@@ -59,6 +65,23 @@ describe('DecisionsFeed', () => {
     expect(within(jevRow).getByTestId('jev-chip')).toHaveAttribute('title', 'Jev: approve 0.93, deny 0.05, escalate 0.02')
     expect(within(fbRow).getByTestId('jev-chip')).toHaveTextContent('model decided (Jev p=0.62 below 0.8)')
     expect(within(modelRow).queryByTestId('jev-chip')).not.toBeInTheDocument()
+  })
+
+  it('truncates a long <provider>/<model> resolver with the full label as its tooltip', async () => {
+    const long = 'jev:openrouter/meta-llama/llama-3.3-70b-instruct:free-with-a-very-long-suffix'
+    api.listOrgDecisionLog.mockResolvedValue({ v: 1, org: 'growth', decisions: [{
+      ...DECISIONS[0], resolver: long, rationale: `jev ${long.slice(4)}: approve p=0.93 (approve 0.93, deny 0.07)`,
+      jev: { decided: true, verdict: 'approve', p: 0.93, threshold: null, provider: 'openrouter' },
+    }] })
+    render(<DecisionsFeed orgName="growth" />)
+    const [row] = await screen.findAllByTestId('decision-row')
+    const who = within(row).getByTestId('decision-resolver')
+    expect(who).toHaveAttribute('title', long)
+    const b = who.querySelector('b')
+    expect(b).toHaveTextContent(long)
+    expect(b).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+    expect(within(row).getByTestId('jev-chip')).toHaveTextContent('Jev · openrouter p=0.93')
+    expect(within(row).getByText(/^jev openrouter\//)).toHaveStyle({ overflowWrap: 'anywhere' })
   })
 
   it('expands the per-verdict distribution', async () => {

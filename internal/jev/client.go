@@ -117,24 +117,38 @@ func (a *Answer) UnmarshalJSON(b []byte) error {
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// CostUSD is what the call cost when the provider says so; nil = unknown.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // Response is the /v1/systemone reply, with LatencyMS added by the client.
+// Provider and Probability are set by the client, never by the server.
 type Response struct {
-	Model     string            `json:"model"`
-	Answers   map[string]Answer `json:"answers"`
-	Usage     Usage             `json:"usage"`
-	LatencyMS int64             `json:"-"`
+	Model       string            `json:"model"`
+	Answers     map[string]Answer `json:"answers"`
+	Usage       Usage             `json:"usage"`
+	Provider    string            `json:"provider,omitempty"`
+	Probability ProbabilityKind   `json:"probability,omitempty"`
+	LatencyMS   int64             `json:"-"`
 }
 
-// Client calls /v1/systemone. The zero value is not usable; use NewClient.
+// Client calls /v1/systemone, or its Backend when one is set. The zero value
+// is not usable; use NewClient (TypeSafe) or NewBackendClient.
 type Client struct {
+	// Provider is the provider's name for display and usage (ProviderTypeSafe
+	// for the TypeSafe wire).
+	Provider string
+	// Backend, when set, answers in place of TypeSafe's /v1/systemone;
+	// APIKey, BaseURL and HTTP are then unused, and Retries reaches the
+	// backend through the context (WithRetries).
+	Backend Backend
 	APIKey  string
 	BaseURL string
 	Model   string
 	HTTP    *http.Client
 	// Retries is how many times a 408/429/5xx is retried (default 2, as the
-	// official SDKs do). Transport errors are not retried: the caller decides.
+	// official SDKs do; 0 = one attempt), by the TypeSafe wire and by every
+	// backend. Transport errors are not retried: the caller decides.
 	Retries int
 	// OnResult, when set, is called once per Ask with the outcome — including
 	// transport and validation failures (err set). resp is nil only when no
@@ -164,9 +178,10 @@ func NewClient(apiKey, model string) (*Client, error) {
 		base = DefaultBaseURL
 	}
 	return &Client{
-		APIKey:  apiKey,
-		BaseURL: strings.TrimRight(base, "/"),
-		Model:   model,
+		Provider: ProviderTypeSafe,
+		APIKey:   apiKey,
+		BaseURL:  strings.TrimRight(base, "/"),
+		Model:    model,
 		// A redirect elsewhere gets no API key, and no proxy sees it: the key goes to the
 		// host itself, whatever HTTP_PROXY / HTTPS_PROXY say. (SSL_CERT_FILE / SSL_CERT_DIR
 		// still extend the system roots: the standard library offers no way to ignore them
@@ -199,6 +214,32 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 	if c.OnResult != nil {
 		defer func() { c.OnResult(&req, recorded, time.Since(started), err) }()
 	}
+	var decoded *Response
+	if c.Backend != nil {
+		if recorded, decoded, err = c.askBackend(ctx, &req, started); err != nil {
+			return nil, err
+		}
+	} else if decoded, err = c.askTypeSafe(ctx, &req, started); err != nil {
+		return nil, err
+	}
+	recorded = decoded
+	for id, q := range questions {
+		a, ok := decoded.Answers[id]
+		if !ok {
+			return nil, fmt.Errorf("%w: no answer for %q", ErrInvalidAnswer, id)
+		}
+		a = repairChoice(q, a)
+		decoded.Answers[id] = a
+		if err := Validate(q, a); err != nil {
+			return nil, fmt.Errorf("%s: %w", id, err)
+		}
+	}
+	return decoded, nil
+}
+
+// askTypeSafe sends req to /v1/systemone and decodes the reply. Provider and
+// Probability are set here, never read from the server.
+func (c *Client) askTypeSafe(ctx context.Context, req *Request, started time.Time) (*Response, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("jev: encode request: %w", err)
@@ -212,18 +253,7 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 		return nil, fmt.Errorf("%w: undecodable response: %v", ErrInvalidAnswer, err)
 	}
 	decoded.LatencyMS = time.Since(started).Milliseconds()
-	recorded = &decoded
-	for id, q := range questions {
-		a, ok := decoded.Answers[id]
-		if !ok {
-			return nil, fmt.Errorf("%w: no answer for %q", ErrInvalidAnswer, id)
-		}
-		a = repairChoice(q, a)
-		decoded.Answers[id] = a
-		if err := Validate(q, a); err != nil {
-			return nil, fmt.Errorf("%s: %w", id, err)
-		}
-	}
+	decoded.Provider, decoded.Probability = ProviderTypeSafe, ProbNative
 	return &decoded, nil
 }
 
@@ -326,63 +356,6 @@ func (c *Client) post(ctx context.Context, body []byte) ([]byte, error) {
 		}
 		backoff *= 2
 	}
-}
-
-// Model is one entry of GET /v1/models.
-type Model struct {
-	ID string `json:"id"`
-}
-
-// Models lists the models the key can use (GET /v1/models). It accepts the
-// OpenAI-style {"data":[{"id":…}]} list as well as a bare array or a
-// {"models":[…]} wrapper, with entries as objects (id or name) or strings.
-func (c *Client) Models(ctx context.Context) ([]Model, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/models", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("jev: request failed: %w", err)
-	}
-	defer res.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-	if err != nil {
-		return nil, fmt.Errorf("jev: read response: %w", err)
-	}
-	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("jev: HTTP %d: %s", res.StatusCode, snippet(raw))
-	}
-	var entries []json.RawMessage
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		var wrapped struct {
-			Data   []json.RawMessage `json:"data"`
-			Models []json.RawMessage `json:"models"`
-		}
-		if err := json.Unmarshal(raw, &wrapped); err != nil {
-			return nil, fmt.Errorf("jev: undecodable models list: %v", err)
-		}
-		entries = append(wrapped.Data, wrapped.Models...)
-	}
-	out := make([]Model, 0, len(entries))
-	for _, e := range entries {
-		var id string
-		if json.Unmarshal(e, &id) != nil {
-			var obj struct{ ID, Name string }
-			if err := json.Unmarshal(e, &obj); err != nil {
-				return nil, fmt.Errorf("jev: undecodable model entry: %v", err)
-			}
-			id = obj.ID
-			if id == "" {
-				id = obj.Name
-			}
-		}
-		if id != "" {
-			out = append(out, Model{ID: id})
-		}
-	}
-	return out, nil
 }
 
 func snippet(b []byte) string {

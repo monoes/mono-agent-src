@@ -82,6 +82,35 @@ func TestUnificationKeysAreTyped(t *testing.T) {
 	}
 }
 
+// autonomy.decider.provider is typed (not left in Extra), validates, and
+// survives a save.
+func TestDeciderProviderIsTyped(t *testing.T) {
+	var a Autonomy
+	if err := json.Unmarshal([]byte(`{"level":"mid","decider":{"kind":"jev","provider":"local"}}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if a.Decider.Provider != "local" || a.Decider.Extra["provider"] != nil {
+		t.Fatalf("decider = %+v", a.Decider)
+	}
+	if errs := validateAutonomy(&a); len(errs) != 0 {
+		t.Fatalf("valid provider refused: %v", errs)
+	}
+	raw, err := json.Marshal(a)
+	if err != nil || !strings.Contains(string(raw), `"provider":"local"`) {
+		t.Fatalf("marshal = %s %v", raw, err)
+	}
+	for _, name := range []string{"typesafe", "a", "my-box-2"} {
+		if !ValidDeciderProvider(name) {
+			t.Errorf("%q refused", name)
+		}
+	}
+	for _, name := range []string{"", "Local", "a/b", strings.Repeat("a", 33)} {
+		if ValidDeciderProvider(name) {
+			t.Errorf("%q accepted", name)
+		}
+	}
+}
+
 func TestSetPolicyStringsKeepsOtherPolicyKeys(t *testing.T) {
 	r := Role{ID: "x", Extra: map[string]json.RawMessage{"policy": json.RawMessage(`{"git":"read","denyTools":["Bash"]}`)}}
 	r.SetPolicyStrings("approvalTools", []string{"b", "a", "a"})
@@ -147,6 +176,7 @@ func TestValidateUnification(t *testing.T) {
 		{"holding without children", func(d *Doc) { d.Kind = OrgKindHolding }, "needs at least one entry in children"},
 		{"bad level", func(d *Doc) { d.Autonomy.Level = "turbo" }, "level \"turbo\""},
 		{"boss fallback", func(d *Doc) { d.Autonomy.Decider.Fallback = "boss" }, "fallback cannot be boss"},
+		{"bad decider provider", func(d *Doc) { d.Autonomy.Decider.Provider = "Local Box" }, "decider.provider \"Local Box\""},
 		{"unknown tier class", func(d *Doc) { d.Autonomy.Tiers = map[string]string{"everything": "routine"} }, "not a decision class"},
 		{"bad tier", func(d *Doc) { d.Autonomy.Tiers = map[string]string{"gate": "meh"} }, "must be routine, consequential, or irreversible"},
 		{"federation name", func(d *Doc) { d.Federation.AllowTo = []string{"../x"} }, "not an org name"},

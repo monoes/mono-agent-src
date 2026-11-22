@@ -46,13 +46,18 @@ export function jevDistribution(probabilities) {
     .sort((a, b) => b.p - a.p || a.verdict.localeCompare(b.verdict))
 }
 
-/** One-line summary of a decision's Jev answer, or null when Jev was not asked. */
+/**
+ * One-line summary of a decision's Jev answer, or null when Jev was not asked.
+ * A row answered by a decision provider other than TypeSafe carries
+ * `jev.provider` and reads "Jev · <provider> p=…"; TypeSafe rows are unchanged.
+ */
 export function jevSummary(d) {
   const j = d?.jev
   if (!j) return null
-  if (j.decided) return `Jev p=${fmtP(j.p)}`
+  const who = j.provider ? `Jev · ${j.provider}` : 'Jev'
+  if (j.decided) return `${who} p=${fmtP(j.p)}`
   const below = j.threshold != null ? ` below ${fmtThreshold(j.threshold)}` : ''
-  return `model decided (Jev p=${fmtP(j.p)}${below})`
+  return `model decided (${who} p=${fmtP(j.p)}${below})`
 }
 
 const jevColor = (d) => (d.jev?.decided ? 'var(--cyan, #00b4d8)' : '#eab308')
@@ -112,7 +117,11 @@ function DecisionRow({ d }) {
           <span style={mutedText} title={d.created_at}>{at ? new Date(at).toLocaleTimeString() : ''}</span>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', ...mutedText }}>
-          <span>by <b style={{ color: 'var(--text-secondary)' }}>{resolverLabel(d.resolver)}</b></span>
+          {/* A provider's resolver (jev:<provider>/<model>) can be long and has
+              no break point: it truncates, the full label in the tooltip. */}
+          <span data-testid="decision-resolver" title={resolverLabel(d.resolver)} style={{ display: 'inline-flex', gap: 4, minWidth: 0, maxWidth: '100%' }}>
+            by <b style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>{resolverLabel(d.resolver)}</b>
+          </span>
           {d.level && <span>at {d.level}</span>}
           {cost && <span>{cost}</span>}
           {d.latency_ms != null && <span>{formatDuration(d.latency_ms) || `${d.latency_ms} ms`}</span>}
@@ -120,7 +129,7 @@ function DecisionRow({ d }) {
           <JevChip d={d} open={jevOpen} onToggle={() => setJevOpen(v => !v)} />
         </div>
         {jevOpen && d.jev && <JevDistribution d={d} />}
-        {d.rationale && <div style={{ ...mono, fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{d.rationale}</div>}
+        {d.rationale && <div style={{ ...mono, fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{d.rationale}</div>}
         {d.answer_text && <div style={{ ...mono, fontSize: 11, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>Answer: {d.answer_text}</div>}
       </div>
     </Card>

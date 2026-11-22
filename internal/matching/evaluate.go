@@ -33,10 +33,11 @@ const evaluateTimeout = 120 * time.Second
 // row and tags the application "fit:<verdict-slug>". See the design spec for
 // the full rubric and rationale.
 //
-// runtime selects the backend: "jev" or "jev:<model>" asks TypeSafe Jev the
-// three gates and four rubric dimensions in one request and computes the
-// verdict in Go (stored runtime "jev:<model>"; a missing TypeSafe key is an
-// error, never a silent fallback). Any other value is a local agent runtime
+// runtime selects the backend: "jev" or "jev:<model>" asks the active Jev
+// decision provider (TypeSafe by default), "jev@<provider>[:<model>]" a named
+// one, the three gates and four rubric dimensions in one request and computes
+// the verdict in Go (stored runtime "jev:<model>", or "jev@<provider>:<model>";
+// a missing key is an error, never a silent fallback). Any other value is a local agent runtime
 // delegated through ExecFunc.
 func Evaluate(ctx context.Context, db *sql.DB, profileID, applicationID, runtime string) (*FitVerdict, error) {
 	store := applications.NewStore(db)
@@ -49,10 +50,10 @@ func Evaluate(ctx context.Context, db *sql.DB, profileID, applicationID, runtime
 	}
 
 	// Resolve the Jev key before any other work so a missing key fails fast.
-	jevModel, useJev := jevRuntime(runtime)
+	jevProvider, jevModel, useJev := jevRuntime(runtime)
 	var jc *jev.Client
 	if useJev {
-		if jc, err = newJevClient(ctx, db, profileID, jevModel); err != nil {
+		if jc, err = newJevClient(ctx, db, profileID, jevProvider, jevModel); err != nil {
 			return nil, fmt.Errorf("matching.Evaluate: %w", err)
 		}
 	}

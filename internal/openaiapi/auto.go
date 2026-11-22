@@ -225,7 +225,8 @@ func (g *Gateway) pickAuto(ctx context.Context, profileID, prompt string, candid
 		breaker.abandon()
 		return autoPick{Model: ruleChoice(candidates), By: "rule"}
 	}
-	switch breaker.record(err == nil) {
+	noProbability := errors.Is(err, errNoProbability)
+	switch breaker.record(err == nil || noProbability) {
 	case breakerOpened:
 		g.deps.Logf("auto: Jev gave no answer %d times in a row for profile %s: stop asking it for %s, the rule decides meanwhile", breaker.threshold, profileID, breaker.cooldown)
 	case breakerClosed:
@@ -233,6 +234,8 @@ func (g *Gateway) pickAuto(ctx context.Context, profileID, prompt string, candid
 	}
 	reason := ""
 	switch {
+	case noProbability:
+		reason = "no probability"
 	case err != nil:
 		reason = "no answer"
 	case g.deps.Auto.Threshold != nil && p < g.deps.Auto.Threshold(profileID):

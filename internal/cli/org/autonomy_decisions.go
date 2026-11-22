@@ -58,11 +58,35 @@ type jevDecisionView struct {
 	Verdict   string   `json:"verdict,omitempty"`
 	P         float64  `json:"p"`
 	Threshold *float64 `json:"threshold"`
+	// Provider is the decision provider that answered when it was not
+	// TypeSafe (whose rows name the model alone).
+	Provider string `json:"provider,omitempty"`
 }
 
 // jevBelowPattern reads the gate from a fallback rationale
-// ("jev <model>: <verdict> p=0.62 below 0.80 (...)").
-var jevBelowPattern = regexp.MustCompile(`^jev \S+: \S+ p=[0-9.]+ below ([0-9.]+)`)
+// ("jev <label>: <verdict> p=0.62 below 0.80 (...)", the label being
+// "<model>" for TypeSafe or "<provider>/<model>"). Rows written before labels
+// lost their spaces may hold a model name with spaces.
+var jevBelowPattern = regexp.MustCompile(`^jev .+?: \S+ p=[0-9.]+ below ([0-9.]+)`)
+
+// jevProviderPattern reads a provider from a resolver ("jev:<provider>/<model>")
+// or a rationale ("jev <provider>/<model>: …", "jev <provider>/<model> failed …").
+// A provider name has no "/" and TypeSafe models have none either, so the
+// first "/" ends the provider; a TypeSafe label ("jev:jev-1.13") has none.
+// The decider always writes a model after the "/"; older rows may have
+// none ("jev:hf/").
+var jevProviderPattern = regexp.MustCompile(`^jev[: ]([a-z0-9-]{1,32})/`)
+
+// jevProvider is the provider named by a decision's resolver or, when the
+// fallback model decided, its rationale; "" for TypeSafe.
+func jevProvider(d orgdecide.Decision) string {
+	for _, s := range []string{d.Resolver, d.Rationale} {
+		if m := jevProviderPattern.FindStringSubmatch(s); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
 
 func decisionRows(ds []orgdecide.Decision) []decisionRow {
 	rows := make([]decisionRow, 0, len(ds))
@@ -77,7 +101,7 @@ func jevView(d orgdecide.Decision) *jevDecisionView {
 	if !decided && len(d.Probabilities) == 0 {
 		return nil
 	}
-	v := &jevDecisionView{Decided: decided}
+	v := &jevDecisionView{Decided: decided, Provider: jevProvider(d)}
 	keys := make([]string, 0, len(d.Probabilities))
 	for k := range d.Probabilities {
 		keys = append(keys, k)

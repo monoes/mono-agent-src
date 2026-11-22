@@ -11,6 +11,7 @@ import { CommsLinks } from '../components/CommsLinks.jsx'
 import { emitCommsChanged } from '../lib/commsStatus.js'
 import { BrowserSubmitDetails, isBrowserSubmit } from '../components/hil/BrowserSubmitDetails.jsx'
 import { BrowserSiteDetails, isBrowserSite } from '../components/hil/BrowserSiteDetails.jsx'
+import { AutoDecideSkipped } from '../components/hil/AutoDecideSkipped.jsx'
 import { PersonItemsInbox } from '../components/bubbles/PersonItemViews.jsx'
 import { usePersonItemsContext } from '../components/bubbles/PersonItemsContext.jsx'
 
@@ -145,7 +146,15 @@ export function sortBySuggestion(items) {
     .map(x => x.item)
 }
 
-export function SuggestionChip({ choice, p, detail }) {
+// suggestionSource names who answered for the chip's tooltip: a suggestion's
+// `model` is "<provider>/<model>" when a decision provider other than
+// TypeSafe answered, else TypeSafe's model alone.
+function suggestionSource(model) {
+  if (typeof model !== 'string' || !model) return 'Jev'
+  return model.includes('/') ? `Jev (${model})` : `TypeSafe Jev (${model})`
+}
+
+export function SuggestionChip({ choice, p, detail, model }) {
   if (!choice) return null
   const color = SUGGESTION_COLORS[choice] || '#94a3b8'
   const pct = typeof p === 'number' ? `${Math.round(p * 100)}%` : ''
@@ -153,7 +162,7 @@ export function SuggestionChip({ choice, p, detail }) {
   return (
     <span
       data-testid="jev-suggestion"
-      title={`TypeSafe Jev suggests: ${label}${pct ? ` (${pct} confident)` : ''}${detail ? ` · ${detail}` : ''}. A suggestion only; you decide.`}
+      title={`${suggestionSource(model)} suggests: ${label}${pct ? ` (${pct} confident)` : ''}${detail ? ` · ${detail}` : ''}. A suggestion only; you decide.`}
       style={{
         padding: '2px 8px', borderRadius: 10, flexShrink: 0,
         background: `${color}1f`, color, border: `1px solid ${color}55`,
@@ -240,10 +249,13 @@ function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
             choice={suggestionOf(item).choice}
             p={suggestionOf(item).p}
             detail={suggestionOf(item).risk ? `risk ${suggestionOf(item).risk}` : ''}
+            model={suggestionOf(item).model}
           />
         )}
         {expanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
       </div>
+
+      <AutoDecideSkipped item={item} />
 
       {(item.person_id || item.hil_ref) && (
         <div style={{ padding: '6px 16px' }}>
@@ -542,6 +554,7 @@ function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
             choice={item.suggestion.suggest}
             p={item.suggestion.p}
             detail={item.suggestion.intro_fit ? `intro ${item.suggestion.intro_fit.replace(/_/g, ' ')}` : ''}
+            model={item.suggestion.model}
           />
         )}
         {expanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}

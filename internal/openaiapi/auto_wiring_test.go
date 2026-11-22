@@ -2,6 +2,7 @@ package openaiapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -37,6 +38,73 @@ func TestDefaultAutoNeedsTheSurfaceAndAKey(t *testing.T) {
 	}
 	if st := auto.Status(ctx, "bob"); st.Available {
 		t.Errorf("bob never switched the surface on: %+v", st)
+	}
+}
+
+// Status follows the api_auto surface's decision provider, as Choose does: a
+// keyless local provider is available with no key at all, and a TypeSafe key
+// does not make another provider available.
+func TestDefaultAutoStatusFollowsTheSurfacesProvider(t *testing.T) {
+	db := testdb.Open(t)
+	ctx := context.Background()
+	t.Setenv("TYPESAFE_API_KEY", "")
+	noProb := false
+	t.Cleanup(jevconf.RegisterKind("fake-openaiapi", func(jevconf.Provider, string) (jev.Backend, error) {
+		fb := jevtest.NewFakeBackend(nil)
+		if noProb {
+			fb.Caps.Probability = jev.ProbNone
+		}
+		return fb, nil
+	}))
+	for _, p := range []jevconf.Provider{
+		{Name: "local", Kind: "fake-openaiapi", BaseURL: "http://localhost:11434/v1"},
+		{Name: "keyed", Kind: "fake-openaiapi", BaseURL: "http://localhost:11434/v1", SecretName: "decision-keyed"},
+	} {
+		if err := jevconf.SaveProvider(ctx, db.DB, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := jevconf.SetEnabled(db.DB, "alice", jevconf.APIAuto, true); err != nil {
+		t.Fatal(err)
+	}
+	auto := DefaultAuto(db.DB)
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, "local"); err != nil {
+		t.Fatal(err)
+	}
+	if st := auto.Status(ctx, "alice"); !st.Available || st.KeySource != jevconf.SourceKeyless {
+		t.Errorf("a keyless provider without any key: %+v", st)
+	}
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, "keyed"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	st := auto.Status(ctx, "alice")
+	if st.Available || !strings.Contains(st.Missing, `"keyed"`) || !strings.Contains(st.Missing, "decision-keyed") || !strings.Contains(st.Missing, "Jev") {
+		t.Errorf("a keyed provider without its key, a TypeSafe key set: %+v", st)
+	}
+	// A pick without a probability is no pick (the rule decides).
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, "local"); err != nil {
+		t.Fatal(err)
+	}
+	if err := jevconf.SaveProvider(ctx, db.DB, jevconf.Provider{Name: "local", Kind: "fake-openaiapi", BaseURL: "http://localhost:11434/v1",
+		Caps: jev.Capabilities{Probability: jev.ProbNone}}); err != nil {
+		t.Fatal(err)
+	}
+	noProb = true
+	if id, p, err := auto.Choose(ctx, "alice", "hi", map[string]string{"a": "A", "b": "B"}); !errors.Is(err, errNoProbability) || id != "" || p != 0 {
+		t.Errorf("no probability: %q %v %v", id, p, err)
+	}
+	noProb = false
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, "keyed"); err != nil {
+		t.Fatal(err)
+	}
+	// Back on TypeSafe the string is today's.
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TYPESAFE_API_KEY", "")
+	if st := auto.Status(ctx, "alice"); st.Missing != missingJevKey {
+		t.Errorf("typesafe, no key: %+v", st)
 	}
 }
 

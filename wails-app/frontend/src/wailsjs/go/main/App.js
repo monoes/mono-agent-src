@@ -994,8 +994,24 @@ export function IsReady() {
   return window['go']['main']['App']['IsReady']();
 }
 
+export function JevAddProvider(arg1) {
+  return window['go']['main']['App']['JevAddProvider'](arg1);
+}
+
+export function JevProbeProvider(arg1) {
+  return window['go']['main']['App']['JevProbeProvider'](arg1);
+}
+
+export function JevProviders() {
+  return window['go']['main']['App']['JevProviders']();
+}
+
 export function JevRemoveKey() {
   return window['go']['main']['App']['JevRemoveKey']();
+}
+
+export function JevRemoveProvider(arg1) {
+  return window['go']['main']['App']['JevRemoveProvider'](arg1);
 }
 
 export function JevSetKey(arg1) {
@@ -1016,6 +1032,10 @@ export function JevTestKey() {
 
 export function JevUsage(arg1) {
   return window['go']['main']['App']['JevUsage'](arg1);
+}
+
+export function JevUseProvider(arg1, arg2) {
+  return window['go']['main']['App']['JevUseProvider'](arg1, arg2);
 }
 
 export function KeyringClearPassphrase() {

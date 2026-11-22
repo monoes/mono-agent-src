@@ -281,6 +281,9 @@ type Env struct {
 	// that proves the API accepts it (network).
 	JevKey    func(ctx context.Context) (source string, err error)
 	JevModels func(ctx context.Context) error
+	// JevProvider names the machine's default decision provider ("typesafe"
+	// unless `jev provider use` chose another); JevModels checks that one.
+	JevProvider func() string
 
 	// Automations reads installed packages and their selector health
 	// (local files and the database; never seeds or installs).

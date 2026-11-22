@@ -170,6 +170,8 @@ func TestTheProposalCreatorRefusesWhatTheToolsRefuse(t *testing.T) {
 		"nothing to change":      {"autonomy.set", `{}`},
 		"bad decider":            {"autonomy.set", `{"decider":"coin"}`},
 		"bad threshold":          {"autonomy.set", `{"decider_threshold":7}`},
+		"provider without jev":   {"autonomy.set", `{"decider":"model","decider_provider":"typesafe"}`},
+		"unknown provider":       {"autonomy.set", `{"decider":"jev","decider_provider":"nope"}`},
 		"verb approval.set":      {"approval.set", `{"level":"none"}`},
 		"revoke without a grant": {"grant.remove", grantArgs},
 		"verb empty":             {"", grantArgs},
@@ -367,7 +369,7 @@ func TestEveryGrantStringIsCappedAt128Bytes(t *testing.T) {
 func TestEveryAutonomyStringIsCappedAt128Bytes(t *testing.T) {
 	f := propFixture(t)
 	long := strings.Repeat("m", 129)
-	for _, field := range []string{"level", "decider", "decider_runtime", "decider_model", "on_decider_failure"} {
+	for _, field := range []string{"level", "decider", "decider_runtime", "decider_model", "decider_provider", "on_decider_failure"} {
 		_, err := f.run(t, "proposal", "create", "growth", "--verb", "autonomy.set", "--args-json", jsonOf(t, map[string]string{field: long}))
 		if err == nil || !strings.Contains(err.Error(), "longer than 128 bytes") {
 			t.Errorf("%s of 129 bytes: %v", field, err)
@@ -409,5 +411,14 @@ func TestCreateDoesNotReturnTheStoresErrorText(t *testing.T) {
 	_, err := f.run(t, "proposal", "create", "growth", "--verb", "grant.add", "--args-json", grantArgs)
 	if err == nil || strings.Contains(err.Error(), "org_proposals") || strings.Contains(err.Error(), "no such table") {
 		t.Fatalf("create: %v", err)
+	}
+}
+
+// A proposal may name the jev decider's provider; the preview says so.
+func TestAutonomyProposalNamesTheDeciderProvider(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "autonomy.set", `{"decider":"jev","decider_provider":"typesafe"}`)
+	if !strings.Contains(p["preview_text"].(string), `decider provider "typesafe"`) {
+		t.Fatalf("preview = %v", p["preview_text"])
 	}
 }

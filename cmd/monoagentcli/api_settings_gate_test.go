@@ -12,7 +12,8 @@ import (
 
 // What widens what the OpenAI-compatible API reaches, or where Jev sends a
 // profile's data, behind no more than a --yes is the user's own: `api config
-// set|unset`, `jev enable` and `jev key set|adopt|remove` refuse an agent's
+// set|unset`, `jev enable`, `jev key set|adopt|remove` and `jev provider
+// add|use|remove` refuse an agent's
 // shell, the chat and a workflow (exit 3, operator_only), and the user's key
 // stays; --dry-run stays open (#845 security review).
 func TestAPISettingsAndJevAreTheOperatorsOnly(t *testing.T) {
@@ -37,6 +38,9 @@ func TestAPISettingsAndJevAreTheOperatorsOnly(t *testing.T) {
 			{"agent-key\n", []string{"jev", "key", "set"}},
 			{"", []string{"jev", "key", "adopt"}},
 			{"", []string{"jev", "key", "remove"}},
+			{"agent-key\n", []string{"jev", "provider", "add", "x", "--kind", "openai", "--base-url", "https://evil.example", "--key-stdin", "--no-probe"}},
+			{"", []string{"jev", "provider", "use", "typesafe", "--yes"}},
+			{"", []string{"jev", "provider", "remove", "x"}},
 		} {
 			out, _, err := runCLIIn(t, home, c.stdin, append([]string{"--json"}, c.args...)...)
 			if exitCodeFor(err) != 3 || jsonCode(err) != "operator_only" {

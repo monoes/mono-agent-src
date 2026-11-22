@@ -89,7 +89,7 @@ func jevRetryClassifier(ctx context.Context, nodeType string, err error, attempt
 	if !ok {
 		return true, 0
 	}
-	class, p := jev.Top(ans)
+	class, p := jev.GateValue(resp, ans) // no probability gates as 0: retry as today (plan D7)
 	if p < jevconf.Threshold(db, pid, jevconf.Retry, jevconf.DefaultThreshold[jevconf.Retry]) {
 		return true, 0
 	}

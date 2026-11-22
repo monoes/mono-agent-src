@@ -18,6 +18,7 @@ import (
 	agentnodes "github.com/monoes/mono-agent/internal/nodes/agent"
 	choosenodes "github.com/monoes/mono-agent/internal/nodes/ai/choose"
 	crawlnodes "github.com/monoes/mono-agent/internal/nodes/ai/crawl"
+	decidenodes "github.com/monoes/mono-agent/internal/nodes/ai/decide"
 	aisubnodes "github.com/monoes/mono-agent/internal/nodes/aisub"
 	aitasknodes "github.com/monoes/mono-agent/internal/nodes/aitask"
 	applicationsnodes "github.com/monoes/mono-agent/internal/nodes/applications"
@@ -87,6 +88,7 @@ func Build(db *sql.DB) *workflow.NodeTypeRegistry {
 	// Goal-driven browser agent (TypeSafe Jev) in the user's own browser.
 	browserjev.RegisterAll(registry)
 	choosenodes.RegisterAll(registry)     // ai.choose: route items by a TypeSafe Jev choice
+	decidenodes.RegisterAll(registry)     // ai.decide: one typed question per item, routed by answer
 	guardrailsnodes.RegisterAll(registry) // ai.guardrails: check or sanitize text (n8n Guardrails)
 	evalnode.RegisterAll(registry)        // core.evaluation: n8n Evaluation (workflow evaluate)
 

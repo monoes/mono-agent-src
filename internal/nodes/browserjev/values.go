@@ -11,6 +11,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jevpick"
+	"github.com/monoes/mono-agent/internal/nodes/decisionclient"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -282,6 +283,7 @@ func pickValue(ctx context.Context, c *jev.Client, values []namedValue, sc scrub
 		return nil, err
 	}
 	name, p := jev.Top(resp.Answers["value"])
+	p = decisionclient.Gate(resp, p)
 	out := &valuePick{name: name, probability: p, tokens: resp.Usage.InputTokens}
 	if name == noneValue {
 		return out, nil

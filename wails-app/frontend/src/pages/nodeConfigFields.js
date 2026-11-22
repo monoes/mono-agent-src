@@ -447,9 +447,32 @@ export const NODE_CONFIG_FIELDS = {
     { key: 'min_confidence', label: 'Min Probability', type: 'number', default: 0.6,
       help: 'Items below this top probability go to the low_confidence output.' },
     { key: 'output_key', label: 'Output Key', type: 'text', default: 'choice' },
-    { key: 'api_key', label: 'TypeSafe API Key', type: 'password', default: '@secret:typesafe' },
-    { key: 'model', label: 'Jev Model', type: 'text', default: 'jev-latest' },
+    { key: 'provider', label: 'Decision Provider', type: 'text', default: '',
+      help: 'A decision provider added with `monoagentcli jev provider add`. Empty = the default.' },
+    { key: 'api_key', label: 'TypeSafe API Key', type: 'password', default: '@secret:typesafe', help: 'Applies to the TypeSafe provider.' },
+    { key: 'model', label: 'Jev Model', type: 'text', default: 'jev-latest', help: 'Applies to the TypeSafe provider.' },
     { key: 'concurrency', label: 'Concurrency', type: 'number', default: 4, help: 'Requests in flight (max 8).' },
+  ],
+  'ai.decide': [
+    { key: 'kind', label: 'Kind', type: 'select', options: ['noul', 'score', 'choice'], required: true, default: 'noul',
+      help: 'noul: a yes/no question. score: a level on an ordered rubric. choice: one of your options.' },
+    { key: 'question', label: 'Question', type: 'textarea', rows: 3, required: true, default: '' },
+    { key: 'input', label: 'Input', type: 'textarea', rows: 3, default: '', placeholder: '{{$json.text}}',
+      help: 'What the provider reads per item ({{$json.field}} placeholders). Empty = the fields below, or the whole item.' },
+    { key: 'fields', label: 'Fields', type: 'array', help: 'Item keys to send when Input is empty.' },
+    { key: 'criteria_true', label: 'Yes Means', type: 'text', default: '', depends_on: { key: 'kind', values: ['noul'] } },
+    { key: 'criteria_false', label: 'No Means', type: 'text', default: '', depends_on: { key: 'kind', values: ['noul'] } },
+    { key: 'levels', label: 'Levels', type: 'array', depends_on: { key: 'kind', values: ['score'] },
+      help: '2 to 10 level descriptions, lowest first. Level i goes out on handle level_i.' },
+    { key: 'options', label: 'Options (JSON)', type: 'code', language: 'json', default: '', depends_on: { key: 'kind', values: ['choice'] },
+      placeholder: '{"refund": "asks for money back", "bug": "reports a defect"}',
+      help: '{id: description} or a list of ids. Each id becomes an output handle.' },
+    { key: 'min_confidence', label: 'Min Probability', type: 'number', default: 0.6,
+      help: 'Items below this probability go to the low_confidence output.' },
+    { key: 'provider', label: 'Decision Provider', type: 'text', default: '',
+      help: 'A decision provider added with `monoagentcli jev provider add`. Empty = the default.' },
+    { key: 'model', label: 'Model', type: 'text', default: '',
+      help: "Empty = the provider's model. For a provider other than TypeSafe it is used only when Decision Provider names that provider here, and a jev-… model never is." },
   ],
   'ai.chat': [
     { key: 'model', label: 'Model', type: 'text', default: '' },
@@ -633,8 +656,8 @@ export const BROWSER_NODE_GENERIC = [
 
 // ── Output ports ──────────────────────────────────────────────────────────────
 // Handles are not declared in node schemas, so the canvas derives them here.
-// Nodes whose handles come from their config (core.switch, ai.choose) must be
-// re-derived whenever that config changes.
+// Nodes whose handles come from their config (core.switch, ai.choose,
+// ai.decide) must be re-derived whenever that config changes.
 
 // parseCaseList accepts an array, a JSON-array string (the textarea fallback
 // editor) or a comma-separated string.
@@ -702,6 +725,30 @@ export function caseHandles(raw, { handleFallsBackToValue = false } = {}) {
   return out
 }
 
+// decideHandles mirrors ai.decide (decide.go): yes/no for noul, level_<i>
+// per level for score, the option ids for choice ({id: description} keys
+// sorted, a list in order), then low_confidence.
+export function decideHandles(config) {
+  const cfg = config || {}
+  let hs = []
+  if (cfg.kind === 'noul') hs = ['yes', 'no']
+  if (cfg.kind === 'score') {
+    const raw = cfg.levels
+    const levels = typeof raw === 'string' && !raw.trim().startsWith('[')
+      ? raw.split('\n').map(x => x.trim()).filter(Boolean)
+      : arrayFieldItems(raw)
+    hs = levels.map((_, i) => `level_${i}`)
+  }
+  if (cfg.kind === 'choice') {
+    let opts = cfg.options
+    if (typeof opts === 'string') { try { opts = JSON.parse(opts) } catch { opts = [] } }
+    if (Array.isArray(opts)) hs = opts.map(o => (o && typeof o === 'object' ? String(o.id || o.value || '') : String(o ?? '')).trim())
+    else if (opts && typeof opts === 'object') hs = Object.keys(opts).map(k => k.trim()).sort()
+    hs = hs.filter((h, i) => h && h !== 'low_confidence' && hs.indexOf(h) === i)
+  }
+  return [...hs, 'low_confidence']
+}
+
 const port = id => ({ id, label: id })
 
 export function deriveInputs(type) {
@@ -722,6 +769,7 @@ export function deriveOutputs(type, config = {}) {
     const hs = caseHandles(cfg.cases, { handleFallsBackToValue: true }).filter(h => h !== 'low_confidence')
     return [...hs, 'low_confidence'].map(port)
   }
+  if (type === 'ai.decide')              return decideHandles(cfg).map(port)
   if (type === LOOP_NODE_TYPE)           return [port('loop'), port('done')]
   if (type === 'core.filter')            return [port('main'), port('rejected')]
   if (type === 'core.human_in_loop')     return [port('main'), port('rejected')]
@@ -891,15 +939,17 @@ export function hasForbiddenCycle(nodes, edges) {
 export function portsDependOnConfig(type, key) {
   if (type === 'core.switch') return key === 'cases' || key === 'default_handle'
   if (type === 'ai.choose') return key === 'cases'
+  if (type === 'ai.decide') return key === 'kind' || key === 'levels' || key === 'options'
   return false
 }
 
-// isCaseListSettled is false while a JSON-array string is mid-edit (does not
-// parse yet) — callers keep the current ports instead of dropping edges.
+// isCaseListSettled is false while a JSON-array (or, for ai.decide's
+// options, JSON-object) string is mid-edit (does not parse yet) — callers
+// keep the current ports instead of dropping edges.
 export function isCaseListSettled(raw) {
   if (typeof raw !== 'string') return true
   const s = raw.trim()
-  if (!s.startsWith('[')) return true
+  if (!s.startsWith('[') && !s.startsWith('{')) return true
   try { JSON.parse(s); return true } catch { return false }
 }
 

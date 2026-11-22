@@ -1,0 +1,123 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "help": "noul: a yes/no question. score: a level on an ordered rubric. choice: one of your options.",
+      "key": "kind",
+      "label": "Kind",
+      "options": [
+        "noul",
+        "score",
+        "choice"
+      ],
+      "required": true,
+      "type": "select"
+    },
+    {
+      "help": "What to decide about each item. Item content is always treated as data, never instructions.",
+      "key": "question",
+      "label": "Question",
+      "required": true,
+      "rows": 3,
+      "type": "textarea"
+    },
+    {
+      "help": "What the provider reads per item. Supports {{$json.field}} placeholders. Empty = the fields below, or the whole item. Capped at 6000 characters.",
+      "key": "input",
+      "label": "Input",
+      "placeholder": "{{$json.text}}",
+      "required": false,
+      "rows": 3,
+      "type": "textarea"
+    },
+    {
+      "help": "Item keys to send when Input is empty (a projection of the item).",
+      "item_type": "text",
+      "key": "fields",
+      "label": "Fields",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "depends_on": {
+        "key": "kind",
+        "values": [
+          "noul"
+        ]
+      },
+      "help": "Optional: what a yes stands for.",
+      "key": "criteria_true",
+      "label": "Yes Means",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "depends_on": {
+        "key": "kind",
+        "values": [
+          "noul"
+        ]
+      },
+      "help": "Optional: what a no stands for.",
+      "key": "criteria_false",
+      "label": "No Means",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "depends_on": {
+        "key": "kind",
+        "values": [
+          "score"
+        ]
+      },
+      "help": "2 to 10 level descriptions, lowest first. Level i goes out on handle level_i.",
+      "item_type": "text",
+      "key": "levels",
+      "label": "Levels",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "depends_on": {
+        "key": "kind",
+        "values": [
+          "choice"
+        ]
+      },
+      "help": "{id: description} or a list of ids. Each id becomes an output handle.",
+      "key": "options",
+      "label": "Options (JSON)",
+      "language": "json",
+      "placeholder": "{\"refund\": \"asks for money back\", \"bug\": \"reports a defect\"}",
+      "required": false,
+      "rows": 4,
+      "type": "code"
+    },
+    {
+      "default": 0.6,
+      "help": "Items whose answer's probability is below this go to the low_confidence handle (for yes/no the probability of the answer given).",
+      "key": "min_confidence",
+      "label": "Min Probability",
+      "max": 1,
+      "min": 0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "help": "A decision provider added with `monoagentcli jev provider add`. Empty = the default.",
+      "key": "provider",
+      "label": "Decision Provider",
+      "required": false,
+      "type": "text"
+    },
+    {
+      "help": "Empty = the provider's model. A provider other than TypeSafe takes it only when this node also names that provider.",
+      "key": "model",
+      "label": "Model",
+      "required": false,
+      "type": "text"
+    }
+  ]
+}

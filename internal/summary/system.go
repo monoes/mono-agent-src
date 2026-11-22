@@ -80,13 +80,17 @@ type RecordingsSection struct {
 }
 
 type JevSection struct {
+	// KeyConfigured and KeySource are about Provider's key ("keyless" for a
+	// provider that needs none).
 	KeyConfigured   bool    `json:"key_configured"`
 	KeySource       string  `json:"key_source"`
 	SurfacesEnabled int     `json:"surfaces_enabled"`
 	Calls24h        int     `json:"calls_24h"`
 	Failures24h     int     `json:"failures_24h"`
 	EstimatedUSD24h float64 `json:"estimated_usd_24h"`
-	Error           string  `json:"error,omitempty"`
+	// Provider is the machine's default decision provider ("typesafe" unless chosen).
+	Provider string `json:"provider"`
+	Error    string `json:"error,omitempty"`
 }
 
 type SessionRow struct {
@@ -256,12 +260,13 @@ func recordingsSection(o Options) *RecordingsSection {
 // jevSection reads configuration and the local usage table only — no call
 // to TypeSafe, not even a key test.
 func jevSection(ctx context.Context, o Options) *JevSection {
-	s := &JevSection{}
+	s := &JevSection{Provider: jevconf.DefaultProvider(o.DB)}
 	if o.DB == nil {
 		s.Error = noDB
 		return s
 	}
-	if src, err := jevconf.KeySource(ctx, o.DB, o.ProfileID); err == nil {
+	// The key of the provider shown (the machine default), listed, never read.
+	if src, err := jevconf.ProviderKeySourceOf(ctx, o.DB, o.ProfileID, s.Provider); err == nil {
 		s.KeyConfigured, s.KeySource = true, src
 	}
 	for _, surf := range jevconf.Surfaces {

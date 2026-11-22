@@ -10,6 +10,7 @@ import { LEVELS, DECIDERS, isPaused, effectiveLevel, JEV_THRESHOLD, parseJevThre
 import { toMillis } from './waiting.js'
 import FullAutoConfirm from './FullAutoConfirm.jsx'
 import { Chip, mono, smallBtn } from './ui.jsx'
+import { sampledMax } from '../settings/jevShared.jsx'
 
 const PAUSE_OPTIONS = [
   { id: '30m', labelKey: 'orgs.autonomy.pauseFor30m' },
@@ -58,6 +59,49 @@ function JevThreshold({ value, disabled, onSave }) {
   )
 }
 
+// JevProviderSelect picks the decision provider the jev decider asks:
+// "Default" or a saved provider. Shown once a provider besides the built-in
+// one exists, or when the org already names one. "Default" names no provider:
+// it resolves through the profile's decider choice before the machine default,
+// and neither `org autonomy show` nor `jev provider list` reports the former.
+function JevProviderSelect({ providers, value, disabled, onChange }) {
+  const { t } = useTranslation()
+  const list = providers?.providers || []
+  if (!value && !list.some(p => !p.builtin)) return null
+  const names = list.map(p => p.name)
+  if (value && !names.includes(value)) names.push(value)
+  return (
+    <label title={t('orgs.autonomy.jevProviderHint')} style={{ display: 'flex', alignItems: 'center', gap: 4, ...mono, fontSize: 10, color: 'var(--text-muted)' }}>
+      {t('orgs.autonomy.jevProvider')}
+      <select
+        aria-label={t('orgs.autonomy.jevProvider')}
+        className="filter-select"
+        value={value}
+        disabled={disabled}
+        onChange={e => onChange(e.target.value)}
+        style={{ fontSize: 10, padding: '2px 22px 2px 6px' }}
+      >
+        <option value="">{t('orgs.autonomy.jevProviderDefault')}</option>
+        {names.map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
+    </label>
+  )
+}
+
+// sampledDeciderNote is the warning for a jev decider whose provider samples
+// (5 answers, add-one smoothed): its verdict has three options at level mid
+// (approve, deny, escalate) and two at full, so its top probability is at
+// most 0.75 or 6/7. Above that the model decider decides every item; at it,
+// only a unanimous five settles one. null when neither applies.
+export function sampledDeciderNote(level, threshold, t) {
+  if (level !== 'mid' && level !== 'full') return null
+  const options = level === 'mid' ? 3 : 2
+  const max = sampledMax(options)
+  if (threshold > max + 1e-9) return t('orgs.autonomy.jevSampledUnreachable', { max: max.toFixed(2), count: options })
+  if (threshold > max - 1e-9) return t('orgs.autonomy.jevSampledUnanimous', { max: max.toFixed(2), count: options })
+  return null
+}
+
 export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
   const { t } = useTranslation()
   const [autonomy, setAutonomy] = useState(null)
@@ -95,6 +139,16 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
     return () => clearInterval(iv)
   }, [load])
 
+  // The saved decision providers, read only while the decider is Jev.
+  const [providers, setProviders] = useState(null)
+  const isJev = autonomy?.decider?.kind === 'jev'
+  useEffect(() => {
+    if (!isJev) return undefined
+    let live = true
+    Promise.resolve(api.jevProviders()).then(p => { if (live) setProviders(p || null) }).catch(() => {})
+    return () => { live = false }
+  }, [isJev])
+
   const apply = useCallback(async (fn, op) => {
     setBusy(true)
     try {
@@ -121,6 +175,12 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
     apply(() => api.setOrgAutonomy(orgName, { decider: { kind: 'jev', threshold } }), 'set jev threshold')
   }
 
+  // '' puts the jev decider back on the machine's default provider.
+  const setProvider = (provider) => {
+    if (provider === (autonomy?.decider?.provider || '')) return
+    apply(() => api.setOrgAutonomy(orgName, { decider: { kind: 'jev', provider } }), 'set jev provider')
+  }
+
   if (!orgName) return null
 
   if (loading) {
@@ -142,6 +202,10 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
   const eff = effectiveLevel(autonomy)
   const deciderKind = autonomy.decider?.kind || 'model'
   const fallbackModel = [autonomy.decider?.runtime, autonomy.decider?.model].filter(Boolean).join(' · ')
+  const deciderProvider = autonomy.decider?.provider || providers?.default || 'typesafe'
+  const deciderProb = (providers?.providers || []).find(p => p.name === deciderProvider)?.caps?.probability
+  const sampledNote = deciderKind === 'jev' && deciderProb === 'sampled'
+    ? sampledDeciderNote(autonomy.level, autonomy.decider?.threshold ?? JEV_THRESHOLD, t) : null
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -182,6 +246,10 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
           {DECIDERS.map(d => <option key={d.id} value={d.id} title={t(`orgs.autonomy.deciders.${d.id}Hint`)}>{t(`orgs.autonomy.deciders.${d.id}`)}</option>)}
         </select>
       </label>
+
+      {deciderKind === 'jev' && (
+        <JevProviderSelect providers={providers} value={autonomy.decider?.provider || ''} disabled={busy} onChange={setProvider} />
+      )}
 
       {deciderKind === 'jev' && (
         <JevThreshold value={autonomy.decider?.threshold} disabled={busy} onSave={setThreshold} />
@@ -234,9 +302,17 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
         <Chip color="#eab308">{t('orgs.autonomy.actingAs', { level: t(`orgs.autonomy.levels.${eff}`, { defaultValue: eff }) })}</Chip>
       )}
 
+      {sampledNote && (
+        <div data-testid="jev-decider-sampled" role="note" style={{
+          flexBasis: '100%', display: 'flex', justifyContent: 'flex-end', ...mono, fontSize: 10, color: 'var(--yellow, #eab308)',
+        }}>
+          <span style={{ maxWidth: 560, textAlign: 'right' }}>{sampledNote}</span>
+        </div>
+      )}
+
       {deciderKind === 'jev' && (
         <div data-testid="jev-decider-note" style={{ flexBasis: '100%', display: 'flex', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap', ...mono, fontSize: 9.5, color: 'var(--text-muted)' }}>
-          <span>{t('orgs.autonomy.jevNeedsKey')}</span>
+          {(autonomy.decider?.provider || providers?.default || 'typesafe') === 'typesafe' && <span>{t('orgs.autonomy.jevNeedsKey')}</span>}
           {onOpenJevSettings ? (
             <button
               onClick={onOpenJevSettings}
