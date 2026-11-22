@@ -27,6 +27,7 @@ func Args() []string {
 		"-c", "core.fsmonitor=false",
 		"-c", "core.alternateRefsCommand=",
 		"-c", "sequence.editor=true",
+		"-c", "diff.external=",
 		"-c", "core.hooksPath=/dev/null",
 		"-c", "core.pager=cat",
 		"-c", "core.editor=true",
@@ -56,7 +57,7 @@ var dropped = map[string]bool{
 	"GIT_EXTERNAL_DIFF": true, "GIT_PAGER": true, "GIT_EDITOR": true, "GIT_SEQUENCE_EDITOR": true,
 	"GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true, "GIT_EXEC_PATH": true,
 	"GIT_TRACE": true, "GIT_TRACE2": true, "GIT_TRACE2_EVENT": true, "GIT_TRACE2_PERF": true,
-	"GIT_NO_LAZY_FETCH": true, "GIT_TEMPLATE_DIR": true, "GIT_ALLOW_PROTOCOL": true,
+	"GIT_NO_LAZY_FETCH": true, "GIT_TEMPLATE_DIR": true, "GIT_ALLOW_PROTOCOL": true, "GIT_ATTR_SOURCE": true,
 }
 
 // Env returns environ without the variables that redirect git, inject configuration
@@ -70,7 +71,7 @@ func Env(environ []string) []string {
 	for _, kv := range environ {
 		k, _, _ := strings.Cut(kv, "=")
 		k = strings.ToUpper(k)
-		if dropped[k] || strings.HasPrefix(k, "GIT_CONFIG_KEY_") || strings.HasPrefix(k, "GIT_CONFIG_VALUE_") ||
+		if dropped[k] || strings.HasPrefix(k, "GIT_TRACE") || strings.HasPrefix(k, "GIT_CONFIG_KEY_") || strings.HasPrefix(k, "GIT_CONFIG_VALUE_") ||
 			k == "GIT_SSH" || k == "GIT_SSH_COMMAND" || k == "GIT_SSH_VARIANT" {
 			continue
 		}
@@ -86,7 +87,29 @@ func Environ() []string { return Env(os.Environ()) }
 // exec.CommandContext(ctx, "git", args...). The caller sets Dir or passes -C itself when git
 // must run in a particular folder (put -C in args, which then follows Args).
 func Command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git", append(Args(), args...)...)
+	cmd := exec.CommandContext(ctx, "git", append(Args(), noDiffPrograms(args)...)...)
 	cmd.Env = Environ()
 	return cmd
+}
+
+// noDiffPrograms puts --no-ext-diff and --no-textconv after a diff-producing subcommand: a
+// repository's diff.<driver>.textconv names a program that no empty -c value can pin, because the
+// driver name is the repository's to choose.
+func noDiffPrograms(args []string) []string {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-C" || a == "-c":
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			switch a {
+			case "diff", "log", "show", "format-patch", "whatchanged":
+				out := append([]string{}, args[:i+1]...)
+				out = append(out, "--no-ext-diff", "--no-textconv")
+				return append(out, args[i+1:]...)
+			}
+			return args
+		}
+	}
+	return args
 }
