@@ -108,8 +108,11 @@ func TestJevEnableNamesTheHostAndTakesAProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m := jsonMap(t, out); m["provider"] != "local" || m["host"] != "localhost:4321" || m["enabled"] != true {
+	if m := jsonMap(t, out); m["enabled"] != true {
 		t.Fatalf("enable json = %s", out)
+	}
+	if _, errOut, _ := runJev(t, cfg, "", "enable", "capture", "--yes"); !strings.Contains(errOut, `provider "local" at localhost:4321`) {
+		t.Fatalf("--json: the host is not on stderr: %q", errOut)
 	}
 	if jevconf.ActiveProvider(db, "default", jevconf.Capture) != "local" || !jevconf.Enabled(db, "default", jevconf.Capture) {
 		t.Fatal("provider or enable not stored")

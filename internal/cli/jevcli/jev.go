@@ -183,7 +183,9 @@ func newJevEnableCmd(d Deps) *cobra.Command {
 			}
 			if d.JSONOutput() {
 				return writeJevJSON(out, map[string]any{"profile_id": d.ProfileID(), "surface": string(s),
-					"enabled": true, "threshold": eff, "egress": jevconf.Egress[s], "provider": p.Name, "host": host})
+					// The document the MCP tool api_auto_set repeats byte for byte (jev_auto_mcp_test.go):
+					// the provider and host are on stderr with the egress.
+					"enabled": true, "threshold": eff, "egress": jevconf.Egress[s]})
 			}
 			fmt.Fprintf(out, "Jev enabled for %s (profile %s, threshold %s).\n", s, d.ProfileID(), strconv.FormatFloat(eff, 'f', -1, 64))
 			return nil
