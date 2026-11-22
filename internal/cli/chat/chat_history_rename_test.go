@@ -1,12 +1,10 @@
 package chat
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
 func TestChatHistoryRenameNamesTheChatAndClearsIt(t *testing.T) {
@@ -99,9 +97,14 @@ func TestSessionSettingsShowTheDefaultMeshName(t *testing.T) {
 		decodeChatJSON(t, out, &v)
 		return v
 	}
-	conv, _ := store.GetConversation(c.ID, "default")
-	if want := coderhost.AliasFromTitle(filepath.Base(conv.Cwd)); view().DefaultAlias != want || want == "" {
-		t.Fatalf("an unnamed chat in a folder has default %q, want the folder's name %q", view().DefaultAlias, want)
+	// An unnamed chat shows no default of its own, even with a first prompt (#1764): the host then
+	// uses the project-and-time name, which says nothing about the work.
+	seedTurn(t, store, db, c.ID, "t1", "Run the shell command sleep 90", "completed", "2026-10-22T09:00:00Z")
+	if got := view().DefaultAlias; got != "" {
+		t.Fatalf("an unnamed chat has default %q, want none (never the first prompt or the folder)", got)
+	}
+	if got, _ := chatOwnTitle(db, "default", c.ID); got != "" {
+		t.Fatalf("chatOwnTitle of an unnamed chat = %q, want empty", got)
 	}
 	runChatHistory(t, dbPath, "default", "rename", c.ID, "meta challenge")
 	if got := view().DefaultAlias; got != "meta-challenge" {
