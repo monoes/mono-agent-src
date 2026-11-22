@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,15 +33,36 @@ func PrintJSON(v interface{}) error {
 	return enc.Encode(v)
 }
 
-// TruncateStr shortens s to at most n characters, appending "..." if truncated.
+// TruncateStr shortens s to at most n characters (runes), appending "..." if truncated.
 func TruncateStr(s string, n int) string {
-	if len(s) <= n {
+	if n < 0 {
+		n = 0
+	}
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
 	if n <= 3 {
-		return s[:n]
+		return string(r[:n])
 	}
-	return s[:n-3] + "..."
+	return string(r[:n-3]) + "..."
+}
+
+// WebURL parses raw and accepts only an http or https URL with a host: the pages the
+// CLI may open in the user's logged-in browser. file:, javascript:, chrome: and the like
+// are refused.
+func WebURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL %q: %w", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported URL scheme %q — only http and https are allowed", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("invalid URL %q: no host", raw)
+	}
+	return u, nil
 }
 
 // userHomeDir is os.UserHomeDir; a test replaces it.
