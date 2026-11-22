@@ -22,4 +22,13 @@ describe('useTaskBoard session pulse', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
     expect(sess.board).toHaveBeenCalledTimes(2) // unchanged afterwards
   })
+
+  it('does not start a second pulse while the previous one is unresolved', async () => {
+    let calls = 0
+    sess.pulse.mockImplementation(() => { calls++; return calls === 1 ? Promise.resolve({ rev: 1 }) : new Promise(() => {}) })
+    renderHook(() => useTaskBoard(true, 7))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100 * 4) })
+    expect(calls).toBe(2) // initial + the one stuck tick
+  })
 })

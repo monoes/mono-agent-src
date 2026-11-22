@@ -262,20 +262,6 @@ func TestACallOfOneProfileNeverReachesAnotherProfilesRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Lists from Alpha show none of them; lists from Beta show them.
-	for _, c := range []struct{ tool, args, needle string }{
-		{"workflow_list", `{}`, "wf-beta"}, {"person_list", `{}`, "person-beta"}, {"secret_list", `{}`, "beta-key"},
-		{"task_list", `{}`, "beta task"}, {"hil_list", `{}`, "hil-beta"}, {"publication_list", `{}`, "beta post"},
-		{"workflow_executions", `{}`, "ex-beta"},
-	} {
-		if out := mustCallIn(t, s, nameA, c.tool, c.args); strings.Contains(out, c.needle) {
-			t.Errorf("%s from Alpha lists Beta's %q: %s", c.tool, c.needle, out)
-		}
-		if out := mustCallIn(t, s, nameB, c.tool, c.args); !strings.Contains(out, c.needle) {
-			t.Errorf("%s from Beta does not list its own %q: %s", c.tool, c.needle, out)
-		}
-	}
-
 	// Reads and writes by id from Alpha are not found.
 	taskID := `{"id":` + itoa(task.ID) + `}`
 	notFoundIn(t, s, nameA, "workflow_get", `{"id":"wf-beta"}`)
@@ -296,6 +282,22 @@ func TestACallOfOneProfileNeverReachesAnotherProfilesRecords(t *testing.T) {
 	notFoundIn(t, s, nameA, "publication_get", `{"id":"`+pub.ID+`"}`)
 	notFoundIn(t, s, nameA, "publication_delete", `{"id":"`+pub.ID+`"}`)
 	notFoundIn(t, s, nameA, "publication_redact", `{"id":"`+pub.ID+`"}`)
+
+	// Lists come last: reading people arms the injection gate for the rest of
+	// the session, which would answer a write with a refusal instead of not-found.
+	// Lists from Alpha show none of them; lists from Beta show them.
+	for _, c := range []struct{ tool, args, needle string }{
+		{"workflow_list", `{}`, "wf-beta"}, {"person_list", `{}`, "person-beta"}, {"secret_list", `{}`, "beta-key"},
+		{"task_list", `{}`, "beta task"}, {"hil_list", `{}`, "hil-beta"}, {"publication_list", `{}`, "beta post"},
+		{"workflow_executions", `{}`, "ex-beta"},
+	} {
+		if out := mustCallIn(t, s, nameA, c.tool, c.args); strings.Contains(out, c.needle) {
+			t.Errorf("%s from Alpha lists Beta's %q: %s", c.tool, c.needle, out)
+		}
+		if out := mustCallIn(t, s, nameB, c.tool, c.args); !strings.Contains(out, c.needle) {
+			t.Errorf("%s from Beta does not list its own %q: %s", c.tool, c.needle, out)
+		}
+	}
 
 	// Beta's records are all still there and unchanged.
 	for _, c := range []struct{ tool, args, needle string }{

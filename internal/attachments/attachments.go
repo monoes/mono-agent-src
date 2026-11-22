@@ -69,13 +69,54 @@ func safeSegment(raw, fallback string) string {
 // Attachments are grouped in a per-message directory so a message's files stay
 // together and re-syncing the same message overwrites rather than duplicates.
 func Save(messageID, filename string, data []byte) (string, error) {
+	return SaveDistinct(messageID, filename, data, nil)
+}
+
+// SaveDistinct is Save for a sync pass that writes every attachment of one
+// message: seen records the paths already written in this pass, and a second
+// attachment that maps to a seen path (two "image.png") gets a content-hash
+// suffix instead of overwriting the first. A nil seen behaves as Save.
+func SaveDistinct(messageID, filename string, data []byte, seen map[string]bool) (string, error) {
 	dir := filepath.Join(Dir(), safeSegment(messageID, "message"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("attachments: create dir: %w", err)
 	}
-	path := filepath.Join(dir, safeSegment(filename, "attachment"))
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	name := safeSegment(filename, "attachment")
+	path := filepath.Join(dir, name)
+	// A different attachment of this pass already holds this name (two
+	// "image.png" in one message): disambiguate by content hash.
+	if seen[path] {
+		sum := sha256.Sum256(data)
+		hash := fmt.Sprintf("%x", sum[:4])
+		if ext := filepath.Ext(name); ext != "" && ext != name && len(ext) <= 10 {
+			name = strings.TrimSuffix(name, ext) + "-" + hash + ext
+		} else {
+			name += "-" + hash
+		}
+		path = filepath.Join(dir, name)
+	}
+	if seen != nil {
+		seen[path] = true
+	}
+	// Write via a temp file and rename so a reader never sees a partial file.
+	tmp, err := os.CreateTemp(dir, ".att-*")
+	if err != nil {
 		return "", fmt.Errorf("attachments: write %s: %w", path, err)
+	}
+	tmpName := tmp.Name()
+	_, werr := tmp.Write(data)
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Chmod(tmpName, 0o600)
+	}
+	if werr == nil {
+		werr = os.Rename(tmpName, path)
+	}
+	if werr != nil {
+		os.Remove(tmpName)
+		return "", fmt.Errorf("attachments: write %s: %w", path, werr)
 	}
 	return path, nil
 }

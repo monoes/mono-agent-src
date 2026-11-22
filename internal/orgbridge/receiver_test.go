@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -40,7 +41,12 @@ func TestReceiverVerifiesDispatchesAndReplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := workflow.NewSQLiteWorkflowStore(db)
-	rcv := &Receiver{DB: db, Store: store, VerifyWindow: 50 * time.Millisecond, RootOf: func(string) string { return t.TempDir() },
+	hqRoot := t.TempDir()
+	if _, err := orgdesign.Save(hqRoot, &orgdesign.Doc{Name: "hq", Status: "stopped", Schedule: json.RawMessage("null"),
+		Roles: []orgdesign.Role{{ID: "ceo", Title: "CEO", Type: "boss", Responsibilities: []string{"x"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	rcv := &Receiver{DB: db, Store: store, VerifyWindow: 50 * time.Millisecond, RootOf: func(string) string { return hqRoot },
 		Mux: NewMux(func(ctx context.Context, _, _, _ string, _ func([]byte)) error { <-ctx.Done(); return nil })}
 	mux := http.NewServeMux()
 	rcv.Register(mux)
@@ -156,7 +162,7 @@ func TestReceiverRepliesWhenWorkflowAlsoSends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rcv.dispatch(ctx, *row, EndpointDelivery{OrgName: "h3", Run: "run-1", From: "lead", To: "ping-bot", Subject: "start", Body: "start", MessageID: "msg-1"})
+	rcv.dispatch(ctx, *row, EndpointDelivery{OrgName: "h3", Run: "run-1", From: "operator:lead", To: "ping-bot", Subject: "start", Body: "start", MessageID: "msg-1"})
 	var execID string
 	if err := db.QueryRow(`SELECT id FROM workflow_executions`).Scan(&execID); err != nil {
 		t.Fatalf("no execution: %v", err)
@@ -232,7 +238,7 @@ func TestReceiverRetriesReplyAfterDeliveryFailure(t *testing.T) {
 	}
 	rcv := &Receiver{DB: db, Store: workflow.NewSQLiteWorkflowStore(db), RootOf: func(string) string { return t.TempDir() },
 		Mux: NewMux(func(ctx context.Context, _, _, _ string, _ func([]byte)) error { <-ctx.Done(); return nil })}
-	rcv.dispatch(ctx, *ep, EndpointDelivery{OrgName: "growth", Run: "run-1", From: "lead", To: "bot", Subject: "go", Body: "go", MessageID: "msg-1"})
+	rcv.dispatch(ctx, *ep, EndpointDelivery{OrgName: "growth", Run: "run-1", From: "operator:lead", To: "bot", Subject: "go", Body: "go", MessageID: "msg-1"})
 	var execID string
 	if err := db.QueryRow(`SELECT id FROM workflow_executions`).Scan(&execID); err != nil {
 		t.Fatalf("no execution: %v", err)
@@ -281,7 +287,7 @@ func TestReceiverGivesUpReplyingAfterMaxAttempts(t *testing.T) {
 	}
 	rcv := &Receiver{DB: db, Store: workflow.NewSQLiteWorkflowStore(db), RootOf: func(string) string { return t.TempDir() },
 		Mux: NewMux(func(ctx context.Context, _, _, _ string, _ func([]byte)) error { <-ctx.Done(); return nil })}
-	rcv.dispatch(ctx, *ep, EndpointDelivery{OrgName: "growth", Run: "run-1", From: "lead", To: "bot", Subject: "go", Body: "go", MessageID: "msg-1"})
+	rcv.dispatch(ctx, *ep, EndpointDelivery{OrgName: "growth", Run: "run-1", From: "operator:lead", To: "bot", Subject: "go", Body: "go", MessageID: "msg-1"})
 	var execID string
 	if err := db.QueryRow(`SELECT id FROM workflow_executions`).Scan(&execID); err != nil {
 		t.Fatalf("no execution: %v", err)

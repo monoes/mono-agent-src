@@ -106,6 +106,10 @@ func sanitizeHeaders(in []NetHeader) []NetHeader {
 				}
 			}
 		} else {
+			switch lower {
+			case "referer", "origin", "location", "content-location":
+				value = SanitizeURL(value)
+			}
 			clean.Value = clipRunes(value, maxHeaderValue)
 		}
 		out = append(out, clean)
@@ -148,10 +152,8 @@ func RedactBody(body, contentType string) string {
 
 func redactJSON(v any, key string) any {
 	if key != "" && bodySecretRe.MatchString(key) {
-		if _, isObj := v.(map[string]any); !isObj {
-			if _, isArr := v.([]any); !isArr {
-				return Redacted
-			}
+		if _, isArr := v.([]any); !isArr {
+			return Redacted
 		}
 	}
 	switch t := v.(type) {

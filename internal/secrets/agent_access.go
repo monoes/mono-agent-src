@@ -467,10 +467,14 @@ func GetAgentAccess(ctx context.Context, db *sql.DB, profileID string) (*AccessG
 	g := &AccessGrant{Level: level, AnyHost: !anyHost.Valid || anyHost.Int64 != 0}
 	g.EnabledAt, _ = parseTime(enabled.String)
 	if names.Valid && names.String != "" {
-		_ = json.Unmarshal([]byte(names.String), &g.Secrets)
+		if err := json.Unmarshal([]byte(names.String), &g.Secrets); err != nil {
+			return nil, fmt.Errorf("unreadable agent access secret list: %w", err)
+		}
 	}
 	if hosts.Valid && hosts.String != "" {
-		_ = json.Unmarshal([]byte(hosts.String), &g.Hosts)
+		if err := json.Unmarshal([]byte(hosts.String), &g.Hosts); err != nil {
+			return nil, fmt.Errorf("unreadable agent access host list: %w", err)
+		}
 	}
 	if expires.Valid && expires.String != "" {
 		t, perr := parseTime(expires.String)

@@ -55,6 +55,24 @@ func TestSaveCreatesAndEdits(t *testing.T) {
 	}
 }
 
+// save refuses a structurally invalid document (duplicate node ids, an empty
+// node type, a dangling edge) instead of persisting it.
+func TestSaveRejectsInvalidStructure(t *testing.T) {
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
+	cfg := newTestDB(t, "")
+	for name, doc := range map[string]string{
+		"empty type":    `{"id":"wf-bad","name":"b","nodes":[{"id":"n1","node_type":"","config":{}}]}`,
+		"duplicate ids": `{"id":"wf-bad","name":"b","nodes":[{"id":"n1","node_type":"trigger.manual","config":{}},{"id":"n1","node_type":"core.set","config":{}}]}`,
+		"dangling edge": `{"id":"wf-bad","name":"b","nodes":[{"id":"n1","node_type":"trigger.manual","config":{}}],"connections":[{"id":"c1","source_node_id":"n1","target_node_id":"gone"}]}`,
+	} {
+		if out, err := run(t, cfg, doc, "save"); err == nil {
+			t.Errorf("%s: save accepted the document: %q", name, out)
+		}
+	}
+}
+
 // save takes the workflow-file shape `workflow import` and examples/ use
 // (type, position {x,y}, source/target) as well as the `workflow get` one.
 func TestSaveAcceptsWorkflowFileShape(t *testing.T) {

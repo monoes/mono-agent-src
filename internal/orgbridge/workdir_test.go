@@ -54,8 +54,7 @@ func TestReceiverPassesTheSenderWorkdir(t *testing.T) {
 		{"growth:lead", filepath.Join(orgs, "growth", "workspace")},
 		{"hq:ceo", filepath.Join(orgs, "hq", "worktree")},
 		{"human", ""},
-		{"elsewhere:role", filepath.Clean(root)},
-		{"growth:ghost", filepath.Clean(root)},
+		{"operator:me", ""},
 	}
 	for i, c := range cases {
 		msgID := "msg-" + c.from
@@ -76,6 +75,22 @@ func TestReceiverPassesTheSenderWorkdir(t *testing.T) {
 		got, _ := td.Org["workdir"].(string)
 		if got != c.want {
 			t.Errorf("from %s: org.workdir = %q, want %q", c.from, got, c.want)
+		}
+	}
+}
+
+// R06-02: a sender that resolves to no role and is not an explicit person
+// is refused, never widened to the profile root nor left unconfined.
+func TestSenderWorkdirFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	for _, from := range []string{"elsewhere:role", "growth:ghost", "ghost", "humanoid"} {
+		if wd, ok := senderWorkdir(root, "growth", from); ok || wd != "" || !senderRefused(root, "growth", from) {
+			t.Errorf("%s: wd %q ok %v refused %v", from, wd, ok, senderRefused(root, "growth", from))
+		}
+	}
+	for _, from := range []string{"human", "operator:me"} {
+		if senderRefused(root, "growth", from) {
+			t.Errorf("%s must be allowed", from)
 		}
 	}
 }

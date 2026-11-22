@@ -29,6 +29,10 @@ const SendWorkflowName = "Send Approved DMs"
 // ErrNotFound reports a person or workflow that isn't in the profile.
 var ErrNotFound = errors.New("not found")
 
+// ErrNotPending reports an approval of a person who is not awaiting approval
+// (never queued, already approved, or rejected).
+var ErrNotPending = errors.New("not pending approval")
+
 // ErrAmbiguous reports more than one workflow matching the send choice.
 var ErrAmbiguous = errors.New("ambiguous")
 
@@ -101,13 +105,24 @@ func Approve(ctx context.Context, db *sql.DB, profileID, personID, intro string)
 	if err != nil {
 		return p, err
 	}
+	if p.Category != Pending {
+		return p, fmt.Errorf("person %q is %q: %w", personID, p.Category, ErrNotPending)
+	}
 	if strings.TrimSpace(intro) != "" {
 		p.Introduction = intro
 	}
-	if _, err := db.ExecContext(ctx,
-		`UPDATE people SET introduction = ?, category = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?`,
-		p.Introduction, Approved, personID, profileID); err != nil {
+	// Guarded on the pending state so a concurrent or repeated approval
+	// matches no row; an empty intro keeps the stored text instead of writing
+	// back what was read earlier.
+	res, err := db.ExecContext(ctx,
+		`UPDATE people SET introduction = COALESCE(NULLIF(?, ''), introduction), category = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND profile_id = ? AND category = ?`,
+		strings.TrimSpace(intro), Approved, personID, profileID, Pending)
+	if err != nil {
 		return p, fmt.Errorf("approving %s: %w", personID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return p, fmt.Errorf("person %q: %w", personID, ErrNotPending)
 	}
 	p.Category = Approved
 	return p, nil

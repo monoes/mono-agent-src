@@ -158,6 +158,20 @@ describe('runHealth', () => {
   const report = (results, profile = 'p') => JSON.stringify({ v: 1, profile_id: profile, results })
   const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 
+  it('keeps the background timer alive until the last subscriber stops (StrictMode double mount)', async () => {
+    vi.useFakeTimers()
+    try {
+      mockRunHealthCheck.mockResolvedValue(report([row('core.db', 'core')]))
+      const stopA = health.startBackgroundHealth()
+      const stopB = health.startBackgroundHealth()
+      stopA()
+      stopA() // a repeated disposer must not release B's hold
+      expect(vi.getTimerCount()).toBe(1)
+      stopB()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
   it('runs the background check without the runtime scan, and keeps runtime rows from an explicit check', async () => {
     mockRunHealthCheck.mockResolvedValueOnce(report([row('core.db', 'core'), row('runtimes.agents', 'runtimes', 'fail')]))
     await health.runHealth()

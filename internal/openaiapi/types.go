@@ -161,19 +161,27 @@ type usage struct {
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
 	TotalTokens      int64 `json:"total_tokens"`
+	// CostUSD is what the runtime reported the turn cost, null when it reported none:
+	// it is never estimated here.
+	CostUSD *float64 `json:"cost_usd"`
 }
 
-// usageFrom reports the turn's token counts, or nil when the runtime
-// reported none.
+// usageFrom reports the turn's token counts and cost, or nil when the runtime
+// reported neither.
 func usageFrom(res *monomind.TurnResult) *usage {
-	if !res.HasInputTokens && !res.HasOutputTokens {
+	if res == nil || (!res.HasInputTokens && !res.HasOutputTokens && !res.HasCostUSD) {
 		return nil
 	}
-	return &usage{
+	u := &usage{
 		PromptTokens:     res.InputTokens,
 		CompletionTokens: res.OutputTokens,
 		TotalTokens:      res.InputTokens + res.OutputTokens,
 	}
+	if res.HasCostUSD {
+		c := res.CostUSD
+		u.CostUSD = &c
+	}
+	return u
 }
 
 // modelObject is one entry of GET /v1/models, with a monoagent block that

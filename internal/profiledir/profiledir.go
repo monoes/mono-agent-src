@@ -25,8 +25,16 @@ func ValidProfileID(profileID string) bool {
 	if profileID == "" || profileID == MachineProfileID || strings.ContainsAny(profileID, `/\`) {
 		return false
 	}
-	if strings.Contains(profileID, "..") {
+	if strings.Contains(profileID, "..") || profileID == "." {
 		return false
+	}
+	if strings.HasSuffix(profileID, ".") || strings.HasSuffix(profileID, " ") || strings.ContainsRune(profileID, ':') {
+		return false
+	}
+	for _, r := range profileID {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
 	}
 	return true
 }

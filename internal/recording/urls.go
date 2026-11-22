@@ -69,6 +69,7 @@ func SanitizeURL(raw string) string {
 	if u.RawQuery != "" {
 		u.RawQuery = redactQuery(u.RawQuery)
 	}
+	u.User = nil
 	return u.String()
 }
 

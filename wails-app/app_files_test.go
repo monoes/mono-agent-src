@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -36,6 +37,42 @@ func TestOpenFileCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConfineOpenPath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	write := func(dir, name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	ok := write(root, "doc.pdf")
+	if _, err := confineOpenPath(ok, []string{root}); err != nil {
+		t.Fatalf("file inside root refused: %v", err)
+	}
+	if _, err := confineOpenPath(write(outside, "doc.pdf"), []string{root}); err == nil {
+		t.Fatal("file outside every root was allowed")
+	}
+	link := filepath.Join(root, "link.pdf")
+	if err := os.Symlink(write(outside, "secret.pdf"), link); err == nil {
+		if _, err := confineOpenPath(link, []string{root}); err == nil {
+			t.Fatal("symlink escaping the root was allowed")
+		}
+	}
+	for _, name := range []string{"run.exe", "run.BAT", "x.lnk", "x.desktop", "x.sh", "x.ps1", "x.msi", "x.cmd"} {
+		if _, err := confineOpenPath(write(root, name), []string{root}); err == nil {
+			t.Errorf("launchable file %s was allowed", name)
+		}
+	}
+	if _, err := confineOpenPath(root, []string{root}); err == nil {
+		t.Fatal("a directory was allowed")
+	}
+	if _, err := confineOpenPath(ok, nil); err == nil {
+		t.Fatal("no roots must allow nothing")
 	}
 }
 

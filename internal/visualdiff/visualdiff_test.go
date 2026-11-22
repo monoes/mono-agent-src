@@ -1,12 +1,15 @@
 package visualdiff
 
 import (
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -202,5 +205,24 @@ func TestDecodeErrors(t *testing.T) {
 	}
 	if _, err := CompareFiles(bad, bad, Options{}); err == nil {
 		t.Fatal("garbage decoded")
+	}
+}
+
+func TestDecodeRefusesAnOversizedHeader(t *testing.T) {
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:], 60000)
+	binary.BigEndian.PutUint32(ihdr[4:], 60000)
+	ihdr[8], ihdr[9] = 8, 6
+	chunk := append([]byte("IHDR"), ihdr...)
+	b := []byte("\x89PNG\r\n\x1a\n")
+	b = binary.BigEndian.AppendUint32(b, 13)
+	b = append(b, chunk...)
+	b = binary.BigEndian.AppendUint32(b, crc32.ChecksumIEEE(chunk))
+	path := filepath.Join(t.TempDir(), "bomb.png")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(path); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("Decode err = %v, want too large", err)
 	}
 }

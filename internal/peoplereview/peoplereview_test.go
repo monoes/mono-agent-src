@@ -53,6 +53,13 @@ func TestQueue(t *testing.T) {
 	if p, _ := Approve(ctx, db, "prof", "p2", "  "); p.Introduction != "hello" {
 		t.Fatalf("empty intro replaced the draft: %+v", p)
 	}
+	// A second approval (double send) and approving a non-pending person fail.
+	if _, err := Approve(ctx, db, "prof", "p1", ""); !errors.Is(err, ErrNotPending) {
+		t.Fatalf("re-approve: %v", err)
+	}
+	if _, err := Approve(ctx, db, "prof", "p3", ""); !errors.Is(err, ErrNotPending) {
+		t.Fatalf("approve non-pending: %v", err)
+	}
 	if err := Reject(ctx, db, "prof", "p3"); err != nil {
 		t.Fatal(err)
 	}

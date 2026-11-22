@@ -292,10 +292,10 @@ func (s *Service) Start(ctx context.Context, id string) (Task, error) {
 		return Task{}, err
 	}
 	token := NewToken()
-	if err := s.Store.SetToken(id, token); err != nil {
-		return Task{}, err
-	}
-	moved, err := s.Store.move(id, []string{StatusQueued}, StatusRunning, nil)
+	// The token is set by the same statement that wins the queued->running
+	// move, so a second Start that lost the race cannot replace it.
+	moved, err := s.Store.move(id, []string{StatusQueued}, StatusRunning,
+		map[string]any{"token_hash": HashToken(t.Profile, t.ID, t.ConversationID, token)})
 	if err != nil {
 		return Task{}, err
 	}

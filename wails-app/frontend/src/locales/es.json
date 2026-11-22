@@ -16,6 +16,7 @@
       "applications": "Postulaciones",
       "documents": "Documentos",
       "info": "Info",
+      "help": "Ayuda",
       "tasks": "Tareas",
       "logs": "Registros en vivo",
       "controlroom": "Sala de control",
@@ -2339,6 +2340,53 @@
     "more_one": "+{{count}} más en cola",
     "more_other": "+{{count}} más en cola"
   },
+  "help": {
+    "title": "Ayuda, con bromas",
+    "subtitle": "Elige un tema. Todos terminan en una página real o en un chat listo, así que nunca solo lees.",
+    "mascotLabel": "Monty, la mascota de ayuda. Púlsala para picarla.",
+    "searchPlaceholder": "Buscar temas",
+    "searchLabel": "Buscar temas de ayuda",
+    "topics": "Temas",
+    "noMatch": "Ningún tema coincide",
+    "noMatchWhy": "Prueba con una palabra más corta o borra la búsqueda para verlo todo.",
+    "clear": "Borrar búsqueda",
+    "actionFailed": "No se abrió. Abre el coder desde la barra lateral e inténtalo de nuevo.",
+    "party": "Modo fiesta",
+    "topic": {
+      "takeMe": "Llévame allí",
+      "askCoder": "Preguntar al coder",
+      "dangerLevel": "Nivel de peligro {{n}} de 5"
+    },
+    "pit": {
+      "title": "El Pozo de Permisos",
+      "intro": "Mueve el dial para dar a un agente un poco más de acceso en cada paso. Mira a Monty.",
+      "dialLabel": "Permisos concedidos",
+      "nothing": "nada concedido",
+      "grantsLabel": "Concedido hasta ahora",
+      "calm": "Nada concedido. Monty tiene un día estupendo.",
+      "grant": "Conceder uno más",
+      "revoke": "Revocar todo",
+      "safe": "Retirar permisos siempre es seguro y no pide confirmación.",
+      "review": "Revisar mis permisos reales",
+      "askCoder": "Pedir al coder que los audite",
+      "mascotLabel": "Monty a profundidad {{n}}",
+      "coderPrompt": "Audita qué permisos he concedido a agentes, chats, navegadores y la bóveda, y dime cuáles debería retirar."
+    },
+    "egg": {
+      "idle": "Púlsame. Te reto.",
+      "quip1": "Ay. Qué grosero.",
+      "quip2": "Soy una mascota de ayuda, no una pelota antiestrés.",
+      "quip3": "Dato curioso: funciono solo con buen rollo y CSS.",
+      "quip4": "Para, por favor. Mi antena tiene cosquillas.",
+      "quip5": "Siete pulsaciones dan una sorpresa. Solo digo.",
+      "confetti": "Siete pulsaciones. Vale. Confeti.",
+      "konami": "Modo fiesta activado. Arriba, arriba, abajo, abajo, bien.",
+      "sudo": "Buen intento. Nadie consigue root desde un buscador.",
+      "rmrf": "Ni hablar. Monty llama a los mayores.",
+      "fortyTwo": "Cerca, pero la pregunta aún está cargando.",
+      "hello": "¡Hola! Elige un tema abajo o pica a la mascota."
+    }
+  },
   "info": {
     "title": "Info",
     "subtitle": "Datos que MonoAgent rellena por ti en sitios web. Lo que la IA no encuentre, añádelo tú.",
@@ -2508,7 +2556,10 @@
     "alwaysAllowNoAccount": "cualquier cuenta",
     "alwaysAllowConfirm": "Enviar y permitir siempre",
     "appAccess": "Los agentes de código reciben información sobre MonoAgent",
-    "appAccessHint": "Activado: las instrucciones de código llevan el resumen del perfil, y a los trabajadores de la organización se les ofrecen las pestañas de MonoAgent (tareas, documentos, personas, bóveda, flujos de trabajo y aplicaciones) y se les explica cómo usarlas. Desactivado: a los trabajadores de la organización no se les habla de las pestañas de MonoAgent ni se les ofrecen, y los agentes no reciben el resumen del perfil; el agente principal de código conserva el acceso completo, y los comandos solo del operador y la aprobación de envíos siguen aplicándose."
+    "appAccessHint": "Activado: las instrucciones de código llevan el resumen del perfil, y a los trabajadores de la organización se les ofrecen las pestañas de MonoAgent (tareas, documentos, personas, bóveda, flujos de trabajo y aplicaciones) y se les explica cómo usarlas. Desactivado: a los trabajadores de la organización no se les habla de las pestañas de MonoAgent ni se les ofrecen, y los agentes no reciben el resumen del perfil; el agente principal de código conserva el acceso completo, y los comandos solo del operador y la aprobación de envíos siguen aplicándose.",
+    "appAccessOnTitle": "¿Informar a los agentes de código sobre MonoAgent?",
+    "appAccessOnBody": "Las instrucciones de código llevarán el resumen del perfil, y a los trabajadores de la org se les ofrecerán las pestañas de MonoAgent (tareas, documentos, personas, bóveda, flujos y apps) y se les dirá cómo usarlas.",
+    "appAccessOnConfirm": "Informar a los agentes"
   },
   "toolLinks": {
     "open": "Abrir en {{tab}}",

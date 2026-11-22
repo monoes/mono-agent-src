@@ -2,6 +2,7 @@
 import * as GoApp from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import { isInactiveRunError } from '../lib/runFailure.js'
+import { safeUrl } from '../lib/askModel.js'
 
 // Global error bus. Read methods degrade to safe defaults ([]/null/0) so pages
 // keep rendering, but every failure is also broadcast on `api:error` so a toast
@@ -137,7 +138,12 @@ export const api = {
   exportData:       () => GoApp.ExportData(),
   isDBConnected:    () => GoApp.IsDBConnected().catch(() => false),
   isReady:          () => GoApp.IsReady().catch(() => false),
-  openURL:          (url) => GoApp.OpenURL(url).catch(console.warn),
+  // Only http(s) and mailto: reach the host; crawled or remote-supplied URLs
+  // must never open file: or custom-scheme handlers.
+  openURL:          (url) => {
+    const u = /^mailto:/i.test(String(url || '')) ? String(url) : safeUrl(url)
+    return u ? GoApp.OpenURL(u).catch(console.warn) : Promise.resolve()
+  },
   getPersonDetail:      (id) => GoApp.GetPersonDetail(id),
   getPersonInteractions:(id) => GoApp.GetPersonInteractions(id),
   getPersonPosts:   (personId) => GoApp.GetPersonPosts(personId).catch(guard('person posts', [])),

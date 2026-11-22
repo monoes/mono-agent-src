@@ -16,6 +16,7 @@
       "applications": "Applications",
       "documents": "Documents",
       "info": "Info",
+      "help": "Help",
       "tasks": "Tasks",
       "logs": "Live Logs",
       "controlroom": "Control room",
@@ -2339,6 +2340,53 @@
     "more_one": "+{{count}} more queued",
     "more_other": "+{{count}} more queued"
   },
+  "help": {
+    "title": "Help, with jokes",
+    "subtitle": "Pick a topic. Every one ends at a real page or a ready-made chat, so you never just read.",
+    "mascotLabel": "Monty, the help mascot. Press to poke.",
+    "searchPlaceholder": "Search topics",
+    "searchLabel": "Search help topics",
+    "topics": "Topics",
+    "noMatch": "No topic matches that",
+    "noMatchWhy": "Try a shorter word, or clear the search to see everything.",
+    "clear": "Clear search",
+    "actionFailed": "That did not open. Open the coder from the sidebar and try again.",
+    "party": "Party mode",
+    "topic": {
+      "takeMe": "Take me there",
+      "askCoder": "Ask the coder",
+      "dangerLevel": "Danger level {{n}} of 5"
+    },
+    "pit": {
+      "title": "The Permission Pit",
+      "intro": "Slide the dial to give an agent a little more access each step. Watch Monty.",
+      "dialLabel": "Permissions granted",
+      "nothing": "nothing granted",
+      "grantsLabel": "Granted so far",
+      "calm": "Nothing granted. Monty is having a lovely day.",
+      "grant": "Grant one more",
+      "revoke": "Revoke everything",
+      "safe": "Taking permissions back is always safe and needs no confirmation.",
+      "review": "Review my real permissions",
+      "askCoder": "Ask the coder to audit them",
+      "mascotLabel": "Monty at depth {{n}}",
+      "coderPrompt": "Audit which permissions I have granted to agents, chats, browsers and the vault, and list the ones I should take back."
+    },
+    "egg": {
+      "idle": "Poke me. I dare you.",
+      "quip1": "Ow. Rude.",
+      "quip2": "I am a help mascot, not a stress ball.",
+      "quip3": "Fun fact: I run entirely on vibes and CSS.",
+      "quip4": "Please stop. My antenna is ticklish.",
+      "quip5": "Seven pokes gets a surprise. Just saying.",
+      "confetti": "Seven pokes. Fine. Confetti.",
+      "konami": "Party mode toggled. Up, up, down, down, nice.",
+      "sudo": "Nice try. Nobody gets root from a search box.",
+      "rmrf": "Absolutely not. Monty is calling the grown-ups.",
+      "fortyTwo": "Close, but the question is still loading.",
+      "hello": "Hello! Pick a topic below, or poke the mascot."
+    }
+  },
   "info": {
     "title": "Info",
     "subtitle": "Details MonoAgent fills into websites for you. Anything the AI missed, add yourself.",
@@ -2508,7 +2556,10 @@
     "alwaysAllowNoAccount": "any account",
     "alwaysAllowConfirm": "Send and always allow",
     "appAccess": "Coder agents are told about MonoAgent",
-    "appAccessHint": "On: coder prompts carry the profile's summary, and org workers are offered MonoAgent's tabs (tasks, documents, people, vault, workflows and apps) and told how to use them. Off: org workers aren't told about or offered MonoAgent's tabs, and agents get no profile summary; the coder lead keeps full access, operator-only commands and send approval still apply."
+    "appAccessHint": "On: coder prompts carry the profile's summary, and org workers are offered MonoAgent's tabs (tasks, documents, people, vault, workflows and apps) and told how to use them. Off: org workers aren't told about or offered MonoAgent's tabs, and agents get no profile summary; the coder lead keeps full access, operator-only commands and send approval still apply.",
+    "appAccessOnTitle": "Tell coder agents about MonoAgent?",
+    "appAccessOnBody": "Coder prompts will carry the profile's summary, and org workers will be offered MonoAgent's tabs (tasks, documents, people, vault, workflows and apps) and told how to use them.",
+    "appAccessOnConfirm": "Tell agents"
   },
   "toolLinks": {
     "open": "Open in {{tab}}",

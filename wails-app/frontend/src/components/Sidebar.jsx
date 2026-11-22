@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   LayoutDashboard, Users,
   Terminal, PlayCircle, Settings, Image, Mail, KeyRound,
-  ChevronDown, Plus, Check, Building2, FolderOpen, FolderCog, Loader2, Briefcase, FileText, IdCard, Send, KanbanSquare, Radar
+  ChevronDown, Plus, Check, Building2, FolderOpen, FolderCog, Loader2, Briefcase, FileText, IdCard, Send, KanbanSquare, Radar, LifeBuoy
 } from 'lucide-react'
 import { GetVersion } from '../wailsjs/go/main/App'
 import * as WailsApp from '../wailsjs/go/main/App'
@@ -37,6 +37,7 @@ const NAV_ITEMS = [
   { id: 'tasks',       labelKey: 'tasks',       icon: KanbanSquare,    section: 'DATA' },
   { id: 'controlroom', labelKey: 'controlroom', icon: Radar,           section: 'DATA', hidden: true }, // shown only when the probe says so
   { id: 'logs',        labelKey: 'logs',        icon: Terminal,        section: 'DEBUG' },
+  { id: 'help',        labelKey: 'help',        icon: LifeBuoy,        section: 'SYSTEM' },
   { id: 'settings',    labelKey: 'settings',    icon: Settings,        section: 'SYSTEM' },
 ]
 

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -29,11 +31,46 @@ func (a *App) runMonoCLI(stdin string, result interface{}, args ...string) error
 	return a.runCLIArgs(stdin, result, fullArgs)
 }
 
+// longCLITimeout bounds the AI-backed application jobs (evaluate, apply),
+// which legitimately outlast defaultCLITimeout.
+const longCLITimeout = 30 * time.Minute
+
+// runMonoCLILong is runMonoCLI under longCLITimeout.
+func (a *App) runMonoCLILong(stdin string, result interface{}, args ...string) error {
+	fullArgs, err := a.scopedArgs(args...)
+	if err != nil {
+		return err
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, longCLITimeout)
+	defer cancel()
+	return a.runCLIArgsCtx(ctx, stdin, result, fullArgs)
+}
+
+// cliTokenPattern is what a positional CLI argument from the frontend (an
+// id, tag, status or runtime) may look like: it cannot start with '-', so it
+// can never be read as a flag.
+var cliTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9 _.:@/+-]{0,127}$`)
+
+// cliToken returns an error unless v is safe to pass as a positional argument.
+func cliToken(label, v string) error {
+	if !cliTokenPattern.MatchString(v) {
+		return fmt.Errorf("invalid %s %q", label, v)
+	}
+	return nil
+}
+
 // runGlobalCLI is runMonoCLI for a machine-wide command (`profile list`,
 // `profile create`, ...), which names no profile.
 func (a *App) runGlobalCLI(stdin string, result interface{}, args ...string) error {
 	return a.runCLIArgs(stdin, result, unscopedCLIArgs(args...))
 }
+
+// defaultCLITimeout bounds every runCLIArgs call.
+var defaultCLITimeout = 2 * time.Minute
 
 // runCLIArgs runs monoagentcli with the finished argv fullArgs.
 func (a *App) runCLIArgs(stdin string, result interface{}, fullArgs []string) error {
@@ -41,6 +78,10 @@ func (a *App) runCLIArgs(stdin string, result interface{}, fullArgs []string) er
 	if ctx == nil { // before startup, and in tests (which keep ctx nil so emitLog skips the Wails runtime)
 		ctx = context.Background()
 	}
+	// A hung CLI must not block its binding forever. Long jobs call
+	// runCLIArgsCtx with their own deadline instead.
+	ctx, cancel := context.WithTimeout(ctx, defaultCLITimeout)
+	defer cancel()
 	return a.runCLIArgsCtx(ctx, stdin, result, fullArgs)
 }
 
@@ -66,7 +107,14 @@ func (a *App) runCLIArgsCtx(ctx context.Context, stdin string, result interface{
 	if result == nil {
 		return nil
 	}
-	return json.Unmarshal(out, result)
+	if err := json.Unmarshal(out, result); err != nil {
+		cmdline := strings.Join(fullArgs, " ")
+		if len(cmdline) > 60 {
+			cmdline = cmdline[:60]
+		}
+		return fmt.Errorf("monoagentcli %s: unexpected output: %w (%.120s)", cmdline, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // ── Raw CLI shapes (unmarshal targets only, PascalCase, no tags -- these
@@ -186,6 +234,9 @@ func (a *App) GetApplication(id string) (*ApplicationDetail, error) {
 	if err := a.signedOut(); err != nil {
 		return nil, err
 	}
+	if err := cliToken("application id", id); err != nil {
+		return nil, err
+	}
 	var result struct {
 		Application rawApplication      `json:"application"`
 		StatusLog   []rawStatusLogEntry `json:"status_log"`
@@ -259,6 +310,12 @@ func (a *App) SetApplicationStatus(id, status, note string) error {
 	if strings.EqualFold(status, "applied") {
 		return fmt.Errorf("\"applied\" is not a valid target here -- use SendApplication, which requires an explicit human action")
 	}
+	if err := cliToken("application id", id); err != nil {
+		return err
+	}
+	if err := cliToken("status", status); err != nil {
+		return err
+	}
 	args := []string{"application", "status", id, "set", status}
 	if note != "" {
 		args = append(args, "--note", note)
@@ -269,6 +326,15 @@ func (a *App) SetApplicationStatus(id, status, note string) error {
 // TagApplication adds or removes a tag. action must be "add" or "remove".
 func (a *App) TagApplication(id, tag, action string) error {
 	if err := a.signedOut(); err != nil {
+		return err
+	}
+	if err := cliToken("application id", id); err != nil {
+		return err
+	}
+	if action != "add" && action != "remove" {
+		return fmt.Errorf("invalid tag action %q", action)
+	}
+	if err := cliToken("tag", tag); err != nil {
 		return err
 	}
 	return a.runMonoCLI("", nil, "application", "tag", id, action, tag)
@@ -298,8 +364,14 @@ func (a *App) EvaluateApplication(id, runtime string) (*FitVerdictInfo, error) {
 	if runtime == "" {
 		runtime = "claude"
 	}
+	if err := cliToken("application id", id); err != nil {
+		return nil, err
+	}
+	if err := cliToken("runtime", runtime); err != nil {
+		return nil, err
+	}
 	var result FitVerdictInfo
-	if err := a.runMonoCLI("", &result, "application", "evaluate", id, "--runtime", runtime); err != nil {
+	if err := a.runMonoCLILong("", &result, "application", "evaluate", id, "--runtime", runtime); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -325,8 +397,11 @@ func (a *App) EvaluatePendingApplications(evalRuntime string, limit int) (*Evalu
 	if limit > 0 {
 		args = append(args, "--limit", strconv.Itoa(limit))
 	}
+	if err := cliToken("runtime", evalRuntime); err != nil {
+		return nil, err
+	}
 	var result EvaluateBatchResult
-	if err := a.runMonoCLI("", &result, args...); err != nil {
+	if err := a.runMonoCLILong("", &result, args...); err != nil {
 		return nil, err
 	}
 	if result.Verdicts == nil {
@@ -354,6 +429,9 @@ func (a *App) ApplyToApplication(id string, cvData, coverLetterData map[string]i
 	if err := a.signedOut(); err != nil {
 		return nil, err
 	}
+	if err := cliToken("application id", id); err != nil {
+		return nil, err
+	}
 	cvFile, err := writeTempJSON(cvData)
 	if err != nil {
 		return nil, fmt.Errorf("writing cv data: %w", err)
@@ -366,7 +444,7 @@ func (a *App) ApplyToApplication(id string, cvData, coverLetterData map[string]i
 	defer os.Remove(letterFile)
 
 	var result ApplyResult
-	if err := a.runMonoCLI("", &result, "application", "apply", id, "--mode", "auto",
+	if err := a.runMonoCLILong("", &result, "application", "apply", id, "--mode", "auto",
 		"--cv-data-file", cvFile, "--cover-letter-data-file", letterFile); err != nil {
 		return nil, err
 	}
@@ -378,6 +456,9 @@ func (a *App) ApplyToApplication(id string, cvData, coverLetterData map[string]i
 // application "applied".
 func (a *App) SendApplication(id, note string) error {
 	if err := a.signedOut(); err != nil {
+		return err
+	}
+	if err := cliToken("application id", id); err != nil {
 		return err
 	}
 	args := []string{"application", "send", id}

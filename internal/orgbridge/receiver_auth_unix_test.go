@@ -12,6 +12,19 @@ import (
 	"github.com/monoes/mono-agent/internal/orggrant"
 )
 
+func TestCheckEndpointAuthEmptyCredentialFileFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cred")
+	if err := os.WriteFile(path, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	row := &orggrant.EndpointRow{CredentialFile: path}
+	req := httptest.NewRequest(http.MethodPost, "/org-endpoint/x", nil)
+	req.RemoteAddr = "203.0.113.7:4000"
+	if _, status := checkEndpointAuth(req, row); status != http.StatusServiceUnavailable {
+		t.Fatalf("empty credential, no header: got %d, want 503", status)
+	}
+}
+
 func TestCheckEndpointAuthCredentialFileMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cred")
 	if err := os.WriteFile(path, []byte("tok\n"), 0o644); err != nil {

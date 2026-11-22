@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/profiledir"
@@ -128,6 +129,25 @@ func Block(ctx context.Context, db *sql.DB, profileID string) string {
 	return c.Block()
 }
 
+// maxItemRunes caps one scraped item rendered into a prompt.
+const maxItemRunes = 80
+
+// cleanItem makes scraped text (task titles, people names, filenames) safe to
+// put in a system prompt: control characters and newlines become spaces and
+// the length is capped, so an item cannot carry instructions across lines.
+func cleanItem(v string) string {
+	v = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, v)), " ")
+	if r := []rune(v); len(r) > maxItemRunes {
+		v = string(r[:maxItemRunes]) + "..."
+	}
+	return v
+}
+
 func section(ctx context.Context, db *sql.DB, countQ, listQ, profileID string, n int) Section {
 	s := Section{Recent: []string{}}
 	_ = db.QueryRowContext(ctx, countQ, profileID).Scan(&s.Count)
@@ -139,7 +159,7 @@ func section(ctx context.Context, db *sql.DB, countQ, listQ, profileID string, n
 	for rows.Next() {
 		var v sql.NullString
 		if rows.Scan(&v) == nil && v.String != "" {
-			s.Recent = append(s.Recent, v.String)
+			s.Recent = append(s.Recent, cleanItem(v.String))
 		}
 	}
 	return s
@@ -171,7 +191,7 @@ func tasksSection(ctx context.Context, db *sql.DB, profileID string, n int) Sect
 	for open.Next() {
 		var title, status string
 		if open.Scan(&title, &status) == nil {
-			s.Recent = append(s.Recent, title+" ["+status+"]")
+			s.Recent = append(s.Recent, cleanItem(title)+" ["+cleanItem(status)+"]")
 		}
 	}
 	return s

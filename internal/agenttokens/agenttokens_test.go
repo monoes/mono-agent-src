@@ -79,6 +79,21 @@ func TestCreateStoresOnlyTheHashAndVerifies(t *testing.T) {
 	}
 }
 
+func TestUnparsableRevokedAtFailsClosed(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	_, sec, err := s.Create(ctx, "default", "odd", ScopeWrite, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at = '2026-01-01 00:00:00' WHERE name = 'odd'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Verify(ctx, sec); !errors.Is(err, ErrInvalid) {
+		t.Errorf("token with unparsable revoked_at verified: %v", err)
+	}
+}
+
 func TestExpiredAndRevokedTokensAreInvalid(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

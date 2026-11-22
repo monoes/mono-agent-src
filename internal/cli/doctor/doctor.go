@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -95,6 +96,36 @@ func errRequiredChecksFailed(n int) error {
 	return &clicore.Error{Code: 1, Msg: fmt.Sprintf("%d required check(s) failed", n)}
 }
 
+// validateSelection refuses a --group, --skip-group or --check naming
+// nothing in the registry: a typo would select zero checks and report a
+// healthy 0/0/0 with exit 0.
+func validateSelection(reg *health.Registry, opts health.Options) error {
+	groups, ids := map[string]bool{}, map[string]bool{}
+	for _, c := range reg.Checks() {
+		groups[c.Group] = true
+		ids[c.ID] = true
+	}
+	known := func(set map[string]bool) string {
+		names := make([]string, 0, len(set))
+		for n := range set {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		return strings.Join(names, ", ")
+	}
+	for _, g := range append(append([]string{}, opts.Groups...), opts.SkipGroups...) {
+		if !groups[g] {
+			return clicore.InvalidInput("unknown check group %q; known groups: %s", g, known(groups))
+		}
+	}
+	for _, id := range opts.IDs {
+		if !ids[id] {
+			return clicore.InvalidInput("unknown check %q; known checks: %s", id, known(ids))
+		}
+	}
+	return nil
+}
+
 func newDoctorCmd(cfg *Deps) *cobra.Command {
 	var groups, skipGroups, ids []string
 	var deep, fix, yes, projects bool
@@ -135,11 +166,13 @@ Exit code 1 means a required check failed.`,
 			wantProjects := projects || len(cfg.projects) > 0
 			opts := health.Options{Deep: deep, Groups: groups, SkipGroups: skipGroups, IDs: ids, OnDemand: wantProjects, Monomind: wantProjects}
 			out := cmd.OutOrStdout()
-
 			if fix {
 				if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
 					return clicore.OperatorOnly("doctor --fix installs, registers and starts things on this machine, which only the user decides: %s; run it yourself in your terminal or the app (doctor without --fix is open)", why)
 				}
+			}
+			if err := validateSelection(reg, opts); err != nil {
+				return err
 			}
 			rep := runHealth(ctx, cfg, reg, opts)
 			var outcomes []fixOutcome

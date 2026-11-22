@@ -84,6 +84,8 @@ describe('CoderOrgSection, this computer', () => {
     await waitFor(() => expect(box).not.toBeChecked())
     App.CoderSetAppAccess.mockResolvedValue(status({ appAccess: true }))
     fireEvent.click(box)
+    expect(App.CoderSetAppAccess).toHaveBeenCalledTimes(1) // turning ON waits for the confirmation
+    fireEvent.click(await screen.findByRole('button', { name: 'Tell agents' }))
     await waitFor(() => expect(App.CoderSetAppAccess).toHaveBeenLastCalledWith(true))
     await waitFor(() => expect(box).toBeChecked())
     expect(App.HilSendSetApproval).not.toHaveBeenCalled()

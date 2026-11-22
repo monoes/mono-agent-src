@@ -39,6 +39,9 @@ func newMonoagentTestDB(t *testing.T) *storage.Database {
 
 func mustJSON(t *testing.T, s string, v interface{}) {
 	t.Helper()
+	if i := strings.Index(s, untrustedOpen); i == 0 {
+		s = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(s, untrustedOpen)), untrustedClose)
+	}
 	if err := json.Unmarshal([]byte(s), v); err != nil {
 		t.Fatalf("unmarshal %q failed: %v", s, err)
 	}

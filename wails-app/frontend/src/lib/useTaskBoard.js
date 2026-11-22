@@ -57,12 +57,17 @@ export function useTaskBoard(active = true, sessionId = null) {
       // between the two is seen by the first tick instead of becoming the baseline.
       let rev = null
       let stopped = false
+      let inflight = false
       const tick = async () => {
-        const p = await sessionsApi.pulse(sessionId)
-        if (stopped || typeof p?.rev !== 'number') return
-        const moved = rev !== null && p.rev !== rev
-        rev = p.rev
-        if (moved) { if (shownRef.current) load(); else missed.current = true }
+        if (inflight) return
+        inflight = true
+        try {
+          const p = await sessionsApi.pulse(sessionId)
+          if (stopped || typeof p?.rev !== 'number') return
+          const moved = rev !== null && p.rev !== rev
+          rev = p.rev
+          if (moved) { if (shownRef.current) load(); else missed.current = true }
+        } finally { inflight = false }
       }
       const start = (async () => {
         try {

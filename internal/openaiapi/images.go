@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // imageContextWhy says why a key created with --context is held to the context
@@ -59,7 +61,7 @@ func (g *Gateway) handleImages(p Policy) func(http.ResponseWriter, *http.Request
 			fail(errBusy())
 			return
 		}
-		defer release()
+		defer func() { release() }() // a closure: an image job takes the slot over by replacing release
 
 		// The slot comes first, as for chat: a request that would be refused for lack of
 		// one never costs a Jev call.
@@ -72,20 +74,24 @@ func (g *Gateway) handleImages(p Policy) func(http.ResponseWriter, *http.Request
 			m, autoBy, model = pick.Model, pick.By, pick.Model.ID
 		}
 
-		var found collected
-		folder := newImageFolder()
-		t := turn{
-			Runtime: m.Runtime, Model: m.Model, System: imageSystemPrompt(folder), Prompt: imagePrompt(req.Prompt, n, size),
-			Policy: eff, ProfileID: pr.ProfileID, Slot: slot, RequireSandbox: m.Class == Sandboxed,
-			Subdir:  folder,
-			Collect: func(ctx context.Context, dir string) { found = collectImages(ctx, dir, folder, n) },
-		}
 		w.Header().Set("X-Monoagent-Model", m.ID)
+		if wantsAsync(r) {
+			// The turn outlives this request: the answer is a job to ask for, so no
+			// connection has to stay open while the runtime works.
+			job, ok := g.jobs.add(pr.KeyID)
+			if !ok {
+				fail(errBusy())
+				return
+			}
+			status = http.StatusAccepted
+			go g.runImageJob(job, pr, begin, model, autoBy, eff, m, slot, release, n, size, req.Prompt)
+			release = func() {} // the job gives the slot back, not this handler
+			writeJobAccepted(w, job)
+			return
+		}
 		extendWriteDeadline(w, g.cfg.TurnTimeout+2*turnGrace)
 
-		res, err := g.runTurn(r.Context(), t)
-		release() // the turn is over and its folder is empty: writing the answer is not what the slot is for
-		e, gone := g.resultError(r.Context(), res, err, m, eff)
+		res, imgs, detail2, e, gone := g.makeImages(r.Context(), m, eff, pr, slot, release, n, size, req.Prompt)
 		if gone {
 			status = 499 // the caller left; there is nobody to answer
 			return
@@ -94,28 +100,48 @@ func (g *Gateway) handleImages(p Policy) func(http.ResponseWriter, *http.Request
 			fail(e)
 			return
 		}
-		switch {
-		case len(found.images) > 0: // what the runtime saved decides: it did not lack the tool
-		case saidNoImageTool(res.ResultText):
-			fail(errNoImageTool(m))
-			return
-		default:
-			e := errNoImageMade(res.ResultText)
-			e.detail = "no image was collected from the turn's folder"
-			if note := found.note(); note != "" {
-				e.detail += " (left out: " + note + ")"
-			}
-			fail(e)
-			return
-		}
-		if note := found.note(); note != "" { // a success that left files out says so, too
-			detail = "left out: " + note
-		}
+		detail = detail2
 		if res.SandboxStatus != "" {
 			w.Header().Set("X-Monoagent-Sandbox", res.SandboxStatus)
 		}
-		writeImages(w, time.Now().Unix(), found.images)
+		writeImages(w, time.Now().Unix(), imgs, usageFrom(res))
 	}
+}
+
+// makeImages runs the turn of an image request in the slot, gives the slot back when the
+// turn is over, and says what it made: the images, or the error to answer with, or gone
+// when the caller left. detail is what the log gets about a success that left files out.
+func (g *Gateway) makeImages(ctx context.Context, m ModelInfo, eff Policy, pr Principal, slot int, release func(), n int, size, prompt string) (res *monomind.TurnResult, images [][]byte, detail string, e *apiError, gone bool) {
+	var found collected
+	folder := newImageFolder()
+	t := turn{
+		Runtime: m.Runtime, Model: m.Model, System: imageSystemPrompt(folder), Prompt: imagePrompt(prompt, n, size),
+		Policy: eff, ProfileID: pr.ProfileID, Slot: slot, RequireSandbox: m.Class == Sandboxed,
+		Subdir:  folder,
+		Collect: func(ctx context.Context, dir string) { found = collectImages(ctx, dir, folder, n) },
+	}
+	res, err := g.runTurn(ctx, t)
+	release() // the turn is over and its folder is empty: writing the answer is not what the slot is for
+	e, gone = g.resultError(ctx, res, err, m, eff)
+	if gone || e != nil {
+		return res, nil, "", e, gone
+	}
+	switch {
+	case len(found.images) > 0: // what the runtime saved decides: it did not lack the tool
+	case saidNoImageTool(res.ResultText):
+		return res, nil, "", errNoImageTool(m), false
+	default:
+		e := errNoImageMade(res.ResultText)
+		e.detail = "no image was collected from the turn's folder"
+		if note := found.note(); note != "" {
+			e.detail += " (left out: " + note + ")"
+		}
+		return res, nil, "", e, false
+	}
+	if note := found.note(); note != "" { // a success that left files out says so, too
+		detail = "left out: " + note
+	}
+	return res, found.images, detail, nil, false
 }
 
 // resolveImageModel finds the model of an image request: for auto the models it
