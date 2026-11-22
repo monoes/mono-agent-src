@@ -148,6 +148,9 @@ func (s SignIn) print(cmd *cobra.Command, v any, human func(w io.Writer)) error 
 	return nil
 }
 
+// maxLineLen bounds readLine: what it reads is a code of a few digits.
+const maxLineLen = 1024
+
 func readLine(r io.Reader) (string, error) {
 	var b strings.Builder
 	buf := make([]byte, 1)
@@ -156,6 +159,9 @@ func readLine(r io.Reader) (string, error) {
 		if n > 0 {
 			if buf[0] == '\n' {
 				return strings.TrimSpace(b.String()), nil
+			}
+			if b.Len() >= maxLineLen {
+				return "", clicore.InvalidInput("code too long")
 			}
 			b.WriteByte(buf[0])
 		}
