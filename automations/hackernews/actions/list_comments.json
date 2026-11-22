@@ -19,8 +19,9 @@
         "name": "maxComments",
         "type": "number",
         "description": "Stop after this many comments (0 = all of them)",
-        "default": 0,
-        "min": 0
+        "default": 50,
+        "min": 0,
+        "max": 500
       }
     ]
   },
