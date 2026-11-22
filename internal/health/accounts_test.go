@@ -212,3 +212,22 @@ func TestLoginRowIDsStable(t *testing.T) {
 		t.Errorf("plain id: %q", ia[2])
 	}
 }
+
+func TestLoginsDoNotClaimValidityOrLeakUsernames(t *testing.T) {
+	ctx := context.Background()
+	env := &Env{LoginSessions: func(context.Context) ([]SessionInfo, error) {
+		return []SessionInfo{{Platform: "instagram", Username: "secret.person", Expiry: time.Now().Add(time.Hour)}}, nil
+	}}
+	res := checkLogins(ctx, env)
+	row := res.Children[0]
+	if strings.Contains(row.Summary, "secret.person") || strings.Contains(row.Summary, "valid") || row.Detail != "secret.person" {
+		t.Errorf("summary %q detail %q", row.Summary, row.Detail)
+	}
+	if strings.Contains(res.Summary, "valid") {
+		t.Errorf("summary %q claims validity", res.Summary)
+	}
+	env.LoginSessions = func(context.Context) ([]SessionInfo, error) { return nil, errors.New("db locked") }
+	if res := checkLogins(ctx, env); res.Status != StatusWarn {
+		t.Errorf("a read error is %q, want warn", res.Status)
+	}
+}

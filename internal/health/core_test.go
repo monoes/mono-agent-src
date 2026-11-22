@@ -159,3 +159,17 @@ func fakeDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { db.Close() })
 	return db.DB
 }
+
+func TestProfileCheckDoesNotPassWhenProfilesCannotBeRead(t *testing.T) {
+	ctx := context.Background()
+	db := fakeDB(t) // no migrations: there is no profiles table
+	if res := checkProfile(ctx, &Env{ProfileID: "p1", DB: db}); res.Status != StatusWarn {
+		t.Fatalf("a failed profile query: %+v, want warn", res)
+	}
+	if _, err := db.Exec(`CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if res := checkProfile(ctx, &Env{ProfileID: "p1", DB: db}); res.Status != StatusFail {
+		t.Fatalf("no profiles at all: %+v, want fail", res)
+	}
+}
