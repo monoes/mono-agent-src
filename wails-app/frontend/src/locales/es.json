@@ -1149,18 +1149,18 @@
       "signInNote": "{{runtime}} no tiene la sesión iniciada, así que su lista de modelos puede estar incompleta: puede mostrar más modelos cuando inicies sesión.",
       "signInNoteHint": "{{runtime}} no tiene la sesión iniciada, así que su lista de modelos puede estar incompleta: puede mostrar más modelos cuando inicies sesión con {{hint}}.",
       "title": "Modelos validados",
-      "subtitle": "Cada modelo recibe un turno de prueba (“Reply with the single word: ok”). Las organizaciones dinámicas solo asignan trabajadores a modelos listos.",
-      "readyTotal": "{{count}} listos",
-      "readyOf": "{{ready}} / {{total}} listos",
+      "subtitle": "Cada modelo recibe un turno de prueba (“Reply with the single word: ok”). Las organizaciones dinámicas solo toman sus trabajadores de modelos listos.",
+      "readyTotal": "Listos: {{count}}",
+      "readyOf": "Listos: {{ready}} / {{total}}",
       "notValidated": "aún sin validar",
       "validate": "Validar",
-      "validateAll": "Validar todo",
-      "recheckStale": "Revisar obsoletos",
+      "validateAll": "Validar todos",
+      "recheckStale": "Comprobar caducados",
       "stop": "Detener",
       "testing": "probando…",
       "never": "nunca",
       "manual": "añadido a mano",
-      "effort": "{{count}} niveles de esfuerzo",
+      "effort": "Niveles de esfuerzo: {{count}}",
       "revalidateModel": "Validar este modelo de nuevo",
       "trackRecord": "Historial en trabajo real de organizaciones: {{entries}}",
       "trackEntry": "{{category}}: puntuación {{pct}} % ({{succeeded}} de {{results}} con éxito)",
@@ -1169,11 +1169,11 @@
       "add": "Añadir",
       "addPlaceholder": "Añade un id de modelo que este entorno no lista",
       "confirmTitle": "Validar modelos",
-      "confirmBody": "Esto hace {{calls}} llamadas reales a modelos en {{runtimes}} entorno(s).",
-      "costEstimate": "Costo estimado ≈ {{cost}}.",
-      "costPartlyUnknown": "({{count}} con costo desconocido.)",
-      "costUnknown": "Aún no se conoce el costo.",
-      "summary": "{{ok}} correctos, {{failed}} fallidos, {{cancelled}} cancelados",
+      "confirmBody": "Esto realizará {{calls}} llamadas reales a modelos en {{runtimes}} entorno(s).",
+      "costEstimate": "Coste estimado ≈ {{cost}}.",
+      "costPartlyUnknown": "({{count}} con coste desconocido.)",
+      "costUnknown": "Aún no se conoce el coste.",
+      "summary": "correctos: {{ok}}, fallidos: {{failed}}, cancelados: {{cancelled}}",
       "nothingToDo": "Nada que validar: todos los modelos están listos.",
       "empty": "No hay entornos que validar. Instala uno arriba.",
       "ago": {
@@ -1184,8 +1184,8 @@
       },
       "status": {
         "ok": "✓ listo",
-        "okUnexpected": "✓ respondió raro",
-        "stale": "⚠ obsoleto",
+        "okUnexpected": "✓ respuesta inesperada",
+        "stale": "⚠ caducado",
         "staleVersion": "⚠ entorno actualizado",
         "untested": "sin probar",
         "auth": "✗ falta iniciar sesión",
@@ -1610,7 +1610,8 @@
           "risky_action": "Acción arriesgada",
           "verification_failed": "Falló una comprobación",
           "missing_credential": "Falta una credencial",
-          "child_conflict": "Las sesiones discrepan"
+          "child_conflict": "Las sesiones discrepan",
+          "plan_approval": "Aprobación del plan"
         },
         "who": {
           "user": "Preguntarme",
@@ -2773,7 +2774,7 @@
   },
   "controlRoom": {
     "title": "Sala de control",
-    "subtitle": "Vista en vivo de la ejecución en modo abierto. Puedes leerla y detenerla; se inicia desde un chat en modo abierto o desde la terminal.",
+    "subtitle": "Vista en vivo de la ejecución abierta. Puedes leerla y detenerla; se inicia desde un chat en modo abierto o desde la terminal.",
     "loading": "Cargando...",
     "off": "El modo abierto no está disponible en esta instalación.",
     "noRun": "Aún no hay ninguna ejecución.",
@@ -2782,20 +2783,20 @@
     "error": "No se pudo leer la sala de control: {{message}}",
     "integrity": {
       "yes": "Cadena de auditoría verificada",
-      "no": "La cadena de auditoría NO se verifica",
+      "no": "Cadena de auditoría NO válida",
       "unanchored": "Cadena de auditoría SIN anclar",
       "unknown": "Cadena de auditoría sin comprobar"
     },
     "run": {
       "active": "Ejecución activa",
-      "stopping": "Ejecución deteniéndose",
+      "stopping": "Deteniendo la ejecución",
       "ended": "Ejecución terminada",
       "generation": "generación {{n}}",
       "charter": "Carta"
     },
     "errorCode": {
       "db_unavailable": "No se pudo abrir la base de datos de la ejecución, así que la sala de control no puede mostrarla. Puede que la ejecución siga en marcha; Detener sigue disponible.",
-      "read_timeout": "Leer la ejecución tardó demasiado y se abandonó. Puede que la ejecución siga en marcha; Detener sigue disponible.",
+      "read_timeout": "La lectura de la ejecución tardó demasiado y se canceló. Puede que la ejecución siga en marcha; Detener sigue disponible.",
       "read_failed": "Falló la lectura de la ejecución. Puede que la ejecución siga en marcha; Detener sigue disponible.",
       "unknown": "Falló la lectura de la ejecución por un motivo que esta versión no conoce. Puede que la ejecución siga en marcha; Detener sigue disponible."
     },
@@ -2814,13 +2815,13 @@
       "other": "No se pudo confirmar la cadena de auditoría."
     },
     "badChain": {
-      "titleNo": "La cadena de auditoría no se verifica",
+      "titleNo": "La cadena de auditoría no pasa la verificación",
       "titleUnknown": "No se pudo comprobar la cadena de auditoría",
       "body": "El árbol, el gasto y el registro de decisiones están ocultos porque no son fiables. Detener sigue disponible."
     },
     "tree": {
       "title": "Miembros por tipo",
-      "counts": "{{live}} activos de {{total}}",
+      "counts": "Activos: {{live}} de {{total}}",
       "row": "{{live}} / {{total}}",
       "empty": "No hay miembros registrados.",
       "truncated": "Algunos tipos no se muestran."
@@ -2848,7 +2849,7 @@
         "ask_answer": "petición respondida",
         "grant": "concesión",
         "spend": "gasto",
-        "park": "en pausa",
+        "park": "en espera",
         "finish": "fin",
         "refusal": "rechazada",
         "other": "otra"
