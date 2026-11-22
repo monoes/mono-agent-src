@@ -164,6 +164,14 @@ func TestCheckDeciderProvider(t *testing.T) {
 	if err := CheckDeciderProvider(db, "nouls"); err == nil || !strings.Contains(err.Error(), "choice") {
 		t.Errorf("no choice: %v", err)
 	}
+	noProb := jevconf.Provider{Name: "noprob", Kind: fakeProviderKind, BaseURL: "http://localhost",
+		Caps: jev.Capabilities{Kinds: []string{jev.TypeChoice}, Probability: jev.ProbNone}}
+	if err := jevconf.SaveProvider(context.Background(), db, noProb); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckDeciderProvider(db, "noprob"); err == nil || !strings.Contains(err.Error(), "no probability") {
+		t.Errorf("no probability: %v", err)
+	}
 	if err := CheckDeciderProvider(db, "Bad/Name"); err == nil {
 		t.Error("bad name accepted")
 	}
