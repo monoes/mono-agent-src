@@ -229,10 +229,12 @@ does. Bindings named here exist today unless marked NEW.
   exactly those databases: only when one of the tables it scopes (people,
   crawler_sessions, actions, social_lists, threads, workflows,
   workflow_executions, credentials, vault_images, hil_pending, tags), or
-  posts, already holds a row. A new database has all of them empty and gets
-  no profile. The `active_profile_id` setting is not recreated, because 101
-  deletes it in the same upgrade. Tests start from the schema below 011 with
-  and without data.
+  posts, already holds a row. Likewise 013 creates it when it has copied
+  OAuth app config (`platform_oauth_credentials`, which v0.7.0 created at
+  runtime outside the migrations) to the owner `default`. A new database has
+  all of them empty and gets no profile. The `active_profile_id` setting is
+  not recreated, because 101 deletes it in the same upgrade. Tests start from
+  the schema below 011 with and without data, OAuth-only included.
 - With zero profiles: the CLI gate already refuses scoped commands with a
   clear message; the GUI already treats "no profile" as a normal state. The
   onboarding replaces the Dashboard's no-profile empty state as the way in.

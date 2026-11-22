@@ -41,17 +41,22 @@ func upgrade(t *testing.T, db *Database) {
 // 'default' must exist after the upgrade.
 func TestPre011DatabaseWithDataGetsTheDefaultProfileThatOwnsIt(t *testing.T) {
 	for name, c := range map[string]struct {
-		row, owner string
+		rows  []string
+		owner string
 	}{
-		"a workflow": {`INSERT INTO workflows (id, name) VALUES ('wf-old', 'Old workflow')`,
+		"a workflow": {[]string{`INSERT INTO workflows (id, name) VALUES ('wf-old', 'Old workflow')`},
 			`SELECT profile_id FROM workflows WHERE id = 'wf-old'`},
-		"a person": {`INSERT INTO people (id, platform_username, platform) VALUES ('p-old', 'ada', 'linkedin')`,
+		"a person": {[]string{`INSERT INTO people (id, platform_username, platform) VALUES ('p-old', 'ada', 'linkedin')`},
 			`SELECT profile_id FROM people WHERE id = 'p-old'`},
-		"a post with no person": {`INSERT INTO posts (id, platform, shortcode, url, scraped_at) VALUES ('post-old', 'instagram', 'abc', 'https://example.test/p/abc', '2026-01-01T00:00:00Z')`,
+		"a post with no person": {[]string{`INSERT INTO posts (id, platform, shortcode, url, scraped_at) VALUES ('post-old', 'instagram', 'abc', 'https://example.test/p/abc', '2026-01-01T00:00:00Z')`},
 			`SELECT profile_id FROM posts WHERE id = 'post-old'`},
+		// v0.7.0 created this table at runtime, outside the migrations; 013 copies its rows to 'default'.
+		"OAuth app config only": {[]string{oldOAuthTable,
+			`INSERT INTO platform_oauth_credentials (platform, client_id, client_secret, updated_at) VALUES ('outlook', 'app-id', 's', '2026-01-01T00:00:00Z')`},
+			`SELECT profile_id FROM platform_oauth_credentials WHERE platform = 'outlook'`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			db := openPre011(t, c.row)
+			db := openPre011(t, c.rows...)
 			upgrade(t, db)
 			var owner string
 			if err := db.DB.QueryRow(c.owner).Scan(&owner); err != nil {
@@ -74,12 +79,29 @@ func TestPre011DatabaseWithDataGetsTheDefaultProfileThatOwnsIt(t *testing.T) {
 	}
 }
 
+// oldOAuthTable is the OAuth app config table as v0.7.0's application code
+// created it, outside the migrations.
+const oldOAuthTable = `CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
+	platform      TEXT NOT NULL,
+	client_id     TEXT NOT NULL,
+	client_secret TEXT NOT NULL DEFAULT '',
+	updated_at    TEXT NOT NULL
+)`
+
 // A database from before profiles that holds no user data is as good as new:
-// the upgrade makes no profile.
+// the upgrade makes no profile, also where the old app had made its OAuth
+// table without writing to it.
 func TestPre011DatabaseWithoutDataGetsNoProfile(t *testing.T) {
-	db := openPre011(t)
-	upgrade(t, db)
-	if n := countProfiles(t, db); n != 0 {
-		t.Errorf("profiles after upgrading an empty old database = %d, want 0", n)
+	for name, rows := range map[string][]string{
+		"nothing at all":       nil,
+		"an empty OAuth table": {oldOAuthTable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := openPre011(t, rows...)
+			upgrade(t, db)
+			if n := countProfiles(t, db); n != 0 {
+				t.Errorf("profiles after upgrading an empty old database = %d, want 0", n)
+			}
+		})
 	}
 }

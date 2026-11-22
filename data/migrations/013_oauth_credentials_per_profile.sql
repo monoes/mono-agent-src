@@ -34,6 +34,14 @@ SELECT platform, 'default', client_id, client_secret, updated_at
 FROM platform_oauth_credentials
 WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'platform_oauth_credentials');
 
+-- The copied rows belong to the profile 'default'. 011 no longer seeds it on
+-- every database (only where user data already existed), and a database from
+-- before profiles may hold OAuth app config and nothing else, so make sure the
+-- owner exists. A new database copies nothing and gets no profile.
+INSERT OR IGNORE INTO profiles (id, name)
+SELECT 'default', 'Default'
+WHERE EXISTS (SELECT 1 FROM platform_oauth_credentials_v2 WHERE profile_id = 'default');
+
 DROP TABLE IF EXISTS platform_oauth_credentials;
 
 ALTER TABLE platform_oauth_credentials_v2 RENAME TO platform_oauth_credentials;
