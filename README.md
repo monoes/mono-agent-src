@@ -404,12 +404,12 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 >
 > ```bash
 > monoagentcli jev provider add local --kind openai --base-url http://localhost:11434/v1 --model <model>
-> monoagentcli jev provider use local                       # the machine default (a provider on another host first lists what each enabled surface sends, and asks)
+> monoagentcli jev provider use local                       # the machine default (a provider on another host first lists what follows the default, and asks)
 > monoagentcli --profile work jev provider probe local      # what it can answer and how it gets probabilities
 > monoagentcli --profile work jev usage --since 7d          # calls by surface and provider
 > ```
 >
-> A hosted provider takes its key on stdin (`--key-stdin`); `base_url` must be https, or http only to this computer. A chat model makes one request per question where TypeSafe answers many in one, and its probabilities come from token log-probabilities or repeated sampling: they are not calibrated like Jev's, so check each surface's threshold after switching. `jev provider use typesafe` switches back. Details: [AGENTS.md](AGENTS.md#decision-models-jev).
+> A provider on another host needs a key, taken on stdin (`--key-stdin`) and bound to that host; only a server on this computer may be keyless. `base_url` must be https, or http only to this computer. A chat model makes one request per question where TypeSafe answers many in one, and its probabilities come from token log-probabilities or from 5 repeated answers (a zero-shot classifier's are a forced split across the options): they are not calibrated like Jev's, so check each surface's threshold after switching. Five answers never reach a 0.9 threshold, so a provider that samples only suggests where the threshold is 0.9. `jev provider use typesafe` switches back. Details: [AGENTS.md](AGENTS.md#decision-models-jev).
 
 > **Deprecated:** `ai.chat` · `ai.extract` · `ai.classify` · `ai.transform` · `ai.agent` · `ai.embed` (and `service.openrouter`, plus `service.huggingface`'s `generate_text` operation) still exist only so old workflows fail with a migration hint — running one errors out. Use `agent.ask` (put the extraction/classification/rewrite instruction in its prompt), or `ai.choose` to classify. `ai.embed` has no replacement.
 

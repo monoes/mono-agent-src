@@ -1,7 +1,9 @@
 # Pluggable decision models — plan for parallel implementation
 
-- **Status**: v1 (2026-11-21). Written from three research passes (mono-agent call sites, monomind org
-  runtime, decision-model landscape). Not yet reviewed by the owner.
+- **Status**: implemented (2026-11-22) on `feat/decision-providers`, after two review rounds; see §10
+  "As built" for what differs from v1. v1 (2026-11-21) was written from three research passes
+  (mono-agent call sites, monomind org runtime, decision-model landscape). Not yet reviewed by the
+  owner.
 - **Branch**: `feat/decision-providers`, cut from `origin/master` at `9c41d0c67`. Never pushed or
   merged by an agent.
 - **Next migration**: `170` (WS0 only). Re-check master before merge.
@@ -229,3 +231,80 @@ jev provider remove <name> → {"removed":true}
   the org decider answer from that model, with usage rows naming the provider.
 - GUI can add, probe, switch and remove providers.
 - monomind issue filed.
+
+## 10. As built
+
+The decisions above are kept as written. Two review rounds (a correctness and a security review of
+the integrated branch, each followed by fix lanes) changed the following. AGENTS.md "Decision
+models (Jev)" describes the result.
+
+**Probabilities (D6, D7, O2).**
+- Rule: a provider may understate its confidence, never overstate it. `jev.Conservative` keeps the
+  answer at the raw mass the model put on it; mass on tokens that are no label is not renormalised
+  away, at every level of a hierarchical choice. Coverage below 0.5 is still refused.
+- A reply with fewer than two log-probability alternatives is not evidence: the adapter samples.
+  `learnK` and `Probe` ignore such replies. A 400 on log-probabilities is retried once with
+  `top_logprobs: 5` before sampling.
+- Sampled answers divide by the samples asked, not the valid ones, and are add-one smoothed
+  (`jev.SampledProbs`: (count + 1) / (asked + options)). Five agreeing answers read 6/7 ≈ 0.857 on
+  two options and 0.75 on three. O2's "a unanimous 5-of-5 is p = 1.0" no longer holds, and
+  Anthropic's early stop after three agreeing samples is gone.
+- A response is `sampled` when any question in it was sampled.
+- New kind `softmax` (`jev.ProbSoftmax`): `hf-zeroshot` reports it instead of `native`; Go code
+  treats it like `logprob`.
+- Gates use `jev.GateValue` everywhere (`jevpick`, `jev retry`).
+- `people_links` records a permanent "not the same" only from `native` or `logprob`.
+
+**Keys and hosts (D5).**
+- Keyless only on this computer: a provider with no `secret_name` must have a loopback `base_url`,
+  checked when saved and when its client is built.
+- `jev provider add --key-stdin` records the key's origin in the encrypted vault entry. At use
+  time the key is refused when another record names the same entry at another origin, or when the
+  entry's origin is not its record's. This is defence in depth against a process that writes the
+  database file, not a guarantee.
+- Adapters are pinned to `jev.KeyedHTTPClient` by an AST test.
+
+**Consent (D10).**
+- A default switch to a host that is not this computer always asks, even when nothing is listed.
+  It lists enabled surfaces in every profile, org deciders of kind jev without their own provider,
+  and fixed lines for workflow nodes and dynamic-org chats without a provider.
+- `jev provider add` over an existing name asks when the host changes, or when a provider in use
+  changes kind, base URL or key entry. `--yes` answers. The GUI shows its own confirm and passes
+  `--yes`.
+- `jev provider use --surface S` and `jev enable S --provider P` refuse a provider whose probed
+  kinds lack one S asks (`jevconf.SurfaceKinds`).
+- `ai.decide` checks `max_choice_options` at configuration time. `MaxChoiceOptions` is a hard cap;
+  `OptionsPerRequest` drives the hierarchical split.
+
+**Calls (D3, D8, D9).**
+- A node's `model` goes to a non-TypeSafe provider only when the node also names that provider, and
+  never a `jev-*` name; otherwise the provider record's model.
+- `ai.choose`, `ai.decide` and HIL `auto_decide` refuse a provider on another host in a run an AI
+  started or wrote (`decisionclient.ErrRemoteFromAIRun`). `internal/orggrant` keeps classifying them
+  read-only, since the classification cannot see which provider a node resolves to; the check runs
+  at run time instead.
+- Adapter errors carry the HTTP status and a short code only (`jev.HTTPError`). Stored rationales
+  and HIL skip reasons of a non-TypeSafe provider carry only `jevconf.ErrorClass`.
+- Every adapter honours the client's retry budget (`jev.WithRetries`). Samples run concurrently.
+  The org decider timeout triples, and HIL times each item on its own, for a provider that samples
+  or takes one question per request.
+- `api_auto`: a pick with no probability lets the rule decide and does not trip the breaker. The
+  surface's availability follows its own provider.
+- Labels come from `jev.ResponseLabel`, with the model the adapter actually used; with no model
+  known, the provider's name alone.
+- OpenAI reasoning models get `max_completion_tokens` (16, then 256) and no `temperature`.
+
+**Status and GUI.**
+- `jev status` adds `provider_pinned` per surface and `provider_key_source` and `provider_error`
+  for a non-TypeSafe default.
+- The GUI mirrors the consents, the keyless rule, the capability pre-filter, pinned surfaces, the
+  sampled-threshold warnings and the HIL skip reasons.
+
+**Open (not fixed, owner's call).**
+- A sampled provider cannot reach a 0.9 threshold on 5 samples. The default thresholds of HIL,
+  people links and asks are 0.9, and the org decider's 0.8 at level mid is out of reach on three
+  verdicts, so such a provider only suggests there. Raise the sample count or lower those
+  thresholds.
+- There is no CLI to set the `decider` or `dynorg` surface's provider for a profile.
+- A vault entry named with `--secret-name` carries no bound origin.
+- The monomind side is tracked as monomind issue #835.

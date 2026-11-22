@@ -207,8 +207,10 @@ curl -si http://127.0.0.1:9322/v1/chat/completions \
 
 The response's `model` and `X-Monoagent-Model` name the pick, and
 `X-Monoagent-Auto` says who chose: `jev`, or `rule` when Jev could not (no
-answer within 8 seconds, an answer that is not one of the options, or one under
-the surface's threshold, which `jev enable api_auto --threshold 0.8` raises) or
+answer within 8 seconds, an answer that is not one of the options, one with no
+probability, or one under the surface's threshold, which `jev enable api_auto
+--threshold 0.8` raises; a provider that samples reaches at most 0.857, so
+above that it never picks) or
 when only one model was left to pick. Of the models that passed
 `monoagentcli agent validate` (which records the cost and latency to compare),
 the rule takes the most confined, then the cheapest, then the fastest; with none
