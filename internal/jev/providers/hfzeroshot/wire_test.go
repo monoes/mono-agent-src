@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/credhttp/credhttptest"
 	"github.com/monoes/mono-agent/internal/jev"
@@ -58,6 +59,69 @@ func TestRetries(t *testing.T) {
 	}
 	if n := len(f.requests()); n != 1 {
 		t.Errorf("a 400 was retried: %d calls", n)
+	}
+}
+
+// A cold endpoint answers 503 while its model loads, often longer than two
+// short retries: a 503 waits what estimated_time (or Retry-After, the longer)
+// says, at most 20s per wait, for up to 4 attempts; other statuses keep
+// their 3 attempts and 5s waits; every wait ends with the caller's context.
+func TestALoadingModelIsWaitedFor(t *testing.T) {
+	loading := func(failures int32, body string) (*fake, *atomic.Int32) {
+		var calls atomic.Int32
+		return newFake(t, func(r classifyRequest) (int, string) {
+			if calls.Add(1) <= failures {
+				return http.StatusServiceUnavailable, body
+			}
+			return pairs(0.5, 0.5)(r)
+		}), &calls
+	}
+	withSleeps := func(c *jev.Client) *[]time.Duration {
+		waits := &[]time.Duration{}
+		c.Backend.(*Backend).sleep = func(ctx context.Context, d time.Duration) error {
+			*waits = append(*waits, d)
+			return ctx.Err()
+		}
+		return waits
+	}
+
+	f, _ := loading(3, `{"error":"Model facebook/bart-large-mnli is currently loading","estimated_time":12.5}`)
+	c := providerClient(t, f.URL, testKey)
+	waits := withSleeps(c)
+	if _, err := c.Ask(context.Background(), map[string]any{}, oneNoul); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.requests()); n != 4 || len(*waits) != 3 || (*waits)[0] != 12500*time.Millisecond {
+		t.Errorf("%d calls, waits %v; want 4 calls and 12.5s waits", n, *waits)
+	}
+
+	f, _ = loading(9, `{"error":"loading","estimated_time":300}`)
+	c = providerClient(t, f.URL, testKey)
+	waits = withSleeps(c)
+	if _, err := c.Ask(context.Background(), map[string]any{}, oneNoul); err == nil || !strings.Contains(err.Error(), "HTTP 503") {
+		t.Fatalf("got %v", err)
+	}
+	if n := len(f.requests()); n != 4 || len(*waits) != 3 || (*waits)[2] != 20*time.Second {
+		t.Errorf("%d calls, waits %v; want 4 calls and waits capped at 20s", n, *waits)
+	}
+
+	// A 502 keeps today's budget.
+	var calls atomic.Int32
+	f = newFake(t, func(classifyRequest) (int, string) { calls.Add(1); return http.StatusBadGateway, `{"estimated_time":30}` })
+	c = providerClient(t, f.URL, testKey)
+	waits = withSleeps(c)
+	if _, err := c.Ask(context.Background(), map[string]any{}, oneNoul); err == nil || calls.Load() != 3 || (*waits)[0] > 5*time.Second {
+		t.Errorf("502: %v, %d calls, waits %v", err, calls.Load(), *waits)
+	}
+
+	// The caller's context ends the wait.
+	f, _ = loading(9, `{"estimated_time":15}`)
+	c = providerClient(t, f.URL, testKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if _, err := c.Ask(ctx, map[string]any{}, oneNoul); !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 5*time.Second {
+		t.Errorf("err %v after %v", err, time.Since(started))
 	}
 }
 

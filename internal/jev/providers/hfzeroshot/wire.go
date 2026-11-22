@@ -22,6 +22,11 @@ const (
 	// maxBody caps a response body: one score per label.
 	maxBody      = 1 << 20
 	maxRetryWait = 5 * time.Second
+	// A model that is still loading answers 503, often for longer than the
+	// other retries allow: it gets loadingRetries retries (4 attempts), each
+	// waiting what estimated_time or Retry-After says, at most maxLoadingWait.
+	loadingRetries = 3
+	maxLoadingWait = 20 * time.Second
 )
 
 type parameters struct {
@@ -115,9 +120,11 @@ func wrapped(first json.RawMessage) bool {
 }
 
 // post sends body to the endpoint and returns the response body. A 408,
-// 429 or 5xx (a model still loading answers 503) is retried b.retries
-// times, waiting what Retry-After says (at most 5s). The key never appears
-// in an error.
+// 429 or other 5xx is retried b.retries times, waiting what Retry-After
+// says (at most 5s). A 503 (a model still loading) is retried
+// loadingRetries times, waiting the longer of Retry-After and the body's
+// estimated_time (at most 20s). Every wait ends with ctx. The key never
+// appears in an error.
 func (b *Backend) post(ctx context.Context, body []byte) ([]byte, error) {
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
@@ -129,22 +136,53 @@ func (b *Backend) post(ctx context.Context, body []byte) ([]byte, error) {
 			return raw, nil
 		}
 		retryable := status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
-		if !retryable || attempt >= b.retries {
+		retries, maxWait := b.retries, maxRetryWait
+		if status == http.StatusServiceUnavailable {
+			retries, maxWait = max(retries, loadingRetries), maxLoadingWait
+		}
+		if !retryable || attempt >= retries {
 			return nil, fmt.Errorf("hf-zeroshot: HTTP %d: %s", status, snippet(b.scrub(string(raw))))
 		}
 		wait := backoff
 		if s, err := strconv.ParseFloat(retryAfter, 64); err == nil && s >= 0 {
-			wait = time.Duration(s * float64(time.Second))
+			wait = seconds(s)
 		}
-		if wait > maxRetryWait {
-			wait = maxRetryWait
+		if status == http.StatusServiceUnavailable {
+			var loading struct {
+				EstimatedTime float64 `json:"estimated_time"`
+			}
+			if json.Unmarshal(raw, &loading) == nil && seconds(loading.EstimatedTime) > wait {
+				wait = seconds(loading.EstimatedTime)
+			}
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(wait):
+		if err := b.sleep(ctx, min(wait, maxWait)); err != nil {
+			return nil, err
 		}
 		backoff *= 2
+	}
+}
+
+// seconds is s seconds as a duration; a value that is not finite and
+// positive is 0, and a huge one is capped by the caller's maximum wait.
+func seconds(s float64) time.Duration {
+	switch {
+	case !(s > 0): // zero, negative or NaN
+		return 0
+	case s > 3600:
+		return time.Hour
+	}
+	return time.Duration(s * float64(time.Second))
+}
+
+// sleepCtx waits d, or returns ctx's error when ctx ends first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 
