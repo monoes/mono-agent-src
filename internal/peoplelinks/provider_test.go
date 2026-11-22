@@ -60,3 +60,42 @@ func TestSuggestFromAProvider(t *testing.T) {
 		t.Fatalf("links = %+v", links)
 	}
 }
+
+// C4: a permanent "not same" dismissal needs a calibrated probability
+// (native or logprob): a sampled or softmax p, however low, leaves the
+// pair undecided.
+func TestOnlyACalibratedProbabilityDismisses(t *testing.T) {
+	db := newDB(t)
+	seed(t, db,
+		person{id: "d1", platform: "X", user: "lo", name: "Low Match"},
+		person{id: "d2", platform: "LINKEDIN", user: "lo2", name: "Low Match"},
+	)
+	enable(t, db)
+	fb := jevtest.NewFakeBackend(jevtest.Fixed(map[string]string{QuestionID: "0.01"}))
+	t.Cleanup(jevconf.RegisterKind("peoplelinks-fake", func(jevconf.Provider, string) (jev.Backend, error) { return fb, nil }))
+	ctx := context.Background()
+	if err := jevconf.SaveProvider(ctx, db.DB, jevconf.Provider{Name: "local", Kind: "peoplelinks-fake", BaseURL: "http://localhost", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := jevconf.NewClientFor(ctx, db.DB, "default", "local", "", "", jevconf.PeopleLinks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairs, err := Candidates(ctx, db, "default", 0)
+	if err != nil || len(pairs) != 1 {
+		t.Fatalf("pairs = %d, %v", len(pairs), err)
+	}
+	for _, kind := range []jev.ProbabilityKind{jev.ProbSampled, "softmax"} {
+		fb.Caps.Probability = kind
+		if res, err := Suggest(ctx, c, db, "default", pairs, 0.9); err != nil || res.Dismissed != 0 || res.Undecided != 1 {
+			t.Fatalf("%s: result = %+v, %v", kind, res, err)
+		}
+	}
+	if links, _ := db.ListPersonLinks("default", ""); len(links) != 0 {
+		t.Fatalf("an uncalibrated p dismissed a pair: %+v", links)
+	}
+	fb.Caps.Probability = jev.ProbLogprob
+	if res, err := Suggest(ctx, c, db, "default", pairs, 0.9); err != nil || res.Dismissed != 1 {
+		t.Fatalf("logprob: result = %+v, %v", res, err)
+	}
+}
