@@ -117,7 +117,8 @@ func TestTheQuestionsOfARequestShareTheStatePrefix(t *testing.T) {
 	}
 }
 
-// " A", "a" and "A" are one label; their masses are summed.
+// " A", "a" and "A" are one label; their masses are summed. The answer
+// keeps its raw mass (0.8): the 0.05 on "Hello" goes to the other option.
 func TestLabelVariantsAreSummed(t *testing.T) {
 	f := newFake(t, func(int, seen) (int, any) {
 		return 200, logprobReply(alt{"A", 0.5}, alt{" A", 0.2}, alt{"a", 0.1}, alt{"B", 0.15}, alt{"Hello", 0.05})
@@ -127,7 +128,7 @@ func TestLabelVariantsAreSummed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := resp.Answers["q"]; a.Choice != "first" || !near(a.Probabilities["first"], 0.8/0.95) {
+	if a := resp.Answers["q"]; a.Choice != "first" || !near(a.Probabilities["first"], 0.8) || !near(a.Probabilities["second"], 0.2) {
 		t.Fatalf("answer = %+v", a)
 	}
 }
@@ -147,19 +148,20 @@ func TestLowCoverageIsRejected(t *testing.T) {
 }
 
 // A server that returns no log-probabilities is sampled: five answers at
-// temperature 1, still one token, the frequencies of the valid ones the
-// probabilities. The backend remembers and asks no more for them.
+// temperature 1, still one token, smoothed over the samples asked (3 × B,
+// 1 × A, 1 miss: B = (3+1)/(5+2)). The backend remembers and asks no more
+// for them.
 func TestWithoutLogprobsTheAnswerIsSampled(t *testing.T) {
-	answers := []string{"B", "B", " A", "B", "Well"}
-	var sampleN int
-	f := newFake(t, func(_ int, r seen) (int, any) {
-		if r.Body.Logprobs {
-			return 200, textReply("B")
+	// Request 0 asks for logprobs; the samples follow, five per question.
+	script := func(answers ...string) func(int, seen) (int, any) {
+		return func(n int, r seen) (int, any) {
+			if r.Body.Logprobs {
+				return 200, textReply("B")
+			}
+			return 200, textReply(answers[(n-1)%len(answers)])
 		}
-		s := answers[sampleN%len(answers)]
-		sampleN++
-		return 200, textReply(s)
-	})
+	}
+	f := newFake(t, script("B", "B", " A", "B", "Well"))
 	cl, _ := newClient(t, f.URL, "", jev.Capabilities{})
 	for round := 0; round < 2; round++ {
 		before := len(f.requests())
@@ -167,7 +169,7 @@ func TestWithoutLogprobsTheAnswerIsSampled(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a := resp.Answers["q"]; a.Choice != "second" || !near(a.Probabilities["second"], 0.75) || resp.Probability != jev.ProbSampled {
+		if a := resp.Answers["q"]; a.Choice != "second" || !near(a.Probabilities["second"], 4.0/7) || resp.Probability != jev.ProbSampled {
 			t.Fatalf("round %d: %+v %s", round, a, resp.Probability)
 		}
 		reqs := f.requests()[before:]
@@ -192,8 +194,7 @@ func TestWithoutLogprobsTheAnswerIsSampled(t *testing.T) {
 	}
 
 	// Fewer than three valid samples: invalid, quoting none of them.
-	answers = []string{"Hmm", "Sure", "A", "Okay", "B"}
-	sampleN = 0
+	f.setReply(script("Hmm", "Sure", "A", "Okay", "B"))
 	_, err := ask(t, cl, choiceOf("first", "second"))
 	if !errors.Is(err, jev.ErrInvalidAnswer) || strings.Contains(err.Error(), "Sure") {
 		t.Fatalf("err = %v", err)

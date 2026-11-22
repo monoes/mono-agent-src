@@ -30,8 +30,8 @@ func (b *Backend) Probe(ctx context.Context) (jev.Capabilities, error) {
 		return jev.Capabilities{}, err
 	}
 	top := res.top()
-	b.setSampled(top == nil)
-	if top != nil {
+	b.setSampled(len(top) < minAlternatives)
+	if len(top) >= minAlternatives {
 		b.mu.Lock()
 		b.topK = min(defaultTopK, len(top))
 		b.mu.Unlock()

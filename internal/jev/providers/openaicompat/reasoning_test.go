@@ -92,7 +92,8 @@ func TestALongerAnswerMustBeExactlyALabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := resp.Answers["q"]; a.Choice != "second" || !near(a.Probabilities["second"], 2.0/3) || !near(a.Probabilities["first"], 1.0/3) {
+	// 2 × B, 1 × A and 2 misses: B = max((2+1)/(5+2), 1/2), just above A.
+	if a := resp.Answers["q"]; a.Choice != "second" || !near(a.Probabilities["second"], 0.5) || a.Probabilities["first"] >= a.Probabilities["second"] {
 		t.Errorf("answer %+v", a)
 	}
 

@@ -6,9 +6,20 @@
 // Each question goes in its own request asking for one token. Every option
 // is given a one-token label (A, B, … for a choice; 0, 1, … for a score;
 // Yes/No for a noul) and the answer's probabilities are read from that
-// token's top log-probabilities. A server that gives none is sampled
-// instead: five answers at temperature 1, their frequencies the
-// probabilities. A choice with more options than one request can carry is
+// token's top log-probabilities, conservatively (jev.Conservative): the
+// answer keeps only the raw mass the model put on its label, through every
+// level of a hierarchy, and what went to tokens that are no label goes to
+// the other options, never to the answer. A server that gives none (or
+// only the chosen token's) is sampled instead: five answers at temperature
+// 1, sent at once, add-one smoothed over the samples asked (jev.SampledProbs),
+//
+//	p(o) = (count(o) + 1) / (samples asked + options),
+//
+// a sample that names no label counting toward the samples asked but toward
+// no option, its share then going to the other options. So five samples
+// never clear a 0.9 threshold: 5 of 5 on two options is 6/7 ≈ 0.857. A
+// response's Probability is sampled when any request of any of its
+// questions was. A choice with more options than one request can carry is
 // answered hierarchically: which group, then which member. Generated text
 // never reaches a caller (plan D3): it is only matched against the allowed
 // labels.
@@ -43,7 +54,11 @@ const (
 	// minCoverage is the least probability mass the first token must put on
 	// the allowed labels.
 	minCoverage = 0.5
-	httpTimeout = 90 * time.Second
+	// minAlternatives is the fewest alternatives a response must carry to be
+	// read as log-probabilities: the chosen token alone says nothing about
+	// the others, so such a provider is sampled.
+	minAlternatives = 2
+	httpTimeout     = 90 * time.Second
 )
 
 func init() {
@@ -173,7 +188,7 @@ func (b *Backend) k() int {
 
 // learnK records that a response asked for asked alternatives carried got.
 func (b *Backend) learnK(got, asked int) {
-	if got <= 0 || got >= asked {
+	if got < minAlternatives || got >= asked {
 		return
 	}
 	b.mu.Lock()
