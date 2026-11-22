@@ -557,9 +557,9 @@ type fakeRunner struct {
 	submitted   chan string   // an application the "person" submitted, freeing its slot
 	statusDelay time.Duration // how long the queue's status read takes after Finalize returns
 	readMu      sync.Mutex
-	read        map[string]bool // applications whose status the queue has read since Finalize
+	read        map[string]bool   // applications whose status the queue has read since Finalize
 	reasons     map[string]string // applications the queue marked needs_you
-	pending     []string        // submissions the person made that Sweep has not applied yet
+	pending     []string          // submissions the person made that Sweep has not applied yet
 }
 
 // statusRead notes that the queue has read id's status after its fill.
