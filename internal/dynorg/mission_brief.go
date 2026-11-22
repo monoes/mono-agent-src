@@ -45,6 +45,15 @@ func buildTaskBrief(se tasks.Session, t tasks.Task, deps []tasks.SessionTaskDeta
 		}
 	}
 	b.WriteString("## Handing it back\n\n")
+	if name == missionLeadName {
+		fmt.Fprintf(&b, "You are doing this task yourself. When you are done, call the tool `%s` with task_id %d, your result (what you did and how you checked it) and the evidence "+
+			"(a commit by its full object id, `git rev-parse HEAD`, never an abbreviation; a diff, test output or a file). Your shell cannot finish a task: do not run `monoagentcli task finish`. "+
+			"If you cannot go on, call it with a question instead of a result. Do not touch any other task.\n", ToolMissionTaskFinish, t.ID)
+		if e := strings.TrimSpace(extra); e != "" {
+			b.WriteString("\n## From the lead\n\n" + boundText(e, maxBriefNotes) + "\n")
+		}
+		return b.String()
+	}
 	fmt.Fprintf(&b, "Your report is attached to the task and the task goes to review when you finish; write it as your last message. "+
 		"You act as %s on this one task: you may run `monoagentcli task comment %d --as %s TEXT` for progress, "+
 		"`monoagentcli task artifact %d --kind commit|file|test|diff|report --ref REF --as %s` for evidence (a commit is attached by its full object id, `git rev-parse HEAD`, never an abbreviation), and "+
