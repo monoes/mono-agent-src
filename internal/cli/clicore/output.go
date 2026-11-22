@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/renderer"
@@ -46,6 +47,19 @@ func TruncateStr(s string, n int) string {
 		return string(r[:n])
 	}
 	return string(r[:n-3]) + "..."
+}
+
+// CaptureFileName is the name of a captured page's HTML file: the host with every
+// character outside a-z0-9 replaced by '_' (an IPv6 host's ':' is invalid on Windows),
+// then a timestamp down to the nanosecond so two captures of one host never collide.
+func CaptureFileName(host string, at time.Time) string {
+	stem := []rune(strings.ToLower(host))
+	for i, r := range stem {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			stem[i] = '_'
+		}
+	}
+	return fmt.Sprintf("%s_%s_%09d.html", string(stem), at.Format("20060102_150405"), at.Nanosecond())
 }
 
 // WebURL parses raw and accepts only an http or https URL with a host: the pages the
