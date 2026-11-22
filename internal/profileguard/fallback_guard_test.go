@@ -40,6 +40,8 @@ var allow = []struct {
 		"the `coder workspace default` subcommand's name (Use), not a profile"},
 	{"internal/cli/connect/connect.go", []string{defaultLiteralRule},
 		"a legacy profile named \"default\" gets no account/name mismatch hint; nothing falls back to it"},
+	{"internal/cli/jevcli/provider_use.go", []string{defaultLiteralRule},
+		"the `jev provider use` result's scope \"default\" (the machine default provider), not a profile"},
 	{"internal/cli/profile/names.go", []string{defaultLiteralRule},
 		"refuses \"default\" as a new profile's name"},
 	{"internal/nodes/nodeprofile/nodeprofile.go", []string{defaultLiteralRule},

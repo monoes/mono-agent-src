@@ -152,6 +152,9 @@ func Recorder(db *sql.DB, profileID string, s Surface) func(*jev.Request, *jev.R
 // TypeSafe row's cost is derived at read time).
 func recorder(db *sql.DB, profileID string, s Surface, provider string, usdIn, usdOut float64) func(*jev.Request, *jev.Response, time.Duration, error) {
 	return func(req *jev.Request, resp *jev.Response, latency time.Duration, err error) {
+		// One client's calls run concurrently: the response's provider is
+		// this call's, never written back to the shared one.
+		provider := provider
 		model, tokens, ok := req.Model, 0, 1
 		var out sql.NullInt64
 		var kind sql.NullString
