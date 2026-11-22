@@ -123,6 +123,7 @@ func TestDecisionToolsResolveDelegatedItems(t *testing.T) {
 	t.Cleanup(func() { decisionClient = old })
 
 	store := orgdecide.NewStore(db.DB)
+	setOrgLevel(t, store, "sales", "mid", nil)
 	item := orgdecide.Item{Kind: orgdecide.KindApproval, Ref: "lead:org_complete:1", Requester: "lead", Class: "org_complete", Tier: "consequential", Action: "org_complete", Summary: "lead wants to use org_complete"}
 	mine, err := store.Delegate(ctx, "default", "sales", "full", "hq", "ceo", item, time.Now().Add(time.Minute))
 	if err != nil {
@@ -171,6 +172,7 @@ func TestDecisionResolveKeepsItemPendingWhenApplyFails(t *testing.T) {
 	t.Cleanup(func() { decisionClient = old })
 
 	store := orgdecide.NewStore(db.DB)
+	setOrgLevel(t, store, "sales", "mid", nil)
 	item := orgdecide.Item{Kind: orgdecide.KindApproval, Ref: "lead:org_complete:1", Requester: "lead", Class: "org_complete", Tier: "consequential", Action: "org_complete"}
 	d, err := store.Delegate(ctx, "default", "sales", "full", "hq", "ceo", item, time.Now().Add(time.Minute))
 	if err != nil {
@@ -213,6 +215,7 @@ func TestDecisionResolveRecordsTheItemsRun(t *testing.T) {
 	t.Cleanup(func() { decisionClient = old })
 
 	store := orgdecide.NewStore(db.DB)
+	setOrgLevel(t, store, "sales", "mid", nil)
 	item := orgdecide.Item{Kind: orgdecide.KindApproval, Ref: "lead:send_email:1", Requester: "lead", Class: "tool:send_email", Tier: "consequential", Action: "send_email", Hash: "h1"}
 	d, err := store.Delegate(ctx, "default", "sales", "full", "hq", "ceo", item, time.Now().Add(time.Minute))
 	if err != nil {

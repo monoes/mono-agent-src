@@ -93,6 +93,16 @@ type Call struct {
 	GrantID     string
 	EndpointID  string
 	RunID       string
+	// Caps, when set with GrantID, bounds the grant's admitted calls; Admit
+	// counts them in its own transaction so parallel calls cannot overshoot.
+	Caps *GrantCaps
+}
+
+// GrantCaps are a granted automation's call limits. PerRun applies when
+// the call has a RunID; PerDay counts the last 24 hours.
+type GrantCaps struct {
+	PerRun int
+	PerDay int
 }
 
 // Admission is the outcome of Ledger.Admit.
@@ -257,6 +267,34 @@ func (l *Ledger) Admit(ctx context.Context, c Call, lim Limits) (Admission, erro
 			adm.Reason = fmt.Sprintf("%d calls to the same target in the last %s (limit %d) — slow down or raise run_config.max_repeats", n, lim.Window, maxRepeats)
 			if triggerDirection(c.Direction) {
 				adm.Reason = fmt.Sprintf("%d runs of this workflow on org chains in the last %s (limit %d) — slow down", n, lim.Window, maxRepeats)
+			}
+		}
+	}
+	if adm.OK() && c.Caps != nil && c.GrantID != "" {
+		// Counted here, inside the IMMEDIATE transaction that records the
+		// call, so parallel calls cannot all read n < limit.
+		if c.RunID != "" {
+			var n int
+			if err := conn.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM org_bridge_calls WHERE grant_id = ? AND run_id = ? AND status = 'ok'`,
+				c.GrantID, c.RunID).Scan(&n); err != nil {
+				return Admission{}, fmt.Errorf("orgbridge: ledger: %w", err)
+			}
+			if n >= c.Caps.PerRun {
+				adm.Status = StatusRefusedCap
+				adm.Reason = fmt.Sprintf("already ran %d times this org run (limit %d)", n, c.Caps.PerRun)
+			}
+		}
+		if adm.OK() {
+			var n int
+			if err := conn.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM org_bridge_calls WHERE grant_id = ? AND status = 'ok' AND created_at >= ?`,
+				c.GrantID, l.now().Add(-24*time.Hour).UTC().Format(time.RFC3339Nano)).Scan(&n); err != nil {
+				return Admission{}, fmt.Errorf("orgbridge: ledger: %w", err)
+			}
+			if n >= c.Caps.PerDay {
+				adm.Status = StatusRefusedCap
+				adm.Reason = fmt.Sprintf("already ran %d times in 24 hours (limit %d)", n, c.Caps.PerDay)
 			}
 		}
 	}

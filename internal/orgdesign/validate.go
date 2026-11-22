@@ -1,7 +1,9 @@
 package orgdesign
 
 import (
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,6 +43,10 @@ func Validate(d *Doc) error {
 		if r.ID == "" {
 			errs = append(errs, "a role has an empty id")
 			continue
+		}
+		if strings.ContainsAny(r.ID, `/\:`) || r.ID == "." || r.ID == ".." {
+			// The id is a path segment (worktree-<id>) and half of org:role.
+			errs = append(errs, fmt.Sprintf("invalid role id %q: no path separators, colons, or dot segments", r.ID))
 		}
 		if seen[r.ID] {
 			dupes = append(dupes, r.ID)
@@ -97,6 +103,15 @@ func Validate(d *Doc) error {
 
 	for _, cyc := range DetectCycles(d.Roles) {
 		errs = append(errs, fmt.Sprintf("circular reporting: %s", strings.Join(cyc, " -> ")))
+	}
+
+	if raw, ok := d.RunConfig["workspace"]; ok {
+		var ws string
+		if json.Unmarshal(raw, &ws) == nil && ws != "" && !filepath.IsAbs(ws) {
+			if c := filepath.Clean(ws); c == ".." || strings.HasPrefix(c, ".."+string(filepath.Separator)) {
+				errs = append(errs, fmt.Sprintf("run_config.workspace %q climbs out of the project root", ws))
+			}
+		}
 	}
 
 	errs = append(errs, validateUnification(d)...)
