@@ -221,10 +221,14 @@ func TestEveryUserOfTheTypeSafeKeyGoesThroughJevconf(t *testing.T) {
 	}
 	// ProviderKeySourceOf only looks whether a provider's entry exists:
 	// availability checks never decrypt (no keyring or passphrase prompt).
-	if i := strings.Index(prov, "func ProviderKeySourceOf("); i < 0 {
-		t.Error("provider.go has no ProviderKeySourceOf")
+	kb, err := os.ReadFile(filepath.Join(filepath.Dir(here), "provider_keysource.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := strings.Index(string(kb), "func ProviderKeySourceOf("); i < 0 {
+		t.Error("provider_keysource.go has no ProviderKeySourceOf")
 	} else {
-		body := prov[i:]
+		body := string(kb)[i:]
 		if j := strings.Index(body[1:], "\nfunc "); j >= 0 {
 			body = body[:j+1]
 		}

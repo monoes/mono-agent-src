@@ -81,6 +81,41 @@ func decodeProviders(raw string) ([]Provider, error) {
 	return out, nil
 }
 
+// orgDeciderUses lists the orgs whose jev decider names provider, as
+// "org decider of <profile>/<org>". It reads org_autonomy directly
+// (internal/orgdecide imports this package): a database without that table
+// has no org using it, and a row whose decider_json does not parse is not a
+// use.
+func orgDeciderUses(ctx context.Context, tx *sql.Tx, provider string) ([]string, error) {
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'org_autonomy'`).Scan(&n); err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT profile_id, org_name, decider_json FROM org_autonomy ORDER BY profile_id, org_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var uses []string
+	for rows.Next() {
+		var profile, org string
+		var raw sql.NullString
+		if err := rows.Scan(&profile, &org, &raw); err != nil {
+			return nil, err
+		}
+		var d struct {
+			Provider string `json:"provider"`
+		}
+		if json.Unmarshal([]byte(raw.String), &d) == nil && strings.TrimSpace(d.Provider) == provider {
+			uses = append(uses, "org decider of "+profile+"/"+org)
+		}
+	}
+	return uses, rows.Err()
+}
+
 // updateProviders reads, changes and writes the configured providers in one transaction.
 func updateProviders(ctx context.Context, db *sql.DB, change func(tx *sql.Tx, saved []Provider) ([]Provider, error)) error {
 	tx, err := db.BeginTx(ctx, nil)
