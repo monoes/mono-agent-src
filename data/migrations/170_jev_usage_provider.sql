@@ -6,7 +6,7 @@
 --   provider          the provider's name ('typesafe', or a configured one); NULL on rows written before this migration,
 --                     which were all TypeSafe's
 --   output_tokens     output tokens the provider reported (TypeSafe's are free; other providers may bill them)
---   probability_kind  how the answer's probabilities were obtained: native | logprob | sampled | none
+--   probability_kind  how the answer's probabilities were obtained: native | logprob | sampled | softmax | none
 --   cost_usd          what the call cost when the provider said so or its rates are configured; NULL = unknown (a TypeSafe
 --                     row's cost is then derived at read time from input_tokens, as before)
 ALTER TABLE jev_usage ADD COLUMN provider TEXT;
