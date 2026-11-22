@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -32,13 +33,21 @@ func registeredTurnDB(t *testing.T) string {
 	return x.DBPath
 }
 
-// overrides are the ways a process names a database that holds no turn.
-//
-// TEST FIXTURE: each database named is given the profile 'default' (sendEnv's --profile) before the
-// command runs, so the command reaches the turn gate. A new real database has no profile and the command
-// would stop earlier, at --profile, which is not what these tests are about (see
-// internal/storage/no_seed_profile_migration_test.go).
-func overrides(t *testing.T) map[string]func(*globalConfig) {
+// dbOverride is one way a process names a database that holds no turn.
+type dbOverride struct {
+	apply func(*globalConfig)
+	// hasProfile: the named database has the profile 'default' that sendEnv's --profile names (a TEST
+	// FIXTURE: a new real database has no profile, see internal/storage/no_seed_profile_migration_test.go).
+	// A command that opens the database before its gate (the task verbs and rows below) gets as far as the
+	// turn gate only then; without it --profile resolution refuses first.
+	hasProfile bool
+}
+
+// overrides are the ways a process names a database that holds no turn. An empty file and a path with no
+// database are named as they are: they hold no profile, so a verb that opens the database before its turn
+// check stops at --profile (exit 3) instead; either way it is refused and nothing may be written there.
+// The other databases have the fixture profile, so every verb reaches the turn gate.
+func overrides(t *testing.T) map[string]dbOverride {
 	empty := filepath.Join(t.TempDir(), "empty.db")
 	if err := os.WriteFile(empty, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -50,18 +59,118 @@ func overrides(t *testing.T) map[string]func(*globalConfig) {
 		writeMigratedDB(t, path)
 		return path
 	}
-	return map[string]func(*globalConfig){
-		"an empty file":      func(c *globalConfig) { c.DBPath = seeded(empty) },
-		"a nonexistent path": func(c *globalConfig) { c.DBPath = seeded(filepath.Join(t.TempDir(), "nowhere", "x.db")) },
-		"a second database":  func(c *globalConfig) { c.DBPath = newHILTestDB(t) },
-		"another HOME":       func(c *globalConfig) { c.DBPath = seeded(filepath.Join(t.TempDir(), ".monoagent", "monoagent.db")) },
-		"a clean environment": func(c *globalConfig) {
+	return map[string]dbOverride{
+		"an empty file, which has no profile": {apply: func(c *globalConfig) { c.DBPath = empty }},
+		"a nonexistent path, which has no profile": {apply: func(c *globalConfig) {
+			c.DBPath = filepath.Join(t.TempDir(), "nowhere", "x.db")
+		}},
+		"a fresh database given the fixture profile": {hasProfile: true, apply: func(c *globalConfig) {
+			c.DBPath = seeded(filepath.Join(t.TempDir(), "fresh", "x.db"))
+		}},
+		"a second database": {hasProfile: true, apply: func(c *globalConfig) { c.DBPath = newHILTestDB(t) }},
+		"another HOME": {hasProfile: true, apply: func(c *globalConfig) {
+			c.DBPath = seeded(filepath.Join(t.TempDir(), ".monoagent", "monoagent.db"))
+		}},
+		"a clean environment": {hasProfile: true, apply: func(c *globalConfig) {
 			for _, k := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
 				t.Setenv(k, "")
 			}
 			c.DBPath = seeded(filepath.Join(t.TempDir(), "x.db"))
-		},
+		}},
 	}
+}
+
+// requireRefusedWritingNothing: a command inside a turn that names a database without the profile it asks
+// for is refused, by the turn layer (a verb that checks it before opening the database) or at --profile
+// resolution (exit 3), and the database holds nothing beyond what migrating it writes.
+func requireRefusedWritingNothing(t *testing.T, dbPath string, err error) {
+	t.Helper()
+	byTurn := isOperatorOnly(err) && strings.Contains(err.Error(), "coder session's turn")
+	atProfile := exitCodeFor(err) == 3 && err != nil && strings.Contains(err.Error(), `profile "default" not found`)
+	if !byTurn && !atProfile {
+		t.Fatalf("not refused by the turn layer nor at --profile (exit %d): %v", exitCodeFor(err), err)
+	}
+	if _, serr := os.Stat(dbPath); os.IsNotExist(serr) {
+		return // nothing was even created
+	}
+	got, cerr := rowCounts(dbPath)
+	if cerr != nil {
+		t.Fatalf("reading %s: %v", dbPath, cerr)
+	}
+	want := migratedRowCounts(t)
+	for table, n := range got {
+		if n != want[table] {
+			t.Errorf("the refused command wrote to %s: %d row(s), a just-migrated database has %d", table, n, want[table])
+		}
+	}
+}
+
+var migrated struct {
+	once   sync.Once
+	counts map[string]int
+	err    error
+}
+
+// migratedRowCounts are the rows per table of a database that was only migrated (no profile, no test fixture).
+func migratedRowCounts(t *testing.T) map[string]int {
+	t.Helper()
+	migrated.once.Do(func() {
+		dir, err := os.MkdirTemp("", "migrated-counts-")
+		if err != nil {
+			migrated.err = err
+			return
+		}
+		defer os.RemoveAll(dir)
+		p := filepath.Join(dir, "ref.db")
+		d, err := storage.NewDatabase(p)
+		if err != nil {
+			migrated.err = err
+			return
+		}
+		if err := d.ApplyMigrations(); err != nil {
+			d.Close()
+			migrated.err = err
+			return
+		}
+		d.Close()
+		migrated.counts, migrated.err = rowCounts(p)
+	})
+	if migrated.err != nil {
+		t.Fatalf("migrating the reference database: %v", migrated.err)
+	}
+	return migrated.counts
+}
+
+// rowCounts counts the rows of every table of the database at path.
+func rowCounts(path string) (map[string]int, error) {
+	d, err := storage.NewDatabase(path)
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+	rows, err := d.DB.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return nil, err
+	}
+	var tables []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		tables = append(tables, n)
+	}
+	rows.Close()
+	counts := make(map[string]int, len(tables))
+	for _, tb := range tables {
+		var n int
+		if err := d.DB.QueryRow(`SELECT COUNT(*) FROM "` + tb + `"`).Scan(&n); err != nil {
+			return nil, err
+		}
+		counts[tb] = n
+	}
+	return counts, nil
 }
 
 func TestEveryGatedVerbStillRefusesAProcessInsideATurnWhateverDatabaseItNames(t *testing.T) {
@@ -70,11 +179,16 @@ func TestEveryGatedVerbStillRefusesAProcessInsideATurnWhateverDatabaseItNames(t 
 			t.Run(name+"/"+v.name, func(t *testing.T) {
 				cfg := sendEnv(t)
 				registeredTurnDB(t)
-				overrides(t)[name](cfg)
+				o := overrides(t)[name]
+				o.apply(cfg)
 				if v.atTerminal {
 					atATerminal(t)
 				}
 				_, err := runSendCLI(t, cfg, newTaskCmd(cfg), v.args...)
+				if !o.hasProfile {
+					requireRefusedWritingNothing(t, cfg.DBPath, err)
+					return
+				}
 				requireOperatorOnly(t, err)
 				for _, want := range []string{"coder session's turn", "only the operator can " + v.what} {
 					if !strings.Contains(err.Error(), want) {
@@ -92,8 +206,13 @@ func TestEveryRequireOperatorRowStillRefusesAProcessInsideATurnWhateverDatabaseI
 			t.Run(name+"/"+r.name, func(t *testing.T) {
 				cfg := sendEnv(t)
 				registeredTurnDB(t)
-				overrides(t)[name](cfg)
+				o := overrides(t)[name]
+				o.apply(cfg)
 				err := r.run(t, cfg)
+				if !o.hasProfile {
+					requireRefusedWritingNothing(t, cfg.DBPath, err)
+					return
+				}
 				requireOperatorOnly(t, err)
 				if !strings.Contains(err.Error(), "coder session's turn") {
 					t.Fatalf("not refused by the turn layer: %v", err)

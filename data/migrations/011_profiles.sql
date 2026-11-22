@@ -9,11 +9,34 @@ CREATE TABLE IF NOT EXISTS profiles (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- No profile is seeded: a new database starts with zero profiles and the
+-- A new database gets no profile: it starts with zero profiles and the
 -- first-run onboarding has the user create and name the first one. This file
--- used to insert a 'default' profile and an active_profile_id setting;
--- databases that already have that row keep it, and 'default' stays a valid
--- profile id. The column DEFAULT 'default' clauses below are unchanged.
+-- used to insert a 'default' profile and an active_profile_id setting into
+-- every database; databases that already have that row keep it, and
+-- 'default' stays a valid profile id.
+--
+-- A database from before profiles existed (version 010 or lower, v0.7.0 and
+-- older) still runs this file when it is upgraded, and the ADD COLUMN ...
+-- DEFAULT 'default' lines below (with 013 and 098 later) give all its rows
+-- the owner 'default'. So the profile 'default' is created here exactly when
+-- the database already holds user data in a table this file scopes, or in
+-- posts (098 gives ownerless posts 'default'); on a new database all of them
+-- are empty and no profile is made. The active_profile_id setting is not
+-- needed: 101 deletes it in the same upgrade, and nothing reads it before.
+INSERT OR IGNORE INTO profiles (id, name)
+SELECT 'default', 'Default'
+WHERE EXISTS (SELECT 1 FROM people)
+   OR EXISTS (SELECT 1 FROM crawler_sessions)
+   OR EXISTS (SELECT 1 FROM actions)
+   OR EXISTS (SELECT 1 FROM social_lists)
+   OR EXISTS (SELECT 1 FROM threads)
+   OR EXISTS (SELECT 1 FROM workflows)
+   OR EXISTS (SELECT 1 FROM workflow_executions)
+   OR EXISTS (SELECT 1 FROM credentials)
+   OR EXISTS (SELECT 1 FROM vault_images)
+   OR EXISTS (SELECT 1 FROM hil_pending)
+   OR EXISTS (SELECT 1 FROM tags)
+   OR EXISTS (SELECT 1 FROM posts);
 
 -- Add profile_id to every user-scoped table. modernc.org/sqlite does not
 -- support "ADD COLUMN IF NOT EXISTS"; schema_migrations already guarantees

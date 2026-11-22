@@ -202,8 +202,8 @@ func TestOperatorOnlyVerbsRefuseATurnOfARegisteredHostWhateverDatabaseTheyName(t
 			t.Run(name+"/"+r.path, func(t *testing.T) {
 				cfg := opEnv(t)
 				registeredTurnDB(t)
-				overrides(t)[name](cfg)
-				err := r.run(t, cfg)
+				overrides(t)[name].apply(cfg)
+				err := r.run(t, cfg) // refused by the gate before any database is opened, profile or not
 				requireOperatorOnly(t, err)
 				if !strings.Contains(err.Error(), "coder session's turn") {
 					t.Fatalf("not refused by the turn layer: %v", err)

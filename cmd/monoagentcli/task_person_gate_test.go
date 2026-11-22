@@ -104,7 +104,7 @@ func TestRetireWorkerIsNotRefusedToAnOperator(t *testing.T) {
 // exit 3 and operator_only, before any session is made.
 func TestAgentDirectionBelowASessionItDoesNotWorkInIsRefused(t *testing.T) {
 	cfg := sendEnv(t)
-	cfg.DBPath = seededDBPath(t, "never-opened.db")
+	cfg.DBPath = seededDBPath(t, "direction.db")
 	_, err := runSendCLI(t, cfg, newTaskCmd(cfg), "session", "new", "d", "--parent", "1", "--kind", "direction", "--as", "bot")
 	var coded interface{ JSONErrorFields() map[string]any }
 	if clicore.ExitCodeFor(err) != 3 || !errors.As(err, &coded) || coded.JSONErrorFields()["code"] != "operator_only" ||

@@ -257,12 +257,12 @@ func TestRunLetsGatedCommandsRunWhenAllowed(t *testing.T) {
 		accounttest.Install(t, mode)
 		home := freshHome(t)
 		seedHomeDB(t, home)
+		// Exit 0 with nothing on stderr: the command ran, resolving --profile default from the database (an
+		// unknown profile is exit 3, a refused gate exit 4). The database itself is the seeded fixture, so
+		// whether it exists afterwards proves nothing and is not checked.
 		code, _, stderr := runMain(t, "--profile", "default", "workflow", "list")
 		if code != 0 || stderr != "" {
 			t.Errorf("%s: exit %d, stderr %q", name, code, stderr)
-		}
-		if _, err := os.Stat(filepath.Join(home, ".monoagent", "monoagent.db")); err != nil {
-			t.Errorf("%s: the command did not run: %v", name, err)
 		}
 	}
 

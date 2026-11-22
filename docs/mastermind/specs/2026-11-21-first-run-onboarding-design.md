@@ -222,6 +222,17 @@ does. Bindings named here exist today unless marked NEW.
   created in the same migrate run) and proves with tests that (a) a fresh
   database has zero profiles and every later migration still applies, and
   (b) an existing database keeps its profiles.
+- Databases from before profiles existed (version 010 or lower, v0.7.0 and
+  older) still run 011 when they are upgraded. Its `ADD COLUMN profile_id
+  ... DEFAULT 'default'` lines (and later 013 and 098) give all their rows
+  the owner `default`. So 011 keeps creating the `default` profile on
+  exactly those databases: only when one of the tables it scopes (people,
+  crawler_sessions, actions, social_lists, threads, workflows,
+  workflow_executions, credentials, vault_images, hil_pending, tags), or
+  posts, already holds a row. A new database has all of them empty and gets
+  no profile. The `active_profile_id` setting is not recreated, because 101
+  deletes it in the same upgrade. Tests start from the schema below 011 with
+  and without data.
 - With zero profiles: the CLI gate already refuses scoped commands with a
   clear message; the GUI already treats "no profile" as a normal state. The
   onboarding replaces the Dashboard's no-profile empty state as the way in.

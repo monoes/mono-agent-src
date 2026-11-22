@@ -135,18 +135,33 @@ func TestDoctorFreshHomeFailsThenFixes(t *testing.T) {
 func TestDoctorFixStreamsNDJSON(t *testing.T) {
 	keyring.MockInit()
 	home := t.TempDir()
-	seedHomeDB(t, home) // runDoctor names the profile 'default'
 
-	out, err := runDoctor(t, home, "doctor", "fix", health.FixDBMigrate, "--json")
-	if err != nil {
-		t.Fatalf("doctor fix: %v\n%s", err, out)
+	// A fresh HOME with nothing migrated yet, so every migration streams. A new database has no profile,
+	// so the fix runs naming none (runDoctor names 'default'), with stderr apart from the NDJSON on stdout.
+	testhome.SetHome(t, home)
+	root := newRootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--profile=", "doctor", "fix", health.FixDBMigrate, "--json",
+		"--db-path", filepath.Join(home, ".monoagent", "monoagent.db")})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("doctor fix: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
+	out := stdout.String()
 	lines := strings.Split(strings.TrimSpace(out), "\n")
+	applied := 0
 	for _, l := range lines {
 		var ev fixEvent
 		if err := json.Unmarshal([]byte(l), &ev); err != nil {
 			t.Fatalf("non-NDJSON line %q", l)
 		}
+		if ev.Kind == "line" && strings.HasPrefix(ev.Message, "applied migration ") {
+			applied++
+		}
+	}
+	if applied < 100 {
+		t.Fatalf("%d migration line(s) streamed, want one per migration of a new database:\n%s", applied, out)
 	}
 	var last fixEvent
 	_ = json.Unmarshal([]byte(lines[len(lines)-1]), &last)
