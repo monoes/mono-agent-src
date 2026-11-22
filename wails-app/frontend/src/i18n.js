@@ -8,11 +8,12 @@ import en from './locales/en.json'
 import es from './locales/es.json'
 
 const STORAGE_KEY = 'monoagent-lang'
+const SUPPORTED = ['en', 'es']
 
 function detectInitialLanguage() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) return stored
+    if (SUPPORTED.includes(stored)) return stored
   } catch { /* localStorage unavailable (e.g. sandboxed webview) */ }
   const browser = (typeof navigator !== 'undefined' && navigator.language) || 'en'
   return browser.startsWith('es') ? 'es' : 'en'
