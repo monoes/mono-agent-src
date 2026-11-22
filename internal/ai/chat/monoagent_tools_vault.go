@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/monoes/mono-agent/internal/docscan"
 	"github.com/monoes/mono-agent/internal/imagescan"
@@ -265,7 +264,9 @@ func (mt *MonoagentTools) saveImage(args string) (string, error) {
 	}
 	dest := filepath.Join(imagesDir, name)
 
-	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	// O_EXCL with O_CREATE refuses an existing path, a symlink included, and
+	// works on every platform (syscall.O_NOFOLLOW does not exist on Windows).
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		if os.IsExist(err) {
 			return "", fmt.Errorf("an image named %q already exists in images/ — choose a different filename", name)
