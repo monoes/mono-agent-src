@@ -97,7 +97,10 @@ func newExtensionPairCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("read extension token: %w", err)
 			}
-			fmt.Println(token)
+			if cfg.JSONOutput() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"token": token})
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), token)
 			return nil
 		},
 	}
@@ -223,7 +226,10 @@ func newExtensionResetCmd(cfg *Deps) *cobra.Command {
 			if err := extension.ResetToken(); err != nil {
 				return fmt.Errorf("reset extension token: %w", err)
 			}
-			fmt.Println("Extension token revoked. Run `monoagentcli extension pair` to generate a new one.")
+			if cfg.JSONOutput() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]bool{"reset": true})
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Extension token revoked. Run `monoagentcli extension pair` to generate a new one.")
 			return nil
 		},
 	}
