@@ -142,11 +142,14 @@ WHERE AN AGENT MAY GO
   *.test, private network RFC 1918 hosts) are allowed at every level but off;
   file: and chrome: pages never. Tabs an agent opens go into the tab group
   "Coder · <label>". No cookie commands and no raw CDP for agents.
-  browser permissions [--json]              {levels,sites,kinds,catalog,you:{kind,level}};
+  browser permissions [--json]              {levels,sites,kinds,catalog,you:{kind,level},
+                                            presets:{ask|free|off:{kind:level}}};
                                             an agent may read it, never change it
   browser permissions set <kind|all> <level>
                                             the user's (refused in an agent); all sets every kind,
                                             e.g. set all full
+  browser permissions preset <ask|free|off> the user's; every kind at once, site rules kept:
+                                            ask full, free full-no-approvals (apply full), off
   browser permissions site <origin> <allow|block|clear>
                                             the user's; origin scheme://host[:port] or *.host
                                             (a block also takes a bare host)

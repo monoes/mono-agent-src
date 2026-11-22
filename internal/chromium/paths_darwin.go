@@ -32,6 +32,12 @@ func candidatePaths(id string) []string {
 
 // launchArgs opens the detected bundle with `open -a`, which brings an
 // already running browser to the front instead of starting a second one.
+// The launcher is the system's own by absolute path: the app puts the
+// login-shell PATH first, where another `open` could be found.
 func launchArgs(path string) (string, []string) {
-	return "open", []string{"-a", path}
+	return "/usr/bin/open", []string{"-a", path}
 }
+
+// installed reports whether a candidate is there: an app bundle is a
+// directory.
+func installed(fi os.FileInfo) bool { return fi.IsDir() }

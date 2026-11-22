@@ -1,7 +1,14 @@
 // Package chromium finds the Chromium-based browsers installed on this
 // machine and builds the command that opens one, for the onboarding's
 // "Connect your browser" step. Nothing here takes a path from a caller: a
-// browser is named by its id, and the command comes from a detected path.
+// browser is named by its id, and the command comes from a detected path:
+// an absolute path, run with no arguments from the caller (on macOS by the
+// absolute /usr/bin/open).
+//
+// Some candidates are writable by the user (~/Applications, %LocalAppData%,
+// PATH directories such as ~/.local/bin): trusted at the user's own level,
+// and checked after the system locations where there are both. Never add a
+// candidate under a world-writable or shared directory.
 package chromium
 
 import (
@@ -50,10 +57,11 @@ func Detect(exists func(path string) bool) []Browser {
 	return append(installed, rest...)
 }
 
-// Exists reports whether path is on disk.
+// Exists reports whether a browser is installed at candidate path: an app
+// bundle on macOS, an (executable, on Linux) regular file elsewhere.
 func Exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	fi, err := os.Stat(path)
+	return err == nil && installed(fi)
 }
 
 // LaunchCommand is the program and arguments that open browser id, built

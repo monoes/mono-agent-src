@@ -13,13 +13,14 @@ import (
 // browser by id only: the program that runs comes from the path detected
 // here, never from the frontend.
 
-// DetectChromiumBrowsers lists the seven known browsers, installed first;
-// nothing while signed out (the account gate, like every binding).
-func (a *App) DetectChromiumBrowsers() []chromium.Browser {
+// DetectChromiumBrowsers lists the seven known browsers, installed first.
+// Signed out it is the login-required error (the promise rejects), so the
+// step shows the sign-in message, not an empty list.
+func (a *App) DetectChromiumBrowsers() ([]chromium.Browser, error) {
 	if err := a.signedOut(); err != nil {
-		return nil
+		return nil, err
 	}
-	return chromium.Detect(chromium.Exists)
+	return chromium.Detect(chromium.Exists), nil
 }
 
 // OpenChromiumBrowser starts (or brings to the front) the installed browser

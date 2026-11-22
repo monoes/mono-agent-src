@@ -4,10 +4,14 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/account"
+	"github.com/monoes/mono-agent/internal/account/accounttest"
 )
 
 func TestDetectChromiumBrowsers_ListsAllSeven(t *testing.T) {
-	got := (&App{}).DetectChromiumBrowsers()
+	got, err := (&App{}).DetectChromiumBrowsers()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 7 {
 		t.Fatalf("DetectChromiumBrowsers = %d browsers, want 7: %+v", len(got), got)
 	}
@@ -27,13 +31,21 @@ func TestDetectChromiumBrowsers_ListsAllSeven(t *testing.T) {
 func TestOpenChromiumBrowser_RefusesUnknownIDs(t *testing.T) {
 	a := &App{}
 	for _, id := range []string{"nope", "../x", "/Applications/Google Chrome.app", ""} {
-		err := a.OpenChromiumBrowser(id)
-		if err == nil {
-			t.Errorf("OpenChromiumBrowser(%q): want an error", id)
-			continue
+		if err := a.OpenChromiumBrowser(id); err == nil || account.IsLoginRequired(err) {
+			t.Errorf("OpenChromiumBrowser(%q) = %v, want the unknown-browser error", id, err)
 		}
-		if account.IsLoginRequired(err) {
-			t.Fatalf("OpenChromiumBrowser(%q) was refused by the account gate, not the id check: %v", id, err)
-		}
+	}
+}
+
+// Signed out, both bindings answer with the login-required error, so the
+// step shows the sign-in message rather than an empty list.
+func TestChromiumBindings_SignedOutSayLoginRequired(t *testing.T) {
+	accounttest.Install(t, accounttest.LockedNoLogin)
+	a := newTestApp(t)
+	if got, err := a.DetectChromiumBrowsers(); !account.IsLoginRequired(err) || got != nil {
+		t.Errorf("DetectChromiumBrowsers signed out = %v, %v; want nil and the login-required error", got, err)
+	}
+	if err := a.OpenChromiumBrowser("chrome"); !account.IsLoginRequired(err) {
+		t.Errorf("OpenChromiumBrowser signed out = %v, want the login-required error", err)
 	}
 }

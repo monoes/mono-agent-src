@@ -36,7 +36,13 @@ func candidatePaths(id string) []string {
 	return paths
 }
 
-// launchArgs runs the detected command.
+// launchArgs runs the detected command by its absolute path, never a name
+// looked up again through PATH.
 func launchArgs(path string) (string, []string) {
 	return path, nil
 }
+
+// installed reports whether a candidate is there: an executable regular
+// file, so a directory or a plain file of the same name does not stop the
+// search before a real browser further along PATH.
+func installed(fi os.FileInfo) bool { return fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 }

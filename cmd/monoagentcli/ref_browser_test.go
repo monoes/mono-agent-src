@@ -28,7 +28,7 @@ func TestRefBrowserNamesRealCommands(t *testing.T) {
 		"pick": {"prompt", "timeout", "out"}, "allow list": nil, "allow add": nil, "allow remove": nil, "submit": {"hil"},
 		"styles": {"out"}, "tokens": {"out"}, "source": nil, "diff": {"out", "threshold"},
 		"sweep": {"widths", "media", "height", "viewport", "element", "out"}, "permissions": nil,
-		"permissions set": nil, "permissions site": nil,
+		"permissions set": nil, "permissions site": nil, "permissions preset": nil,
 	} {
 		c, _, err := root.Find(strings.Fields("browser " + path))
 		if err != nil || c == browser || c.Name() != strings.Fields(path)[len(strings.Fields(path))-1] {

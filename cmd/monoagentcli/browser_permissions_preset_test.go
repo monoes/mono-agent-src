@@ -37,8 +37,8 @@ func TestBrowserPermissionsPreset(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"full", "ASK", ""} {
-		if _, err := bt.run("permissions", "preset", "--", bad); exitCodeFor(err) != 3 {
-			t.Fatalf("preset %q: %v", bad, err)
+		if _, err := bt.run("permissions", "preset", "--", bad); exitCodeFor(err) != 3 || jsonCode(err) != "invalid_input" {
+			t.Fatalf("preset %q: %v (%s), want invalid_input", bad, err, jsonCode(err))
 		}
 	}
 	if l := bt.runJSON("permissions")["levels"].(map[string]any); l["coder"] != browserctl.LevelFull {

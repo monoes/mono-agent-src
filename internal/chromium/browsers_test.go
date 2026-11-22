@@ -1,6 +1,8 @@
 package chromium
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -92,7 +94,58 @@ func TestLaunchCommand_UsesTheDetectedPath(t *testing.T) {
 			t.Fatalf("launchCommand = %q %q, want %q %q", name, args, wantName, wantArgs)
 		}
 	}
-	if runtime.GOOS == "darwin" && (name != "open" || len(args) != 2 || args[0] != "-a" || args[1] != found) {
-		t.Errorf("macOS launch = %q %q, want open -a %s", name, args, found)
+	if runtime.GOOS == "darwin" && (name != "/usr/bin/open" || len(args) != 2 || args[0] != "-a" || args[1] != found) {
+		t.Errorf("macOS launch = %q %q, want /usr/bin/open -a %s", name, args, found)
+	}
+}
+
+// The program that runs is always an absolute path, never a name looked up
+// through the app's PATH; so is every candidate it can come from.
+func TestLaunchCommand_ProgramIsAbsolute(t *testing.T) {
+	for _, b := range Known() {
+		paths := candidatePaths(b.ID)
+		for _, p := range paths {
+			if !filepath.IsAbs(p) {
+				t.Errorf("%s candidate %q is not absolute", b.ID, p)
+			}
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		for _, found := range []string{paths[0], paths[len(paths)-1]} {
+			name, _, err := launchCommand(b.ID, func(p string) bool { return p == found })
+			if err != nil {
+				t.Fatalf("%s: %v", b.ID, err)
+			}
+			if !filepath.IsAbs(name) {
+				t.Errorf("%s launches %q, want an absolute program path", b.ID, name)
+			}
+		}
+	}
+}
+
+// Exists counts only what an installed browser looks like here: on macOS
+// an app bundle (a directory), elsewhere a regular (on Linux executable)
+// file, so a same-named directory or plain file does not stop the search.
+func TestExists_OnlyAnInstalledBrowser(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "browser")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "browser-exe")
+	if err := os.WriteFile(exe, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing")
+	want := map[string]map[string]bool{
+		"darwin":  {dir: true, file: false, exe: false, missing: false},
+		"linux":   {dir: false, file: false, exe: true, missing: false},
+		"windows": {dir: false, file: true, exe: true, missing: false},
+	}[runtime.GOOS]
+	for p, w := range want {
+		if got := Exists(p); got != w {
+			t.Errorf("Exists(%s) = %v, want %v", filepath.Base(p), got, w)
+		}
 	}
 }

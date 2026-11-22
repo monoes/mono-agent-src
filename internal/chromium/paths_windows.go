@@ -18,8 +18,8 @@ var exePaths = map[string][]string{
 }
 
 // candidatePaths are id's executable under %ProgramFiles%,
-// %ProgramFiles(x86)% and %LocalAppData%, in that order. An unset variable
-// is skipped, so no path is ever relative.
+// %ProgramFiles(x86)% and %LocalAppData%, in that order. An unset or
+// relative variable is skipped, so no path is ever relative.
 func candidatePaths(id string) []string {
 	rels, ok := exePaths[id]
 	if !ok {
@@ -28,7 +28,7 @@ func candidatePaths(id string) []string {
 	var paths []string
 	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)", "LocalAppData"} {
 		root := os.Getenv(env)
-		if root == "" {
+		if root == "" || !filepath.IsAbs(root) {
 			continue
 		}
 		for _, rel := range rels {
@@ -38,7 +38,11 @@ func candidatePaths(id string) []string {
 	return paths
 }
 
-// launchArgs runs the detected executable.
+// launchArgs runs the detected executable, an absolute path.
 func launchArgs(path string) (string, []string) {
 	return path, nil
 }
+
+// installed reports whether a candidate is there: a regular file, not a
+// directory of the same name.
+func installed(fi os.FileInfo) bool { return fi.Mode().IsRegular() }
