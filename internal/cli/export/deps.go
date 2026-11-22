@@ -47,5 +47,5 @@ func expandPath(path string) string {
 
 // ensureDir creates path, "~/" expanded, with its parents (the CLI's ensureDir).
 func ensureDir(path string) error {
-	return os.MkdirAll(expandPath(path), 0755)
+	return os.MkdirAll(expandPath(path), 0o700)
 }

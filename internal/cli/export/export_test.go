@@ -96,3 +96,29 @@ func TestExportRefusesAMissingProfile(t *testing.T) {
 		t.Fatalf("got %d, %v; want an error for an empty profile", db, err)
 	}
 }
+
+// The export holds contact details: only its owner may read the file or the directory the
+// command created for it.
+func TestExportIsOwnerOnly(t *testing.T) {
+	path := testdb.Path(t)
+	db, err := storage.NewDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO people (id, platform_username, platform, profile_id) VALUES ('p1', 'ann', 'LINKEDIN', 'default')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	dir := filepath.Join(t.TempDir(), "out")
+	runExport(t, path, "default", true, "--output-dir", dir)
+	for p, want := range map[string]os.FileMode{dir: 0o700, filepath.Join(dir, "people_export.json"): 0o600} {
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := st.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %o, want %o", p, got, want)
+		}
+	}
+}
