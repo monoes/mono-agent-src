@@ -201,7 +201,7 @@ func TestASoftmaxProviderIsAccepted(t *testing.T) {
 	db := newDB(t)
 	kind, _ := senderKind(t)
 	if err := SaveProvider(context.Background(), db, Provider{Name: "hf", Kind: kind, BaseURL: "https://hf.example", SecretName: "hf",
-		Caps: jev.Capabilities{Probability: "softmax"}}); err != nil {
+		Caps: jev.Capabilities{Probability: jev.ProbSoftmax}}); err != nil {
 		t.Fatal(err)
 	}
 }
