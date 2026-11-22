@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"mime"
@@ -9,6 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
+
+	"github.com/monoes/mono-agent/internal/fsconfine"
 )
 
 // documentPath resolves id to its on-disk path, scoped to the active
@@ -84,6 +88,10 @@ func (a *App) OpenPathWithOS(path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("file not found: %w", err)
 	}
+	path, err := confineOpenPath(path, a.openableRoots())
+	if err != nil {
+		return err
+	}
 	name, args := openFileCommand(goruntime.GOOS, path)
 	// Start, not Run: the launched app (e.g. a text editor or Office) may
 	// stay open indefinitely, so this only reports launch failures (missing
@@ -92,6 +100,57 @@ func (a *App) OpenPathWithOS(path string) error {
 	opener := exec.Command(name, args...)
 	suppressConsole(opener)
 	return opener.Start()
+}
+
+// launchableExts are file types the OS would run rather than show, on any
+// platform: OpenPathWithOS never hands these to the default opener.
+var launchableExts = map[string]bool{
+	".exe": true, ".bat": true, ".cmd": true, ".com": true, ".lnk": true,
+	".ps1": true, ".msi": true, ".scr": true, ".vbs": true, ".js": true,
+	".jar": true, ".desktop": true, ".sh": true, ".command": true,
+	".app": true, ".appimage": true, ".run": true, ".pif": true,
+}
+
+// openableRoots are the folders OpenPathWithOS may open files from: every
+// profile's folder and the chat attachment spool.
+func (a *App) openableRoots() []string {
+	var roots []string
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, filepath.Join(home, ".monoagent", "chat-spool"))
+	}
+	var rows []cliProfile
+	if err := a.listProfilesInto(&rows); err == nil {
+		for _, p := range rows {
+			if p.RootDir != "" {
+				roots = append(roots, p.RootDir)
+			}
+		}
+	}
+	return roots
+}
+
+// confineOpenPath resolves path (following symlinks) and returns it only if
+// it is a regular, non-launchable file inside one of roots. The returned
+// path, not the input, is what must be opened.
+func confineOpenPath(path string, roots []string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("refusing to open %q: not an absolute path", path)
+	}
+	for _, root := range roots {
+		resolved, err := fsconfine.Path(fsconfine.WithRoot(context.Background(), root), path)
+		if err != nil {
+			continue
+		}
+		fi, err := os.Stat(resolved)
+		if err != nil || !fi.Mode().IsRegular() {
+			return "", fmt.Errorf("refusing to open %q: not a regular file", path)
+		}
+		if launchableExts[strings.ToLower(filepath.Ext(resolved))] {
+			return "", fmt.Errorf("refusing to open %q: executable file types are not opened from the app", path)
+		}
+		return resolved, nil
+	}
+	return "", fmt.Errorf("refusing to open %q: outside the profile folders", path)
 }
 
 // openFileCommand returns the OS-appropriate command name and arguments to
