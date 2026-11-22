@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
@@ -129,17 +130,31 @@ func AIRun(ctx context.Context) bool {
 // it starts: the user's own actions through it are refused too. That fails
 // closed on purpose; clearing the marker in the process would let an
 // agent-started daemon's runs pass for the user's.
-const inheritedHint = "if you started the MonoAgent app, the daemon or the browser bridge from an agent shell, a chat or a workflow run, " +
-	"it inherited this marker: restart it from your own terminal or the desktop launcher " +
-	"(`systemctl --user restart monoagent-bridge` for the bridge service, `systemctl --user restart monoagent-daemon` for the daemon)"
+func inheritedHintFor(goos string) string {
+	return "if you started the MonoAgent app, the daemon or the browser bridge from an agent shell, a chat or a workflow run, " +
+		"it inherited this marker: restart it from your own terminal or the desktop launcher " + restartAdvice(goos)
+}
 
-// InheritedHint is inheritedHint as a sentence of its own, for a refusal
+// restartAdvice is the parenthesis of inheritedHint: how the services restart on goos.
+func restartAdvice(goos string) string {
+	switch goos {
+	case "darwin":
+		return "(quit and reopen MonoAgent; `monoagentcli daemon install` reloads the daemon's launchd agent)"
+	case "windows":
+		return "(quit and reopen MonoAgent, or stop the daemon and the bridge from Task Manager and start them again from your own terminal)"
+	}
+	return "(`systemctl --user restart monoagent-bridge` for the bridge service, `systemctl --user restart monoagent-daemon` for the daemon)"
+}
+
+// InheritedHint is the hint as a sentence of its own, for a refusal
 // that does not go through Refusal.
-func InheritedHint() string { return "If" + strings.TrimPrefix(inheritedHint, "if") + "." }
+func InheritedHint() string {
+	return "If" + strings.TrimPrefix(inheritedHintFor(runtime.GOOS), "if") + "."
+}
 
-// InheritedHintClause is inheritedHint as a clause, for a refusal that gives
+// InheritedHintClause is the hint as a clause, for a refusal that gives
 // it in parentheses after its reason, as Refusal does.
-func InheritedHintClause() string { return inheritedHint }
+func InheritedHintClause() string { return inheritedHintFor(runtime.GOOS) }
 
 // Refusal says why this process is not the operator's own terminal, and how
 // to fix a marker it inherited, for an error message; "" for the operator.
@@ -161,7 +176,7 @@ func Refusal() string {
 		}
 		why = m + " is set, so an agent is running this command"
 	}
-	return why + " (" + inheritedHint + ")"
+	return why + " (" + inheritedHintFor(runtime.GOOS) + ")"
 }
 
 // turnVerdict says why this process runs inside a coder session's turn ("" when it does not). Only

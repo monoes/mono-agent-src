@@ -79,3 +79,20 @@ func (s DBChatStart) QueueFirstTurn(ctx context.Context, bossConversation string
 	}
 	return s.Queue(ctx, bossConversation, in)
 }
+
+// BossConversation is the conversation of a boss session, for `start --boss-session`.
+func (s DBChatStart) BossConversation(ctx context.Context, session int64) (string, error) {
+	db, closeDB, err := s.Open()
+	if err != nil {
+		return "", err
+	}
+	defer closeDB()
+	se, err := tasks.NewStore(db).GetSession(ctx, s.Profile(), session, bossActor)
+	if err != nil {
+		return "", err
+	}
+	if se.ConversationID == "" {
+		return "", errors.New("the boss session has no conversation")
+	}
+	return se.ConversationID, nil
+}

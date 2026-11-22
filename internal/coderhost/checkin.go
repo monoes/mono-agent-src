@@ -176,7 +176,7 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	// saved (a failure or a crash between two writes cannot leave the command queued with the old baseline).
 	if _, err := h.Store.EnqueueWithCheckin(Command{
 		ProfileID: m.ProfileID, ConversationID: m.ConversationID, Kind: KindSend,
-		TurnID: "checkin-" + hex.EncodeToString(turn), Message: digestText(reason, cur),
+		TurnID: "checkin-" + hex.EncodeToString(turn), Message: digestText(reason, cur) + h.steerLine(m.ProfileID, len(cur.Children)),
 	}, Checkin{At: nowStr, Snapshot: string(curJSON)}); err != nil {
 		h.logf("coder host: check-in for %s: %v", m.ConversationID, err)
 		// Nothing was queued and the look is not recorded: the changes it found (a re-evaluation reason among them)
@@ -312,4 +312,20 @@ func withinActiveHours(window string, now time.Time) bool {
 		return cur >= start && cur < end
 	}
 	return cur >= start || cur < end
+}
+
+// steerLine tells a master the exact command that reaches its sessions: a turn's token does not pin
+// the profile and the CLI reads none from the environment, so the command carries it; and it is not
+// whatever `monomind` happens to be first on the PATH. "" when the host has no command to give or
+// the master has no session to reach.
+func (h *Host) steerLine(profileID string, children int) string {
+	if h.SteerCommand == nil || children == 0 {
+		return ""
+	}
+	cli := h.SteerCommand(profileID)
+	if cli == "" {
+		return ""
+	}
+	return "\nTo direct a session run `" + cli + " coder sessions send <session-id> \"<message>\"`; `" + cli +
+		" coder sessions status` shows them. Use this command (not `monomind`): it already names the profile."
 }

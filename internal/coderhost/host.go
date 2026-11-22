@@ -48,10 +48,13 @@ type Host struct {
 	Mesh      Mesh
 	MeshEvery time.Duration
 	MeshIdle  time.Duration
-	// TitleOf is a chat's name as the app shows it, which a session without a mesh name of its own
-	// takes (AliasFromTitle). Unset, only a name the person typed counts.
-	TitleOf  func(profileID, conversationID string) (string, error)
-	meshPrev map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
+	// TitleOf is the name the person gave a chat, which a session without a mesh name of its own
+	// takes (AliasFromTitle); never a title derived from its prompt. Unset, only a name the person typed counts.
+	TitleOf func(profileID, conversationID string) (string, error)
+	// SteerCommand is the command prefix (binary and --profile) a master runs to reach its sessions
+	// (`coder sessions send`), named in its check-in digest. Unset, the digest names none.
+	SteerCommand func(profileID string) string
+	meshPrev     map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
 
 	// RequireConversations makes the host check that the conversation of a command still exists, and
 	// sweep away sessions and commands of deleted ones. `coder host run` sets it; unit tests that

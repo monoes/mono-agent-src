@@ -19,6 +19,10 @@ describe('validateStructure', () => {
     expect(validateStructure(nodes)).toEqual({ valid: true, errors: [] })
   })
 
+  it('does not report a missing root for an empty graph (a Live view before any run)', () => {
+    expect(validateStructure([])).toEqual({ valid: true, errors: [] })
+  })
+
   it('fails with the right message when there is no root', () => {
     const nodes = [
       { id: 'a', parentId: 'b' },

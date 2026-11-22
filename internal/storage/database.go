@@ -348,6 +348,12 @@ func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 			tx.Rollback()
 			return fmt.Errorf("migration %d (%s): %w", m.version, m.filename, err)
 		}
+		if pre := preMigrationSteps[m.version]; pre != nil {
+			if err := pre(ctx, tx); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("preparing migration %d (%s): %w", m.version, m.filename, err)
+			}
+		}
 		for _, stmt := range statements {
 			stmt = strings.TrimSpace(stmt)
 			if stmt == "" {
@@ -401,6 +407,39 @@ func (d *Database) afterSchemaMigrations(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// preMigrationSteps run inside a migration's transaction just before its
+// statements, for a database shape a plain .sql file cannot adapt to (SQLite
+// has no ADD COLUMN IF NOT EXISTS). Keyed by migration version.
+var preMigrationSteps = map[int]func(ctx context.Context, tx *sql.Tx) error{
+	95: prepareConnectionsForAdhocTables,
+}
+
+// prepareConnectionsForAdhocTables lets migration 095 run on a database whose
+// connections table was created at runtime by v0.7.0 or older, before it had
+// profile_id: 095 indexes that column, and CREATE TABLE IF NOT EXISTS leaves
+// the old table as it is. The column is added with the same definition 095
+// gives it, and, when the table holds rows, the default profile they now
+// belong to is created if it does not exist.
+func prepareConnectionsForAdhocTables(ctx context.Context, tx *sql.Tx) error {
+	var tables int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'connections'`).Scan(&tables); err != nil {
+		return err
+	}
+	if tables == 0 {
+		return nil
+	}
+	has, err := columnExistsOn(ctx, tx, "connections", "profile_id")
+	if err != nil || has {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE connections ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default'`); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO profiles (id, name) SELECT 'default', 'Default' WHERE EXISTS (SELECT 1 FROM connections)`)
+	return err
 }
 
 // afterMigrations are data steps packages this one cannot import need once

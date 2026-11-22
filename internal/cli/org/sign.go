@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -280,8 +281,12 @@ func (e *orgSignBlocked) what() string {
 	return e.marker + ","
 }
 
+// Unwrap makes the refusal an exit-3 error, like every other operator verb's.
+func (e *orgSignBlocked) Unwrap() error { return clicore.InvalidInput("%s", e.Error()) }
+
+// JSONErrorFields: the code is operator_only as for every operator verb; the old code is kept as the reason.
 func (e *orgSignBlocked) JSONErrorFields() map[string]any {
-	return map[string]any{"code": "org_sign_agent_context", "org": e.org, "blocked_by": e.marker}
+	return map[string]any{"code": "operator_only", "reason": "org_sign_agent_context", "org": e.org, "blocked_by": e.marker}
 }
 
 // orgSignFailed is an `org sign --yes` that did not sign: the notice says

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -91,7 +92,11 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 				return printQueueJSON(cmd, map[string]any{"host": hostStatus(cfg), "sessions": rows})
 			}
 			for _, r := range rows {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-12s access=%s mode=%s unattended=%v waiting=%d  %s\n", r.ConversationID, r.State, r.Access, r.ChatMode, r.Unattended, r.Waiting, r.Cwd)
+				boss := ""
+				if r.Boss { // the text list marks a run's boss as the JSON does (#1746)
+					boss = " boss=true"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-12s access=%s mode=%s unattended=%v waiting=%d%s  %s\n", r.ConversationID, r.State, r.Access, r.ChatMode, r.Unattended, r.Waiting, boss, r.Cwd)
 			}
 			return nil
 		},
@@ -117,6 +122,24 @@ func coderConversation(cfg *Deps, id string) (string, error) {
 	return profileID, nil
 }
 
+// requireDynamicOrgForMission refuses a mission send to a chat whose org mode is solo: the mission tools are wired
+// only for a Dynamic org turn, so the send would be accepted and plan in prose.
+func requireDynamicOrgForMission(cfg *Deps, id string) error {
+	store, profileID, closeDB, err := openChatHistory(cfg)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	conv, err := store.GetConversation(id, profileID)
+	if err != nil {
+		return chatStoreErr(err)
+	}
+	if conv.OrgMode != ai.OrgModeDynamic {
+		return clicore.InvalidInput("a mission needs Dynamic org: this chat is solo, so the lead would have no mission tools. Turn Dynamic org on for it (`chat history set-org %s dynamic`, or create the chat with `--org dynamic`) and send again", id)
+	}
+	return nil
+}
+
 // enqueue queues one command for the host, starting the host first when asked.
 func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command, error) {
 	if startHost && c.Kind == coderhost.KindSend { // stop, pause and resume are not turn dispatches: they must reach a stale host that runs the turn
@@ -133,7 +156,7 @@ func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command,
 	if err != nil {
 		return c, clicore.InvalidInput("%v", err)
 	}
-	if startHost {
+	if startHost && c.Kind == coderhost.KindSend { // a stop, pause or resume reaches a host that runs; it never starts one
 		if err := ensureHost(cfg); err != nil {
 			return out, err
 		}
@@ -168,6 +191,11 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			}
 			if err := refuseBossConversation(cmd.Context(), cfg, profileID, args[0]); err != nil {
 				return err
+			}
+			if mission {
+				if err := requireDynamicOrgForMission(cfg, args[0]); err != nil {
+					return err
+				}
 			}
 			atts, err := attachmentSources(attach)
 			if err != nil {
@@ -230,7 +258,11 @@ func newCoderSessionsControlCmd(cfg *Deps, kind coderhost.Kind, short string) *c
 			if err != nil {
 				return err
 			}
-			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "kind": kind})
+			running := hostRunning(cfg)
+			if !running {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: no coder host is running, so this %s waits in the queue until one starts; a turn that is still running is not affected until then\n", kind)
+			}
+			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "kind": kind, "hostRunning": running})
 		},
 	}
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)

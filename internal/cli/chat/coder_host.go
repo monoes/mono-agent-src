@@ -167,6 +167,9 @@ func ensureHost(cfg *Deps) error {
 	if hostRunning(cfg) {
 		return nil
 	}
+	if err := requireCoderEnabled(cfg); err != nil {
+		return err
+	}
 	if err := startHostProcess(cfg); err != nil {
 		return fmt.Errorf("starting the coder host: %w", err)
 	}
@@ -177,6 +180,23 @@ func ensureHost(cfg *Deps) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("the coder host did not start; see %s", filepath.Join(hostDir(cfg), "host.log"))
+}
+
+// requireCoderEnabled refuses with the coder-disabled error while coder mode is off: no host starts for it.
+func requireCoderEnabled(cfg *Deps) error {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	s, err := loadCoderSettings(db.DB)
+	if err != nil {
+		return err
+	}
+	if !s.Enabled {
+		return errCoderDisabled()
+	}
+	return nil
 }
 
 func newCoderHostCmd(cfg *Deps) *cobra.Command {
@@ -336,13 +356,15 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
-				TitleOf:              func(profileID, id string) (string, error) { return chatDisplayTitle(db.DB, profileID, id) },
+				TitleOf:              func(profileID, id string) (string, error) { return chatOwnTitle(db.DB, profileID, id) },
 			}
 			// The pursuit loop is on by default and idles until a judge pin exists, unless the operator turned it off (see coder_host_pursuit.go); read once, here.
 			pursuit, pursuitInfo := pursuitFromEnv(os.Getenv, db.DB)
 			// the goal checks are off too unless MONOAGENT_PURSUIT_VERIFIER is set (and the loop is on); nothing is built otherwise
 			attachVerifier(cmd.Context(), os.Getenv, pursuit, &pursuitInfo, filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "scratch", "checks"), verifierForbidden(cfg))
 			h.Pursuit = pursuit
+			self, _ := os.Executable() // "" when unknown; see monoagentInvocation
+			h.SteerCommand = func(profileID string) string { return monoagentInvocation(self, profileID, cfg.DBPath()) }
 			info.Pursuit = &pursuitInfo
 			if pursuitInfo.Reason != "" {
 				logf("coder host: %s", pursuitInfo.Reason)

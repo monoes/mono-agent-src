@@ -17,7 +17,8 @@ import (
 // Spend is read from the turn journal the way internal/aitask/budget/ledger.go does: a
 // usage.updated snapshot is a running total within its turn, so a turn's figure is the largest
 // non-negative cost it reported (a lower final snapshot does not lower it), and a worker's
-// agent.finished cost counts once per (turn, worker). A turn whose runtime reported NO cost does not
+// agent.finished cost counts once per (turn, worker). Claude's figure for a resumed session is a total for the session, so a claude
+// turn counts what it added over the previous turn of the same runtime session (coderspend.deltaOfResumedSessions). A turn whose runtime reported NO cost does not
 // count as $0: it counts as having spent the whole cap it ran under (turn caps are recorded when the
 // turn starts), so a runtime that cannot report cost cannot spend a multiple of the budget.
 

@@ -276,6 +276,20 @@ func chatDisplayTitle(db historyQuerier, profileID, id string) (string, error) {
 	return rows[0].Title, nil
 }
 
+// chatOwnTitle is the name the person gave the conversation, "" when they gave none: never the
+// title derived from its first prompt, task goal or folder. The mesh name is built from this, so
+// a prompt (or the host's own check-in text) is not published to other local processes.
+func chatOwnTitle(db historyQuerier, profileID, id string) (string, error) {
+	rows, err := queryHistoryRows(db, profileID, historyFilter{id: id}, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 || !rows[0].Renamed {
+		return "", nil
+	}
+	return rows[0].Title, nil
+}
+
 // histNewChat is the title of a chat with nothing to title it by.
 const histNewChat = "New chat"
 

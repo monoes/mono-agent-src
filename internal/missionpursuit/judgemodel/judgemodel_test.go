@@ -53,12 +53,32 @@ func TestACompletedCallReturnsTheReplyAndReportsTheCostTheRuntimeMeasured(t *tes
 	if rep.n != 1 || !rep.known || rep.usd != 0.0123 {
 		t.Fatalf("the cost report: %+v", *rep)
 	}
-	if got.Runtime != "claude" || got.Model != "haiku" || got.Prompt != "u" || got.SystemPrompt != "s" || got.MaxTurns != 1 ||
+	if got.Runtime != "claude" || got.Model != "haiku" || got.Prompt != "u" || !strings.HasPrefix(got.SystemPrompt, "s\n\n") || got.MaxTurns != maxJudgeTurns ||
 		got.Sandbox != monomind.TurnSandboxMode || got.BudgetUSD != judgecost.PerCallCapUSD || len(got.Tools) != 0 {
 		t.Fatalf("the turn is not a one-turn, no-tool, sandboxed, capped turn: %+v", got)
 	}
 	if m.Pin() != "claude/haiku@1" {
 		t.Fatalf("pin %q", m.Pin())
+	}
+}
+
+// A model that first tries a tool (refused by the runner) must still be able to answer: with one turn the call ended
+// without a reply and every judge round was model-failed (#1748).
+func TestAJudgeThatTriesARefusedToolCallStillAnswers(t *testing.T) {
+	var got monomind.ExecOptions
+	m := newModel(t, func(_ context.Context, o monomind.ExecOptions, _ func(monomind.Event)) (*monomind.TurnResult, error) {
+		got = o
+		if o.MaxTurns < 2 {
+			return &monomind.TurnResult{SawDone: false}, nil // the tool call used the only turn
+		}
+		return done(`{"ok":true}`), nil
+	})
+	out, err := m.Complete(context.Background(), judge.Request{System: "judge", User: "u"})
+	if err != nil || string(out) != `{"ok":true}` {
+		t.Fatalf("a refused tool call must leave a turn for the answer: %q %v", out, err)
+	}
+	if !strings.Contains(got.SystemPrompt, "no tools") || len(got.Tools) != 0 {
+		t.Fatalf("the judge is not told it has no tools: %q", got.SystemPrompt)
 	}
 }
 

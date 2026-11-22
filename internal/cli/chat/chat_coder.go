@@ -228,9 +228,10 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		}
 	}
 	var closeOrg func()
+	var chargeLead func(float64)
 	if journal != nil && t.orgMode == ai.OrgModeDynamic {
 		var leadEvent func(monomind.Event)
-		closeOrg, leadEvent = startDynamicOrg(ctx, cfg, journal, settings, st, rt, t, &opts)
+		closeOrg, leadEvent, chargeLead = startDynamicOrg(ctx, cfg, journal, settings, st, rt, t, &opts)
 		if leadEvent != nil {
 			journalEvent := onEvent
 			onEvent = func(ev monomind.Event) {
@@ -251,6 +252,10 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		}
 	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
+	if chargeLead != nil && res != nil && res.HasCostUSD {
+		// the lead's own turn counts against the mission's budget, as a worker's run does
+		chargeLead(res.CostUSD)
+	}
 	if closeOrg != nil {
 		// The lead is done: workers still running are stopped and their
 		// ends journaled before the turn finishes.
@@ -357,7 +362,7 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 	}
 	// A folder the user picked may be their own repo: add only what is
 	// missing, never touch what is there.
-	if _, err := initWorkspace(cmd.Context(), "", dir, rt.InitTarget); err != nil {
+	if _, err := initOwnFolder(cmd.Context(), cmd.ErrOrStderr(), dir, rt.InitTarget); err != nil {
 		return "", err
 	}
 	return dir, nil

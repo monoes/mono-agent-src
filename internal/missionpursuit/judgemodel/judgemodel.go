@@ -36,6 +36,20 @@ type Config struct {
 
 const defaultTimeout = 3 * time.Minute
 
+// maxJudgeTurns leaves room for one refused tool call before the answer: a model that reaches for a tool it was not
+// given (the runner refuses it) can still reply on the next turn. The per-call spend cap still bounds the whole call.
+const maxJudgeTurns = 3
+
+// noToolsNote is added to the judge's instructions: it has no tools and nothing to look at but the request.
+const noToolsNote = "You have no tools in this call: do not try to read files or run commands. Everything you may use is in the request. Reply with the JSON judgment only."
+
+func withNoToolsNote(system string) string {
+	if strings.TrimSpace(system) == "" {
+		return noToolsNote
+	}
+	return system + "\n\n" + noToolsNote
+}
+
 type model struct {
 	runtime, model, pin string
 	exec                ExecFunc
@@ -102,8 +116,8 @@ func (m model) Complete(ctx context.Context, req judge.Request) ([]byte, error) 
 	var seen int
 	over := false
 	res, err := m.exec(ctx2, monomind.ExecOptions{
-		Runtime: m.runtime, Model: m.model, Prompt: req.User, SystemPrompt: req.System,
-		Cwd: cwd, Timeout: m.timeout, BudgetUSD: judgecost.PerCallCapUSD, MaxTurns: 1, Sandbox: monomind.TurnSandboxMode,
+		Runtime: m.runtime, Model: m.model, Prompt: req.User, SystemPrompt: withNoToolsNote(req.System),
+		Cwd: cwd, Timeout: m.timeout, BudgetUSD: judgecost.PerCallCapUSD, MaxTurns: maxJudgeTurns, Sandbox: monomind.TurnSandboxMode,
 	}, func(ev monomind.Event) {
 		// Only the assistant's own text counts, once: a result event repeats the reply it closes, and counting it too would cut a
 		// legitimate reply of more than half the cap.

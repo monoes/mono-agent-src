@@ -99,7 +99,7 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
 		},
 	}
-	display, _ := chatDisplayTitle(db.DB, profileID, conv.ID) // unreadable: no default shown
+	display, _ := chatOwnTitle(db.DB, profileID, conv.ID) // unreadable: no default shown
 	v.DefaultAlias = coderhost.AliasFromTitle(display)
 	v.MissionDirections = missionDirectionsView{Effective: settings.EffectiveMissionDirections(), Explicit: settings.MissionDirectionsExplicit()}
 	v.ChatMode = chatModeOf(context.Background(), db.DB, profileID, conv, settings.ChatMode)

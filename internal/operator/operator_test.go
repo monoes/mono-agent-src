@@ -127,6 +127,27 @@ func TestRefusalSaysHowToFixAnInheritedMarker(t *testing.T) {
 	}
 }
 
+// The restart advice names what exists on the system: no systemctl on macOS or Windows (#1759).
+func TestInheritedHintIsPerSystem(t *testing.T) {
+	for goos, c := range map[string]struct{ want, never []string }{
+		"linux":   {[]string{"systemctl --user restart monoagent-bridge", "monoagent-daemon"}, nil},
+		"darwin":  {[]string{"quit and reopen MonoAgent", "daemon install"}, []string{"systemctl"}},
+		"windows": {[]string{"quit and reopen MonoAgent", "Task Manager"}, []string{"systemctl"}},
+	} {
+		h := inheritedHintFor(goos)
+		for _, w := range c.want {
+			if !strings.Contains(h, w) {
+				t.Errorf("%s: %q lacks %q", goos, h, w)
+			}
+		}
+		for _, n := range c.never {
+			if strings.Contains(h, n) {
+				t.Errorf("%s: %q must not mention %q", goos, h, n)
+			}
+		}
+	}
+}
+
 // The turn check the command line installs makes a process with no marker stop approving; a process
 // that installed none is judged by marker alone, and an agent's marker still decides first.
 func TestApprovingContextConsultsTheInstalledTurnCheck(t *testing.T) {

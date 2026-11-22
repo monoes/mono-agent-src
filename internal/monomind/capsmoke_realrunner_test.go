@@ -57,7 +57,8 @@ import (
 // MONOMIND_CLAUDE_PATH, so these are passed to the child explicitly.)
 //
 // VERDICT: only a completed turn (exit 0, no error result, a done event, some assistant output) gets a verdict; anything else
-// is INCONCLUSIVE and fails the test.
+// is INCONCLUSIVE and fails the test. The one error result that still gets a verdict is the cap's own: a full turn (done event,
+// output, a reported cost) that the runner then failed with "budget: spend cap exceeded" is the OVERSHOOT case and passes.
 //
 //	go test -tags realrunner -count=1 -v -timeout 300s -run TestRealRunnerRecordsWhatItDoesUnderATinyCap ./internal/monomind
 func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
@@ -139,6 +140,11 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 	}
 	t.Logf("RECORD exit=%d stop_reason=%q saw_done=%v has_cost=%v cost=$%.6f err=%v result_bytes=%d", res.ExitCode, res.StopReason, res.SawDone, res.HasCostUSD, res.CostUSD, redactSecrets(fmt.Sprint(res.Err)), len(res.ResultText))
 	// A verdict needs a real, completed turn: an error result (for example "Not logged in") reports cost 0 and says nothing about the cap.
+	// The runner that lets a full turn finish and then fails it for crossing the cap is the overshoot case: the measurement itself.
+	if overshotAfterFullTurn(res, err, assistantBytes) {
+		t.Logf("VERDICT OVERSHOOT: the runner let the turn finish, reported $%.6f against a cap of $%.4f (%.2fx), then failed it (%v)", res.CostUSD, capUSD, res.CostUSD/capUSD, redactSecrets(fmt.Sprint(res.Err)))
+		return
+	}
 	if why := incompleteTurn(res, err, assistantBytes); why != "" {
 		t.Errorf("VERDICT INCONCLUSIVE: the turn did not complete (%s); nothing is learned about the cap", why)
 		return
@@ -151,23 +157,4 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 	default:
 		t.Logf("VERDICT within the cap: reported $%.6f against $%.4f (stop_reason %q)", res.CostUSD, capUSD, res.StopReason)
 	}
-}
-
-// incompleteTurn says why a turn is not a completed one, or "".
-func incompleteTurn(res *TurnResult, err error, assistantBytes int) string {
-	switch {
-	case res == nil:
-		return redactSecrets(fmt.Sprintf("no result, err=%v", err))
-	case err != nil:
-		return redactSecrets(fmt.Sprintf("exec error: %v", err))
-	case res.Err != nil:
-		return redactSecrets(fmt.Sprintf("the runner returned an error result: %v", res.Err))
-	case res.ExitCode != 0:
-		return fmt.Sprintf("exit code %d", res.ExitCode)
-	case !res.SawDone:
-		return "no done event"
-	case assistantBytes == 0:
-		return "no assistant output"
-	}
-	return ""
 }

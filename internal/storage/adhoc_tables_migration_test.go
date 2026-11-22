@@ -397,3 +397,52 @@ func TestStoresUseMigratedSchemaWithoutDDL(t *testing.T) {
 		t.Errorf("the stores changed the schema:\nbefore: %v\nafter:  %v", before, after)
 	}
 }
+
+// A database last opened by v0.7.0 (migrations below 011 applied) whose user
+// had connected an account holds a connections table that v0.7.0 created at
+// runtime with no profile_id and no vault_ref. Migration 095 indexes
+// connections(profile_id), so the upgrade must add the column first, keep
+// every row, and give the rows a profile that exists.
+func TestUpgradeFromV070KeepsConnectionsTable(t *testing.T) {
+	db, err := NewDatabase(filepath.Join(t.TempDir(), "v070.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	applyMigrationsBelow(t, db, 11)
+	for _, stmt := range []string{
+		`CREATE TABLE connections (
+    id          TEXT PRIMARY KEY,
+    platform    TEXT NOT NULL,
+    method      TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    account_id  TEXT NOT NULL DEFAULT '',
+    data        TEXT NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'active',
+    last_tested TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+)`,
+		`CREATE INDEX idx_connections_platform ON connections(platform)`,
+		`CREATE INDEX idx_connections_status ON connections(status)`,
+		`INSERT INTO connections (id, platform, method, label, data, created_at, updated_at) VALUES ('c1', 'github', 'apikey', 'me', '{"k":"v"}', 't', 't')`,
+	} {
+		if _, err := db.DB.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatalf("upgrade from v0.7.0 with a connections table: %v", err)
+	}
+	var label, data, profile, vaultRef string
+	if err := db.DB.QueryRow(`SELECT label, data, profile_id, vault_ref FROM connections WHERE id = 'c1'`).Scan(&label, &data, &profile, &vaultRef); err != nil {
+		t.Fatalf("connection row lost: %v", err)
+	}
+	if label != "me" || data != `{"k":"v"}` || profile != "default" {
+		t.Errorf("row = %q %q %q, want me, the original data, default", label, data, profile)
+	}
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM profiles WHERE id = 'default'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("default profile count = %d (%v), want 1", n, err)
+	}
+}

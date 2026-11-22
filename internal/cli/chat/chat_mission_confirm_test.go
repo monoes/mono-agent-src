@@ -28,7 +28,12 @@ func confirmStore(t *testing.T, dbPath string) (*coderhost.Store, func()) {
 func sendCoderDeps(t *testing.T) (string, string, *Deps) {
 	t.Helper()
 	dbPath := newChatCLITestDB(t)
-	conv, _ := openTestChatStore(t, dbPath).CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	st := openTestChatStore(t, dbPath)
+	conv, _ := st.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	// a mission send needs Dynamic org (the mission tools are wired only for it)
+	if err := st.SetConversationOrgMode(conv.ID, "default", ai.OrgModeDynamic); err != nil {
+		t.Fatal(err)
+	}
 	return dbPath, conv.ID, testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
 }
 

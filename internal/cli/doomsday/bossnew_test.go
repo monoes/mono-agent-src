@@ -429,3 +429,22 @@ func TestBossNewKeyExhaustionSaysToStartANewChat(t *testing.T) {
 		t.Fatalf("%v %s", err, out)
 	}
 }
+
+// #1746: the mission and spawn tools are added only to a turn whose conversation's org mode is dynamic, and the open chat a
+// run stands behind is solo, so the boss (which copies the chat) had no spawn tool and its run did nothing.
+func TestTheBossConversationRunsAsADynamicOrg(t *testing.T) {
+	r := newBossRig(t)
+	front := r.chat(t, ai.AccessFull)
+	if front.OrgMode != ai.OrgModeSolo {
+		t.Fatalf("the open chat is %q, the premise of the bug is solo", front.OrgMode)
+	}
+	ref := r.newBoss(t, front.ID)
+	bc, err := r.store.GetConversation(ref.ConversationID, "p1")
+	if err != nil || bc.OrgMode != ai.OrgModeDynamic {
+		t.Fatalf("boss conversation org mode = %q (%v), want dynamic: its turns get no mission tools otherwise", bc.OrgMode, err)
+	}
+	fc, err := r.store.GetConversation(front.ID, "p1")
+	if err != nil || fc.OrgMode != ai.OrgModeSolo {
+		t.Fatalf("the front-desk chat must stay as it was: %q %v", fc.OrgMode, err)
+	}
+}

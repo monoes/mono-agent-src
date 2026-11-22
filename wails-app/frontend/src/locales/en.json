@@ -1610,7 +1610,8 @@
           "risky_action": "Risky action",
           "verification_failed": "Check failed",
           "missing_credential": "Missing credential",
-          "child_conflict": "Sessions disagree"
+          "child_conflict": "Sessions disagree",
+          "plan_approval": "Plan approval"
         },
         "who": {
           "user": "Ask me",
