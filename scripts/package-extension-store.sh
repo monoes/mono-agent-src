@@ -18,7 +18,7 @@ cd "$root/chrome-extension"
 zip -qr "$out" . \
   -x '*.DS_Store' \
   -x '*.test.mjs' '*.browser.test.mjs' \
-  -x '*_harness.mjs' '*.fixtures.mjs' 'recorder_fake_dom.mjs' 'recorder_go_types.mjs' 'test_helpers.mjs' \
+  -x '*_harness.mjs' '*.fixtures.mjs' 'recorder_fake_dom.mjs' 'recorder_go_types.mjs' 'test_helpers.mjs' 'autopair_e2e.mjs' \
   -x 'fixtures/*' 'adapters/fixtures/*' 'icons/ICONS.txt'
 
 # Every file the extension loads must be in the zip, and nothing test-only may be.

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -69,10 +70,11 @@ func ReadUploadFiles(paths []string) ([]UploadFile, error) {
 		if total += fi.Size(); total > MaxUploadBytes {
 			return nil, fmt.Errorf("upload: the files are over %d MB together", MaxUploadBytes>>20)
 		}
-		data, err := os.ReadFile(abs)
+		data, err := readUploadFile(abs, MaxUploadBytes-(total-fi.Size()))
 		if err != nil {
-			return nil, fmt.Errorf("upload: %w", err)
+			return nil, err
 		}
+		total += int64(len(data)) - fi.Size() // what was read, not what Stat said
 		sum := sha256.Sum256(data)
 		out = append(out, UploadFile{
 			Path: abs, Name: filepath.Base(abs), Mime: uploadMime(abs, data), Size: int64(len(data)),
@@ -80,6 +82,23 @@ func ReadUploadFiles(paths []string) ([]UploadFile, error) {
 		})
 	}
 	return out, nil
+}
+
+// readUploadFile reads the file at abs.
+func readUploadFile(abs string, allowance int64) ([]byte, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, fmt.Errorf("upload: %w", err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, allowance+1))
+	if err != nil {
+		return nil, fmt.Errorf("upload: %w", err)
+	}
+	if int64(len(data)) > allowance {
+		return nil, fmt.Errorf("upload: the files are over %d MB together", MaxUploadBytes>>20)
+	}
+	return data, nil
 }
 
 func uploadPath(p string) (string, error) {

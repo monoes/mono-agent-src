@@ -16,7 +16,7 @@ backend, a new subprocess dependency).
 | Live browser session cookies | Read via `chrome.cookies.getAll` through the extension bridge, transiently in Go process memory | Equivalent to account takeover for whatever site they belong to |
 | Vault secrets (API keys, logins) | `internal/secrets`, AES-256-GCM at rest, DEK wrapped by an OS-keyring KEK | Direct credential exposure if the vault or keyring is compromised |
 | Extension pairing/relay token | `~/.monoagent/extension.token`, mode 0600 | Whoever holds it can impersonate the extension connection (MA-01) or relay commands through a running daemon |
-| Per-site browser automation authority | Chrome's `optional_host_permissions` grants (MA-05), tracked by the extension | Bounds which sites automated commands (cookies, eval, debugger, DOM) can touch |
+| Per-site browser automation authority | One all-sites grant (`host_permissions: <all_urls>`); the per-origin policy lives in the CLI, which stamps `expectOrigin` on a command and the extension checks it | Bounds which sites automated commands (cookies, eval, debugger, DOM) can touch, only for commands that carry `expectOrigin` |
 | Workflow definitions & execution history | SQLite DB under `~/.monoagent/` | Can encode credentials-adjacent logic (e.g., which sites are automated, HTTP node bodies) |
 
 ## Trust boundaries
@@ -26,10 +26,10 @@ Go process (monoagentcli/daemon)
   │
   ├─ loopback WebSocket ──── Chrome Extension (background.js)
   │  (internal/extension)         │
-  │  auth: extension.token        ├─ content script ── page DOM (per-site grant)
-  │  (MA-01)                      ├─ chrome.cookies API (per-site grant, MA-05)
+  │  auth: extension.token        ├─ content script ── page DOM (all-sites grant)
+  │  (MA-01)                      ├─ chrome.cookies API (all-sites grant)
   │                               └─ chrome.debugger API (NOT permission-scoped by
-  │                                  Chrome — gated by explicit allowlist check, MA-05)
+  │                                  Chrome — only the CLI's expectOrigin check)
   │
   ├─ npx subprocess ──────── Monomind MCP server (pinned exact version, MA-04)
   │
@@ -72,12 +72,12 @@ one endpoint, might try to cross:
    relay token is the credential for it). A per-browser token is pinned to
    the instance it was paired with and cannot displace another browser's
    socket.
-2. **Extension ↔ page.** Content-script and cookie/debugger access is scoped
-   to explicitly granted origins (MA-05) rather than `<all_urls>` by
-   default. `chrome.debugger` is called out separately because Chrome does
-   not gate it by host permission the way it gates cookies/scripting — the
-   extension enforces the allowlist itself before every debugger-backed
-   command.
+2. **Extension ↔ page.** The manifest asks for `<all_urls>` up front
+   (there are no optional per-site grants; MA-05 per-origin grants are not
+   implemented). The per-origin policy lives in the CLI, which stamps
+   `expectOrigin` on a command; the extension checks it before acting
+   (`agent_commands.js`), but only when the CLI sent it. `chrome.debugger` is
+   not gated by host permission by Chrome either.
 3. **Go ↔ Monomind subprocess.** Pinned to an exact, canonical package
    version (MA-04) rather than `npx -y <pkg>@latest`, so a future package
    publish cannot execute locally without a reviewed version bump.
@@ -108,9 +108,9 @@ one endpoint, might try to cross:
   (MA-13) so a downloaded artifact's origin is independently checkable.
 - **Compromised Chrome extension itself** (e.g. a supply-chain attack on the
   unpacked extension files, or a bug that lets page script reach background
-  state). Bounded, not eliminated, by per-site permission scoping (MA-05):
-  the blast radius is the sites the user has explicitly authorized, not
-  every site they've ever visited.
+  state). Not bounded by per-site permission
+  scoping: the extension holds an all-sites grant (MA-05 is not implemented),
+  so the blast radius is every site the browser can reach.
 
 ## Non-goals
 

@@ -561,7 +561,7 @@ jobs:
         run: |
           mkdir -p dist
           cp NOTICE chrome-extension/NOTICE
-          zip -r dist/monoagent-chrome-extension.zip chrome-extension -x '*.DS_Store' '*.test.mjs'
+          zip -r dist/monoagent-chrome-extension.zip chrome-extension -x '*.DS_Store' '*.test.mjs' '*_harness.mjs' '*.fixtures.mjs' 'chrome-extension/recorder_fake_dom.mjs' 'chrome-extension/recorder_go_types.mjs' 'chrome-extension/test_helpers.mjs' 'chrome-extension/autopair_e2e.mjs' 'chrome-extension/fixtures/*' 'chrome-extension/adapters/fixtures/*' 'chrome-extension/icons/ICONS.txt'
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
