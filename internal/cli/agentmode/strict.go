@@ -75,7 +75,7 @@ check() {
 cwd=$(pwd -P)
 check "$cwd"
 n=$#
-set -- "$@" --ro-bind / / --dev-bind /dev /dev --proc /proc --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run \
+set -- "$@" --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run \
   --unshare-pid --unshare-ipc --new-session --cap-drop ALL --clearenv
 if [ -d /run/systemd/resolve ]; then set -- "$@" --ro-bind /run/systemd/resolve /run/systemd/resolve; fi
 for v in ` + shellWords(envAllowlist) + `; do

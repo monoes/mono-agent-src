@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ func (c Client) Call(req map[string]any) (map[string]any, error) {
 	if _, err := conn.Write(append(line, '\n')); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOffline, err)
 	}
-	reader := bufio.NewReaderSize(conn, 1<<20)
+	reader := bufio.NewReaderSize(io.LimitReader(conn, 1<<20), 1<<20)
 	raw, err := reader.ReadBytes('\n')
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOffline, err)

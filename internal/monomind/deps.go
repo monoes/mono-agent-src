@@ -53,14 +53,24 @@ func DepsInstall(ctx context.Context, bin string, progress func(string)) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "deps", "install")
 	cmd.Env = PinEnv(append(FilteredEnviron(), "CI=true"), bin)
+	// On the deadline, end everything monomind started (npm), and don't let a
+	// child that still holds the output pipe keep the read below waiting.
+	setProcessGroup(cmd)
+	cmd.Cancel = func() error {
+		killProcessGroup(cmd, 0)
+		return nil
+	}
+	cmd.WaitDelay = 10 * time.Second
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
 	}
 	cmd.Stderr = cmd.Stdout
-	if err := cmd.Start(); err != nil {
+	release, err := startProcessGroup(cmd)
+	if err != nil {
 		return err
 	}
+	defer release()
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var tail []string

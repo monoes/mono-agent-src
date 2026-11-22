@@ -175,7 +175,7 @@ func registerClaudeCodeProject(ctx context.Context, root string, prepare func(*e
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claudeBin, "-p", "monomind initialized")
-	cmd.Env = PinEnvIn(os.Environ(), claudeBin, root)
+	cmd.Env = PinEnvIn(FilteredEnviron(), claudeBin, root)
 	if prepare != nil {
 		prepare(cmd)
 	}
