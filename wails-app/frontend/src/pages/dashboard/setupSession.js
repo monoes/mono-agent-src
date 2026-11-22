@@ -2,34 +2,56 @@
 // (GetOnboardingStateFull) starts several CLI checks, so the card reads it the
 // first time it shows and keeps the answer here, outside the card: showing the
 // dashboard again, or switching its scope, remounts the card without a read.
-// It is read again only after the onboarding was opened from the app (whoever
-// opens it calls markSetupStale first; the app remounts when it closes) or on
-// the card's own refresh. Nothing is put in the gate's state, so a read never
-// re-renders the app.
+// The answer stops standing (markSetupStale) when something that changes it
+// happened: the onboarding was opened or closed (whoever opens or closes it
+// calls markSetupStale), or monomind finished turning on, from any page
+// (monomind:initProgress "done"). The card then reads again the next time it
+// shows, or on its own refresh. Nothing is put in the gate's state, so a read
+// never re-renders the app.
 import { onboarding } from '../../services/onboarding.js'
+import { subscribeEvent } from '../../services/api.js'
 import { callStep } from '../../onboarding/callStep.js'
 
 let session = { state: null, fresh: false }
-let pending = null
+let generation = 0 // bumped by markSetupStale: an answer read before it never counts as fresh
+let pending = null // { gen, promise }
+let watching = false
+let storedGen = -1 // the generation of the stored answer: an older read never replaces a newer one
 
 // The last answer, and whether it still stands.
 export const setupSnapshot = () => session
 
-// One read at a time; resolves to callStep's result.
-export function readSetupState() {
-  if (!pending) {
-    pending = callStep(() => onboarding.stateFull()).then((r) => {
-      pending = null
-      if (r.ok) session = { state: r.value || null, fresh: true }
-      return r
-    })
-  }
-  return pending
-}
-
-// The onboarding is about to open: what the card knows may change.
+// Some event can change the answer: it no longer stands, and a read already
+// under way will not make it stand.
 export function markSetupStale() {
+  generation++
   session = { ...session, fresh: false }
 }
 
-export function resetSetupSession() { session = { state: null, fresh: false }; pending = null } // tests
+// Watch for changes made outside the onboarding, once for the session.
+function watch() {
+  if (watching) return
+  watching = true
+  try {
+    subscribeEvent('monomind:initProgress', (payload) => { if (payload?.kind === 'done') markSetupStale() })
+  } catch { watching = false /* no event bus (tests, plain browser): nothing to watch */ }
+}
+
+// One read at a time per generation; resolves to callStep's result.
+export function readSetupState() {
+  watch()
+  if (pending && pending.gen === generation) return pending.promise
+  const gen = generation
+  const promise = callStep(() => onboarding.stateFull()).then((r) => {
+    if (pending && pending.promise === promise) pending = null
+    if (r.ok && gen >= storedGen) {
+      storedGen = gen
+      session = { state: r.value || null, fresh: gen === generation }
+    }
+    return r
+  })
+  pending = { gen, promise }
+  return promise
+}
+
+export function resetSetupSession() { session = { state: null, fresh: false }; generation = 0; pending = null; watching = false; storedGen = -1 } // tests
