@@ -133,7 +133,7 @@ func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command,
 	if err != nil {
 		return c, clicore.InvalidInput("%v", err)
 	}
-	if startHost {
+	if startHost && c.Kind == coderhost.KindSend { // a stop, pause or resume reaches a host that runs; it never starts one
 		if err := ensureHost(cfg); err != nil {
 			return out, err
 		}

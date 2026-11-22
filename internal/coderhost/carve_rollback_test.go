@@ -14,7 +14,7 @@ func TestCarveDropsAConnectionWhoseRollbackFails(t *testing.T) {
 	db, trip := dbconntest.Open(t)
 	for _, q := range []string{
 		`CREATE TABLE coder_session_turn_caps (profile_id TEXT, conversation_id TEXT, turn_id TEXT, cap_usd REAL, started INTEGER)`,
-		`CREATE TABLE ai_chat_events (profile_id TEXT, conversation_id TEXT, turn_id TEXT, type TEXT, payload TEXT)`,
+		`CREATE TABLE ai_chat_events (profile_id TEXT, conversation_id TEXT, turn_id TEXT, type TEXT, payload TEXT, created_at TEXT)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)

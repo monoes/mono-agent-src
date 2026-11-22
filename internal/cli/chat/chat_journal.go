@@ -398,6 +398,16 @@ func (j *turnJournal) fail(err error) {
 	j.finishCode(false, &monomind.TurnResult{Err: &monomind.ProtocolError{Code: monomind.ErrRunnerError, Message: err.Error()}}, code)
 }
 
+// failOrStop is fail for an error that ended the turn's start-up: when the turn's context was cancelled (a stop
+// landed during the handshake or any other start-up step), the turn ends cancelled/stopped, not as a runner error.
+func (j *turnJournal) failOrStop(ctx context.Context, err error) {
+	if ctx.Err() != nil {
+		j.finishCode(true, nil, "")
+		return
+	}
+	j.fail(err)
+}
+
 // sandboxDetail is the extra line a start event's sandbox verdict carries:
 // the applied mode for a restricted turn, else the fallback note.
 func sandboxDetail(ev monomind.Event) string {
