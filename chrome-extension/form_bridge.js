@@ -185,6 +185,8 @@
     chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       const handler = msg && handlers[msg.type];
       if (!handler) return false;
+      // Only this extension's own pages: a web page cannot fill a form or the saved card.
+      if (!sender || sender.id !== chrome.runtime.id || !String(sender.url || "").startsWith(chrome.runtime.getURL(""))) return false;
       handler(msg)
         .then(respond)
         .catch((err) => respond({ ok: false, error: err.message || String(err), code: err.code }));
