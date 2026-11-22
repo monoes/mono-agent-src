@@ -114,17 +114,37 @@ type FileInfo struct {
 // a fresh profile never causes an error banner. Symlinked subdirectories
 // are not followed (fs.WalkDir's default), avoiding cyclic-symlink loops.
 func Scan(root string) ([]FileInfo, error) {
-	if _, err := os.Stat(root); os.IsNotExist(err) {
-		return nil, nil
+	found, _, err := ScanLimited(root, MaxFiles)
+	return found, err
+}
+
+// MaxFiles is how many files Scan returns at most; MaxFileBytes is the
+// largest file it reports. A profile root_dir pointed at a home or project
+// tree must not make every scan hold tens of thousands of entries or hand
+// huge files to ingestion.
+const (
+	MaxFiles     = 20000
+	MaxFileBytes = 100 << 20
+)
+
+// heavyDirs are never worth indexing and can hold tens of thousands of files.
+var heavyDirs = map[string]bool{
+	"node_modules": true, "vendor": true, "__pycache__": true, "site-packages": true,
+}
+
+// ScanLimited is Scan with an explicit file cap. truncated reports that the
+// walk stopped at the cap and more files may exist.
+func ScanLimited(root string, maxFiles int) (found []FileInfo, truncated bool, err error) {
+	if _, statErr := os.Stat(root); os.IsNotExist(statErr) {
+		return nil, false, nil
 	}
 
-	var found []FileInfo
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // transient read error on one entry -- skip it, keep walking
 		}
 		if d.IsDir() {
-			if path != root && isDotDir(d.Name()) {
+			if path != root && (isDotDir(d.Name()) || heavyDirs[d.Name()]) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -136,6 +156,13 @@ func Scan(root string) ([]FileInfo, error) {
 		if infoErr != nil {
 			return nil
 		}
+		if info.Size() > MaxFileBytes {
+			return nil
+		}
+		if len(found) >= maxFiles {
+			truncated = true
+			return filepath.SkipAll
+		}
 		found = append(found, FileInfo{
 			Path:      path,
 			Filename:  d.Name(),
@@ -145,7 +172,7 @@ func Scan(root string) ([]FileInfo, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return found, nil
+	return found, truncated, nil
 }

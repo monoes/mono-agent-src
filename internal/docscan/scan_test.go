@@ -247,3 +247,47 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestScanSkipsHeavyDirsAndOversizeFiles(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"node_modules/x", "vendor", "__pycache__", "site-packages", "keep"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, d, "a.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	big := filepath.Join(root, "keep", "big.pdf")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(docscan.MaxFileBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	got, err := docscan.Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || filepath.Base(filepath.Dir(got[0].Path)) != "keep" || got[0].Filename != "a.md" {
+		t.Fatalf("want only keep/a.md, got %+v", got)
+	}
+}
+
+func TestScanLimitedCapsFileCount(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 5; i++ {
+		if err := os.WriteFile(filepath.Join(root, string(rune('a'+i))+".md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, truncated, err := docscan.ScanLimited(root, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || !truncated {
+		t.Fatalf("got %d files truncated=%v, want 3 true", len(got), truncated)
+	}
+}
