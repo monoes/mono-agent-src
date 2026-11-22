@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +33,9 @@ type App struct {
 	dbPath string
 	logs   []LogEntry
 	logsMu sync.Mutex
+	// pickedJSON are the paths OpenJSONFilePicker returned: the only ones ReadJSONFile reads.
+	pickedJSON   map[string]bool
+	pickedJSONMu sync.Mutex
 	// offered are the chats whose last delete the CLI itself kept because processes they left are still
 	// running, with the processes it listed: only these can be deleted anyway (see
 	// DeleteChatConversationsAnyway). Keyed by profile and conversation; entries expire.
@@ -233,15 +238,25 @@ func (a *App) emitLog(source, level, message string) {
 	}
 }
 
+// openableSchemes are the URL schemes OpenURL hands to the system: no
+// javascript:, file: or app-registered custom schemes.
+var openableSchemes = map[string]bool{"http": true, "https": true, "mailto": true}
+
+// browserOpenURL is what OpenURL calls; a test swaps it.
+var browserOpenURL = runtime.BrowserOpenURL
+
 // OpenURL opens a URL in the system default browser.
 //
 // Signed out it opens only a page of the monoes.me host: the sign-in
 // screen's fallback link to the sign-in page.
 func (a *App) OpenURL(url string) {
+	if u, err := neturl.Parse(url); err != nil || !openableSchemes[strings.ToLower(u.Scheme)] {
+		return
+	}
 	if a.signedOut() != nil && !signInURL(url) {
 		return
 	}
-	runtime.BrowserOpenURL(a.ctx, url)
+	browserOpenURL(a.ctx, url)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
