@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GetActiveProfile, InstallExtension, PairExtension, GetExtensionStatus, GetBrowsers, AssignBrowser } from '../../wailsjs/go/main/App'
+import { GetActiveProfile, GetExtensionInfo, InstallExtension, PairExtension, GetExtensionStatus, GetBrowsers, AssignBrowser } from '../../wailsjs/go/main/App'
 import { onboarding } from '../../services/onboarding.js'
 import { runFix } from '../../lib/health.js'
 import { parsePairResult } from '../../components/settings/PairBrowser.jsx'
 import { callStep } from '../callStep.js'
 import { statusesOf } from '../steps.js'
-import { Problem, InstallSteps, ProfileDiagram } from './BrowserGuide.jsx'
+import { Problem } from './StepProblem.jsx'
+import { InstallSteps, ProfileDiagram } from './BrowserGuide.jsx'
 import './Browser.css'
 
 // Step "Connect your browser", in five sub-steps: pick a Chromium browser
 // (DetectChromiumBrowsers), open the browser profile that belongs to this
 // MonoAgent profile (OpenChromiumBrowser), load the extension
-// (InstallExtension gives the folder), pair it (GetExtensionStatus,
+// (GetExtensionInfo gives the folder; InstallExtension unpacks it only when
+// it is missing or old, or on request), pair it (GetExtensionStatus,
 // PairExtension; the background service is started with the
 // services.daemon.start fix when it is not running), then bind the
 // attached browser to this profile (GetBrowsers, AssignBrowser). The step
@@ -20,17 +22,21 @@ import './Browser.css'
 // after AssignBrowser the step only re-reads the state.
 
 export const PAIR_POLL_MS = 3000
-const DAEMON_FIX = 'services.daemon.start'
+const DAEMON_START = 'services.daemon.start'
+const DAEMON_RESTART = 'services.daemon.restart'
 const SUBS = ['pick', 'open', 'install', 'pair', 'confirm']
 
-// The bridge as `extension status --json` reports it.
-function bridgeOf(st) {
+// The bridge as `extension status --json` reports it. Connected needs this
+// client's pairing to be "ok", as Go's done does (browserRunsProfile): a
+// bridge too old to tell ("unknown") counts as not paired.
+export function bridgeOf(st) {
   if (!st?.running) return 'off'
   if (st.clientPairing === 'mismatch' || st.bridge?.status === 'unpaired') return 'unpaired'
-  return st.bridge?.status === 'connected' ? 'connected' : 'waiting'
+  if (st.bridge?.status !== 'connected') return 'waiting'
+  return st.clientPairing === 'ok' ? 'connected' : 'unpaired'
 }
 
-const browserTitle = (b) => `${b.label || 'Browser'} · ${String(b.instance).slice(0, 8)}`
+const browserTitle = (t, b) => `${b.label || t('onboarding.browser.confirm.unnamed')} · ${String(b.instance).slice(0, 8)}`
 
 const PointerIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -77,19 +83,28 @@ export default function Browser({ state, profileId, reload, setCanContinue }) {
     return () => { live = false }
   }, [])
 
-  const install = useCallback(async () => {
+  // prepare reads where the extension is unpacked (GetExtensionInfo, read
+  // only) and unpacks it (InstallExtension) only when it is missing or not
+  // the copy this app ships: unpacking replaces a folder the browser may
+  // have loaded. force (Reinstall) unpacks it anyway.
+  const prepare = useCallback(async (force = false) => {
     setInstalling(true)
     setInstallErr(null)
+    if (!force) {
+      const r = await callStep(() => GetExtensionInfo())
+      if (!r.ok) { setInstalling(false); setInstallErr(r); return }
+      if (r.value?.installed && r.value?.current && r.value?.path) { setInstalling(false); setInfo(r.value); return }
+    }
     const r = await callStep(() => InstallExtension())
     setInstalling(false)
     if (r.ok) setInfo(r.value)
     else setInstallErr(r)
   }, [])
-  // InstallExtension runs when the install sub-step first opens; Try again
-  // runs it again after a failure.
+  // It runs when the install sub-step first opens; Try again runs it again
+  // after a failure.
   useEffect(() => {
-    if (sub === 2 && !info && !installing && !installErr) install()
-  }, [sub, info, installing, installErr, install])
+    if (sub === 2 && !info && !installing && !installErr) prepare()
+  }, [sub, info, installing, installErr, prepare])
 
   const profile = profileName || t('onboarding.browser.thisProfile')
   const other = choice?.id === 'other'
@@ -159,7 +174,8 @@ export default function Browser({ state, profileId, reload, setCanContinue }) {
       )}
 
       {sub === 2 && choice && (
-        <InstallSteps browser={choice} info={info} installing={installing} problem={installErr} onRetry={install} onLoaded={() => setSub(3)} />
+        <InstallSteps browser={choice} info={info} installing={installing} problem={installErr}
+          onRetry={() => prepare()} onReinstall={() => prepare(true)} onLoaded={() => setSub(3)} />
       )}
 
       {sub === 3 && <PairStep onNext={() => setSub(4)} />}
@@ -174,44 +190,54 @@ export default function Browser({ state, profileId, reload, setCanContinue }) {
 }
 
 // PairStep follows `extension status` while it is on screen: no background
-// service (Start runs the daemon fix in place), not paired or waiting
-// (Pair extension), connected (Next).
-function PairStep({ onNext }) {
+// service (Start runs the daemon fix in place; if the service then runs but
+// the bridge still does not answer, the status hint and Restart instead of
+// Start again), not paired or waiting (Pair extension), connected (Next).
+// The next read is scheduled only after the previous answer, and an answer
+// older than the newest read is dropped.
+export function PairStep({ onNext }) {
   const { t } = useTranslation()
   const [st, setSt] = useState(null)
   const [stErr, setStErr] = useState(null)
   const [starting, setStarting] = useState(false)
+  const [started, setStarted] = useState(false)
   const [lines, setLines] = useState([])
   const [startErr, setStartErr] = useState(null)
   const [pairing, setPairing] = useState(false)
   const [pairRes, setPairRes] = useState(null)
   const live = useRef(true)
-  const stop = useRef(false)
+  const seq = useRef(0)
+  const timer = useRef(null)
 
   const read = useCallback(async () => {
+    clearTimeout(timer.current)
+    const mine = ++seq.current
     const r = await callStep(() => GetExtensionStatus())
-    if (!live.current) return
+    if (!live.current || mine !== seq.current) return
     if (r.ok) { setSt(r.value); setStErr(null) } else setStErr(r)
-    stop.current = r.ok ? bridgeOf(r.value) === 'connected' : r.loginRequired
+    const stop = r.ok ? bridgeOf(r.value) === 'connected' : r.loginRequired
+    if (!stop) timer.current = setTimeout(read, PAIR_POLL_MS)
   }, [])
   useEffect(() => {
     live.current = true
     read()
-    const id = setInterval(() => { if (!stop.current) read() }, PAIR_POLL_MS)
-    return () => { live.current = false; clearInterval(id) }
+    return () => { live.current = false; clearTimeout(timer.current) }
   }, [read])
 
-  const start = async () => {
+  // run applies the daemon fix (start, or restart once started did not
+  // bring the bridge up) with its streamed lines, then reads the status.
+  const run = async (fix) => {
     setStarting(true)
     setLines([])
     setStartErr(null)
     const r = await callStep(async () => {
-      const res = await runFix(DAEMON_FIX, (line) => { if (live.current) setLines((l) => [...l, line]) })
+      const res = await runFix(fix, (line) => { if (live.current) setLines((l) => [...l, line]) })
       if (!res.ok) throw new Error(res.message)
     })
     if (!live.current) return
     setStarting(false)
-    if (!r.ok) setStartErr(r)
+    if (r.ok) setStarted(true)
+    else setStartErr(r)
     await read()
   }
 
@@ -234,16 +260,28 @@ function PairStep({ onNext }) {
         <p className="onb-browser-busy" role="status"><span className="onb-spinner" aria-hidden="true" />{t('onboarding.browser.pair.checking')}</p>
       )}
       <Problem r={stErr} />
-      {stErr && !stErr.loginRequired && (
+      {stErr && (
         <button type="button" className="onb-btn sm" onClick={read}>{t('onboarding.browser.pair.again')}</button>
       )}
 
-      {bridge === 'off' && (
+      {bridge === 'off' && !started && (
         <div className="onb-browser-off" role="status">
           <p><b>{t('onboarding.browser.pair.off')}</b> {t('onboarding.browser.pair.offWhy')}</p>
-          <button type="button" className="onb-btn" disabled={starting} aria-busy={starting || undefined} onClick={start}>
+          <button type="button" className="onb-btn" disabled={starting} aria-busy={starting || undefined} onClick={() => run(DAEMON_START)}>
             {starting ? t('onboarding.browser.pair.starting') : t('onboarding.browser.pair.start')}
           </button>
+        </div>
+      )}
+      {bridge === 'off' && started && (
+        <div className="onb-browser-off" role="status">
+          <p><b>{t('onboarding.browser.pair.stuck')}</b> {t('onboarding.browser.pair.restartWhy')}</p>
+          {st.hint && <p className="onb-hint">{st.hint}</p>}
+          <div className="onb-browser-actions">
+            <button type="button" className="onb-btn" disabled={starting} aria-busy={starting || undefined} onClick={() => run(DAEMON_RESTART)}>
+              {starting ? t('onboarding.browser.pair.restarting') : t('onboarding.browser.pair.restart')}
+            </button>
+            <button type="button" className="onb-btn ghost" disabled={starting} onClick={read}>{t('onboarding.browser.pair.again')}</button>
+          </div>
         </div>
       )}
       {lines.length > 0 && <ul className="onb-log">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
@@ -274,6 +312,15 @@ function PairStep({ onNext }) {
       )}
     </div>
   )
+}
+
+// UsedBy names the MonoAgent profiles a browser already runs (an older CLI
+// reports only the first).
+function UsedBy({ b }) {
+  const { t } = useTranslation()
+  const names = b.profile_names?.length ? b.profile_names : b.profile_name ? [b.profile_name] : []
+  if (!names.length) return null
+  return <span className="onb-browser-usedby">{t('onboarding.browser.confirm.usedBy', { names: names.join(', ') })}</span>
 }
 
 // ConfirmStep binds an attached browser to this MonoAgent profile: one
@@ -307,7 +354,7 @@ function ConfirmStep({ profileId, profile, reload, assigned, onAssigned }) {
     await reload()
     setSaving(false)
     const b = rows.find((x) => x.instance === sel)
-    onAssigned(b ? browserTitle(b) : sel)
+    onAssigned(b ? browserTitle(t, b) : sel)
   }
 
   if (!rows) {
@@ -320,13 +367,13 @@ function ConfirmStep({ profileId, profile, reload, assigned, onAssigned }) {
       {rows.length === 0 && !loadErr && <p className="onb-muted">{t('onboarding.browser.confirm.none')}</p>}
       {legacy && <p className="onb-hint">{t('onboarding.browser.confirm.legacy')}</p>}
       {rows.length === 1 && (
-        <div className="onb-card"><b>{browserTitle(rows[0])}</b></div>
+        <div className="onb-card"><b>{browserTitle(t, rows[0])}</b><UsedBy b={rows[0]} /></div>
       )}
       {rows.length > 1 && (
         <div className="onb-rows" role="radiogroup" aria-label={t('onboarding.browser.confirm.listLabel')}>
           {rows.map((b) => (
             <button key={b.instance} type="button" role="radio" className="onb-opt" aria-checked={sel === b.instance} onClick={() => setSel(b.instance)}>
-              <div><b>{browserTitle(b)}</b>{b.version && <span>{t('onboarding.browser.confirm.version', { version: b.version })}</span>}</div>
+              <div><b>{browserTitle(t, b)}</b>{b.version && <span>{t('onboarding.browser.confirm.version', { version: b.version })}</span>}<UsedBy b={b} /></div>
             </button>
           ))}
         </div>

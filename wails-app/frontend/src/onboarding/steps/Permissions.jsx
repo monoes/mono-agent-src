@@ -3,22 +3,24 @@ import { useTranslation } from 'react-i18next'
 import { BrowserPermissions } from '../../wailsjs/go/main/App'
 import { onboarding } from '../../services/onboarding.js'
 import { callStep } from '../callStep.js'
-import { Problem } from './BrowserGuide.jsx'
+import { Problem } from './StepProblem.jsx'
 
 // Step "What agents may do in your browser": one machine-wide choice among
 // three presets (`browser permissions preset`, ApplyBrowserPermissionPreset).
 // The current levels (BrowserPermissions) decide what is preselected: a
 // machine whose every kind is still at its default level gets the
-// recommended ask; levels equal to a preset's get that preset; anything
-// else is custom, nothing is preselected, and Continue keeps it. Continue
-// applies the chosen preset, then marks the step.
+// recommended ask, with a line saying what that widens; levels equal to a
+// preset's get that preset; anything else is custom, "Keep my current
+// settings" is selected, and Continue keeps them. Continue applies the
+// chosen preset, then marks the step.
 
 export const PRESETS = ['ask', 'free', 'off']
 
-// Every kind's level under each preset. Mirrors PresetLevels in
-// internal/browserctl/permissions.go (no binding exposes the maps): ask is
-// full everywhere, free is full-no-approvals except apply (which can never
-// be, so full), off is off everywhere. Kinds: browserctl.Kinds.
+// Fallback for every kind's level under each preset, used when the
+// BrowserPermissions answer has no `presets` (an older CLI). Mirrors
+// PresetLevels in internal/browserctl/permissions.go: ask is full
+// everywhere, free is full-no-approvals except apply (which can never be,
+// so full), off is off everywhere. Kinds: browserctl.Kinds.
 const KINDS = ['coder', 'apply', 'org', 'chat', 'other']
 const every = (level, over = {}) => ({ ...Object.fromEntries(KINDS.map((k) => [k, level])), ...over })
 export const PRESET_LEVELS = {
@@ -28,16 +30,28 @@ export const PRESET_LEVELS = {
 }
 
 const sameLevels = (a, b) => {
-  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b)])
-  return [...keys].every((k) => a?.[k] === b[k])
+  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})])
+  return [...keys].every((k) => a?.[k] === b?.[k])
 }
 
-// presetOf: the preset to preselect for a `browser permissions --json`
-// answer, or null for custom levels.
+// presetMaps: the answer's own `presets` when it has all three, else the
+// fallback above.
+function presetMaps(perm) {
+  const p = perm?.presets
+  const ok = p && typeof p === 'object' && PRESETS.every((id) => p[id] && typeof p[id] === 'object')
+  return ok ? p : PRESET_LEVELS
+}
+
+// presetOf reads a `browser permissions --json` answer:
+// { preset, fromDefaults }. preset is the one to preselect, or null for
+// custom levels; fromDefaults says ask was picked because every kind is
+// still at its default level (so applying it changes them).
 export function presetOf(perm) {
   const kinds = perm?.kinds || []
-  if (kinds.length > 0 && kinds.every((k) => k.isDefault)) return 'ask'
-  return PRESETS.find((p) => sameLevels(perm?.levels, PRESET_LEVELS[p])) || null
+  const maps = presetMaps(perm)
+  const exact = PRESETS.find((id) => sameLevels(perm?.levels, maps[id])) || null
+  if (!exact && kinds.length > 0 && kinds.every((k) => k.isDefault)) return { preset: 'ask', fromDefaults: true }
+  return { preset: exact, fromDefaults: false }
 }
 
 function Choice({ id }) {
@@ -63,7 +77,8 @@ export default function Permissions({ mark, setCanContinue, setOnContinue }) {
   const [loaded, setLoaded] = useState(false)
   const [loadErr, setLoadErr] = useState(null)
   const [custom, setCustom] = useState(false)
-  const [chosen, setChosen] = useState(null)
+  const [fromDefaults, setFromDefaults] = useState(false)
+  const [chosen, setChosen] = useState(null) // a preset, or null: keep (custom) / nothing yet
   const [saveErr, setSaveErr] = useState(null)
   const chosenRef = useRef(null)
   chosenRef.current = chosen
@@ -72,9 +87,10 @@ export default function Permissions({ mark, setCanContinue, setOnContinue }) {
     setLoadErr(null)
     const r = await callStep(() => BrowserPermissions())
     if (!r.ok) { setLoadErr(r); return }
-    const p = presetOf(r.value)
-    setCustom(!p)
-    setChosen((c) => c || p)
+    const { preset, fromDefaults: fd } = presetOf(r.value)
+    setCustom(!preset)
+    setFromDefaults(fd)
+    setChosen((c) => c || preset)
     setLoaded(true)
   }, [])
   useEffect(() => { load() }, [load])
@@ -108,8 +124,14 @@ export default function Permissions({ mark, setCanContinue, setOnContinue }) {
             <div><Choice id={id} /></div>
           </button>
         ))}
+        {custom && (
+          <button type="button" role="radio" className="onb-opt" aria-checked={chosen === null} onClick={() => setChosen(null)}>
+            <div><b>{t('onboarding.permissions.keep.title')}</b><span>{t('onboarding.permissions.keep.desc')}</span></div>
+          </button>
+        )}
       </div>
       {custom && !chosen && <p className="onb-hint" role="status">{t('onboarding.permissions.custom')}</p>}
+      {fromDefaults && chosen === 'ask' && <p className="onb-hint" role="status">{t('onboarding.permissions.widens')}</p>}
       <p className="onb-hint">{t('onboarding.permissions.machine')}</p>
       <Problem r={saveErr} />
       <p className="onb-pointer"><PeopleIcon /><span>{t('onboarding.permissions.approvals')}</span></p>

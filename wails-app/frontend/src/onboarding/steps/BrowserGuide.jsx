@@ -1,18 +1,25 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ClipboardSetText } from '../../wailsjs/runtime/runtime'
+import { Problem } from './StepProblem.jsx'
 
 // The pieces of "Connect your browser" that only show things: the install
 // instructions for the chosen browser with their illustration, the
-// profile diagram, the Copy button and a binding failure. Browser.jsx owns
-// the state and the binding calls. Keys are written out in full.
+// profile diagram and the Copy button. Browser.jsx owns the state and the
+// binding calls. Keys are written out in full.
 
-// Problem shows one callStep failure: the shell's sign-in line for a
-// login-required answer, otherwise the binding's own message.
-export function Problem({ r }) {
-  const { t } = useTranslation()
-  if (!r || r.ok) return null
-  if (r.loginRequired) return <p className="onb-error" role="alert">{t('onboarding.shell.signIn')}</p>
-  return <p className="onb-error" role="alert">{r.message}</p>
+// copyText tries the web clipboard, then the Wails one (the WebView may not
+// offer navigator.clipboard). Resolves true when either worked.
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch { /* falls back to the Wails clipboard */ }
+  try {
+    return (await ClipboardSetText(text)) !== false
+  } catch {
+    return false
+  }
 }
 
 const CopyIcon = () => (
@@ -21,28 +28,28 @@ const CopyIcon = () => (
   </svg>
 )
 
-// CopyButton writes text to the clipboard. A blocked clipboard leaves the
-// text selectable on screen; the label only says Copied when it worked.
+// CopyButton writes text to the clipboard. The label says Copied only when
+// it worked; when no clipboard took it, a line says to copy it by hand (the
+// text is selectable on screen).
 export function CopyButton({ text, label }) {
   const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-    } catch { /* the text stays selectable */ }
-  }
+  const [copied, setCopied] = useState(null)
+  const copy = async () => setCopied(await copyText(text))
   return (
-    <button type="button" className="onb-btn sm" aria-label={label} onClick={copy}>
-      <CopyIcon />{copied ? t('onboarding.browser.install.copied') : t('onboarding.browser.install.copy')}
-    </button>
+    <>
+      <button type="button" className="onb-btn sm" aria-label={label} onClick={copy}>
+        <CopyIcon />{copied ? t('onboarding.browser.install.copied') : t('onboarding.browser.install.copy')}
+      </button>
+      {copied === false && <span className="onb-error" role="alert">{t('onboarding.browser.install.copyFailed')}</span>}
+    </>
   )
 }
 
 // InstallSteps: open the extensions page, turn on Developer mode, Load
-// unpacked with the folder InstallExtension returned. browser is a
-// DetectChromiumBrowsers row, or { id: 'other', name } for any other.
-export function InstallSteps({ browser, info, installing, problem, onRetry, onLoaded }) {
+// unpacked with the extension folder (GetExtensionInfo, or InstallExtension
+// when it was missing or old). Reinstall unpacks it again on request.
+// browser is a DetectChromiumBrowsers row, or { id: 'other', name }.
+export function InstallSteps({ browser, info, installing, problem, onRetry, onReinstall, onLoaded }) {
   const { t } = useTranslation()
   const other = browser.id === 'other'
   const where = other
@@ -85,6 +92,12 @@ export function InstallSteps({ browser, info, installing, problem, onRetry, onLo
           <Problem r={problem} />
           {problem && !installing && (
             <span><button type="button" className="onb-btn sm" onClick={onRetry}>{t('onboarding.browser.install.retry')}</button></span>
+          )}
+          {info?.path && !installing && !problem && (
+            <span className="onb-hint">
+              {t('onboarding.browser.install.reinstallWhy')}{' '}
+              <button type="button" className="onb-btn sm ghost" onClick={onReinstall}>{t('onboarding.browser.install.reinstall')}</button>
+            </span>
           )}
         </li>
       </ol>

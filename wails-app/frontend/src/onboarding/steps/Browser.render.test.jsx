@@ -13,10 +13,12 @@ import i18n from '../../i18n.js'
 const listeners = {}
 vi.mock('../../wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn((name, cb) => { listeners[name] = cb; return () => { delete listeners[name] } }),
+  ClipboardSetText: vi.fn(),
 }))
 vi.mock('../../wailsjs/go/main/App', () => ({
   DetectChromiumBrowsers: vi.fn(),
   OpenChromiumBrowser: vi.fn(),
+  GetExtensionInfo: vi.fn(),
   InstallExtension: vi.fn(),
   PairExtension: vi.fn(),
   GetExtensionStatus: vi.fn(),
@@ -30,7 +32,8 @@ vi.mock('../../wailsjs/go/main/App', () => ({
 }))
 
 import * as Go from '../../wailsjs/go/main/App'
-import Browser from './Browser.jsx'
+import * as Runtime from '../../wailsjs/runtime/runtime'
+import Browser, { PairStep, PAIR_POLL_MS } from './Browser.jsx'
 
 const B = (id, name, installed, url, side = 'right') => ({ id, name, installed, extensionsUrl: url, devModeSide: side })
 const DETECTED = [
@@ -54,6 +57,7 @@ beforeEach(async () => {
   Go.DetectChromiumBrowsers.mockResolvedValue(DETECTED)
   Go.GetActiveProfile.mockResolvedValue({ id: 'p1', name: 'Work' })
   Go.OpenChromiumBrowser.mockResolvedValue(undefined)
+  Go.GetExtensionInfo.mockResolvedValue({ path: FOLDER, installed: false, current: false, version: '' })
   Go.InstallExtension.mockResolvedValue({ path: FOLDER, installed: true, current: true, version: '1.4.0' })
   Go.GetExtensionStatus.mockResolvedValue(CONNECTED)
   Go.PairExtension.mockResolvedValue(JSON.stringify({ opened: true, url: 'http://127.0.0.1:9/pair' }))
@@ -209,6 +213,68 @@ describe('Connect your browser', () => {
     expect((await screen.findAllByText('Copied')).length).toBeGreaterThan(0)
   })
 
+  it('an extension already unpacked is not unpacked again; Reinstall does it on request', async () => {
+    Go.GetExtensionInfo.mockResolvedValue({ path: FOLDER, installed: true, current: true, version: '1.4.0' })
+    show()
+    await toInstall(/Google Chrome/)
+    expect(await screen.findByText(FOLDER)).toBeInTheDocument()
+    expect(Go.GetExtensionInfo).toHaveBeenCalledTimes(1)
+    expect(Go.InstallExtension).not.toHaveBeenCalled()
+    click('Reinstall')
+    await waitFor(() => expect(Go.InstallExtension).toHaveBeenCalledTimes(1))
+  })
+
+  it('an old unpacked copy is replaced on entry', async () => {
+    Go.GetExtensionInfo.mockResolvedValue({ path: FOLDER, installed: true, current: false, version: '1.0.0' })
+    show()
+    await toInstall(/Google Chrome/)
+    await waitFor(() => expect(Go.InstallExtension).toHaveBeenCalledTimes(1))
+  })
+
+  it('a service that starts but leaves the bridge off shows the hint and Restart, not Start again', async () => {
+    const hint = 'No bridge is running. Start one with `monoagentcli extension serve`.'
+    Go.GetExtensionStatus.mockResolvedValue(status({ running: false, hint }))
+    show()
+    await toPair()
+    await screen.findByRole('button', { name: 'Start' })
+    click('Start')
+    await waitFor(() => expect(listeners['health:fixProgress']).toBeTypeOf('function'))
+    act(() => { listeners['health:fixProgress']({ fix_id: 'services.daemon.start', kind: 'line', message: 'the daemon is already running' }) })
+    act(() => { listeners['health:fixProgress']({ fix_id: 'services.daemon.start', kind: 'done' }) })
+    expect(await screen.findByText("The background service is running, but the extension's bridge is not answering.")).toBeInTheDocument()
+    expect(screen.getByText(hint)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument()
+    click('Restart the service')
+    await waitFor(() => expect(Go.RunHealthFix).toHaveBeenLastCalledWith('services.daemon.restart'))
+  })
+
+  it('a clipboard that refuses says to copy by hand', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(() => Promise.reject(new Error('denied'))) }, configurable: true })
+    Runtime.ClipboardSetText.mockRejectedValue(new Error('no runtime'))
+    show()
+    await toInstall(/Google Chrome/)
+    click('Copy the address')
+    expect(await screen.findByText('Could not copy. Select the text and copy it yourself.')).toBeInTheDocument()
+    expect(Runtime.ClipboardSetText).toHaveBeenCalledWith('chrome://extensions')
+    expect(screen.queryByText('Copied')).not.toBeInTheDocument()
+  })
+
+  it('the Wails clipboard is used when the web one is missing', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    Runtime.ClipboardSetText.mockResolvedValue(true)
+    show()
+    await toInstall(/Google Chrome/)
+    click('Copy the address')
+    expect(await screen.findByText('Copied')).toBeInTheDocument()
+  })
+
+  it('lists which profiles already use each attached browser', async () => {
+    Go.GetBrowsers.mockResolvedValue({ running: true, browsers: [{ ...row('inst-aaaa1111', 'Work'), profile_names: ['Client A', 'Client B'] }, row('inst-bbbb2222', 'Personal')] })
+    show()
+    await toConfirm()
+    expect(await screen.findByText('Already used by: Client A, Client B')).toBeInTheDocument()
+  })
+
   it('a sign-in refusal shows the sign-in message and the button works again', async () => {
     Go.OpenChromiumBrowser.mockRejectedValueOnce('Log in to monoes.me first: run `monoagentcli account login`.')
     show()
@@ -216,5 +282,73 @@ describe('Connect your browser', () => {
     click('Open Google Chrome')
     expect(await screen.findByText(i18n.t('onboarding.shell.signIn'))).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open Google Chrome' })).toBeEnabled()
+  })
+})
+
+describe('the pair sub-step', () => {
+  const WAITING = status({ running: true, bridge: { status: 'waiting' }, clientPairing: 'ok' })
+
+  it('waits for each status answer before the next read, and stops on unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      const answers = []
+      Go.GetExtensionStatus.mockImplementation(() => new Promise((r) => answers.push(r)))
+      const { unmount } = render(<PairStep onNext={() => {}} />)
+      expect(Go.GetExtensionStatus).toHaveBeenCalledTimes(1)
+      // a slow CLI: no second read while the first is unanswered
+      await act(async () => { vi.advanceTimersByTime(PAIR_POLL_MS * 5) })
+      expect(Go.GetExtensionStatus).toHaveBeenCalledTimes(1)
+      await act(async () => { answers[0](WAITING) })
+      await act(async () => { vi.advanceTimersByTime(PAIR_POLL_MS - 1) })
+      expect(Go.GetExtensionStatus).toHaveBeenCalledTimes(1)
+      await act(async () => { vi.advanceTimersByTime(1) })
+      expect(Go.GetExtensionStatus).toHaveBeenCalledTimes(2)
+      await act(async () => { answers[1](WAITING) })
+      unmount()
+      await act(async () => { vi.advanceTimersByTime(PAIR_POLL_MS * 5) })
+      expect(Go.GetExtensionStatus).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an answer older than the newest read is dropped', async () => {
+    const answers = []
+    Go.GetExtensionStatus.mockImplementation(() => new Promise((r) => answers.push(r)))
+    Go.PairExtension.mockResolvedValue(JSON.stringify({ opened: true }))
+    render(<PairStep onNext={() => {}} />)
+    await act(async () => { answers[0](WAITING) })
+    click('Pair extension')
+    await waitFor(() => expect(answers).toHaveLength(2))
+    await screen.findByText('The pairing page opened in your browser. Approve it there.')
+    click('Pair extension')
+    await waitFor(() => expect(answers).toHaveLength(3))
+    // the newest read answers first; the older one, arriving late, is dropped
+    await act(async () => { answers[2](WAITING) })
+    await act(async () => { answers[1](CONNECTED) })
+    expect(screen.queryByText('Connected.')).not.toBeInTheDocument()
+    expect(screen.getByText(/Waiting for the extension to connect/)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['mismatch', { running: true, bridge: { status: 'connected' }, clientPairing: 'mismatch' }],
+    ['unpaired', { running: true, bridge: { status: 'unpaired' }, clientPairing: 'ok' }],
+    ['unknown (a bridge too old to tell)', { running: true, bridge: { status: 'connected' }, clientPairing: 'unknown' }],
+  ])('pairing %s reads as not paired', async (_, st) => {
+    Go.GetExtensionStatus.mockResolvedValue(status(st))
+    render(<PairStep onNext={() => {}} />)
+    expect(await screen.findByText('The extension is not paired with MonoAgent yet.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pair extension' })).toBeInTheDocument()
+    expect(screen.queryByText('Connected.')).not.toBeInTheDocument()
+  })
+
+  it('a sign-in refusal of the status still offers Check again', async () => {
+    Go.GetExtensionStatus
+      .mockResolvedValueOnce(JSON.stringify({ error: 'Log in to monoes.me first', login_required: true }))
+      .mockResolvedValue(CONNECTED)
+    render(<PairStep onNext={() => {}} />)
+    expect(await screen.findByText(i18n.t('onboarding.shell.signIn'))).toBeInTheDocument()
+    click('Check again')
+    expect(await screen.findByText('Connected.')).toBeInTheDocument()
   })
 })

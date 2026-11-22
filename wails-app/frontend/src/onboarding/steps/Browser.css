@@ -20,4 +20,6 @@
 .onb-root .onb-browser-busy{display:flex;align-items:center;gap:10px;color:var(--onb-ink-2)}
 .onb-root .onb-browser-ok{color:var(--onb-ok);font-weight:650}
 .onb-root .onb-browser-confirm .onb-card{margin-bottom:10px}
+.onb-root .onb-browser-usedby{display:block;font-size:12.5px;color:var(--onb-ink-3)}
+.onb-root .onb-opt .onb-browser-usedby{margin-top:2px}
 @media (max-width:1000px){.onb-root .onb-browser-choice{grid-template-columns:1fr}}
