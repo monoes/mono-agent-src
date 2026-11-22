@@ -33,7 +33,7 @@ func TestEnvDropsWhatInjectsConfigurationOrNamesAProgram(t *testing.T) {
 
 func TestArgsPinSignatureVerificationAndHooksOff(t *testing.T) {
 	got := strings.Join(Args(), " ")
-	for _, want := range []string{"log.showSignature=false", "gpg.program=true", "core.hooksPath=/dev/null", "core.fsmonitor=false"} {
+	for _, want := range []string{"log.showSignature=false", "gpg.program=true", "core.hooksPath=/dev/null", "core.fsmonitor=false", "--no-pager", "core.alternateRefsCommand=", "sequence.editor=true"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %s", want)
 		}
