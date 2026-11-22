@@ -404,7 +404,7 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 >
 > ```bash
 > monoagentcli jev provider add local --kind openai --base-url http://localhost:11434/v1 --model <model>
-> monoagentcli jev provider use local                       # the machine default; prints what each enabled surface sends
+> monoagentcli jev provider use local                       # the machine default (a provider on another host first lists what each enabled surface sends, and asks)
 > monoagentcli --profile work jev provider probe local      # what it can answer and how it gets probabilities
 > monoagentcli --profile work jev usage --since 7d          # calls by surface and provider
 > ```
