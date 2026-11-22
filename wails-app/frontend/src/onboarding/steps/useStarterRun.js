@@ -9,18 +9,22 @@ import * as GoApp from '../../wailsjs/go/main/App'
 import { subscribeEvent } from '../../services/api.js'
 import { POLL_FAIL_LIMIT, nextPollFailures } from '../../lib/runPoll.js'
 import { callStep } from '../callStep.js'
-import { orderNodes, nodeStates, resultFields, runError, isSuccess, isLive, needsSiteApproval, agentNotSetup } from '../starters.js'
+import { orderNodes, nodeStates, resultFields, runError, isSuccess, isPartial, isLive, needsSiteApproval, agentNotSetup } from '../starters.js'
 
 export const POLL_MS = 1500
 export const START_TIMEOUT_MS = 60000
 
+// templateId -> workflow id, for the app session: "Try again", and coming back
+// to the step, run the same copy instead of making another.
+const workflowIds = new Map()
+export function forgetStarterWorkflows() { workflowIds.clear() } // tests
+
 // run: null, or { templateId, phase: 'preparing'|'starting'|'running'|'done'|'failed',
-//   nodes: [{ id, name, state }], result: [{ key, value }], error, reason: ''|'approval'|'agent'|'notStarted'|'lost'|'noText', loginRequired }
+//   nodes: [{ id, name, state }], result: [{ key, value }], error, reason: ''|'approval'|'agent'|'notStarted'|'lost'|'noText'|'partial', loginRequired }
 export function useStarterRun({ onSuccess } = {}) {
   const [run, setRun] = useState(null)
   const token = useRef(0)
   const live = useRef(null) // { offs, timer, interval }
-  const workflowIds = useRef({}) // templateId -> workflow id: "Try again" makes no second copy
   const successRef = useRef(onSuccess)
   successRef.current = onSuccess
 
@@ -51,17 +55,26 @@ export function useStarterRun({ onSuccess } = {}) {
 
     setRun({ templateId, phase: 'preparing', nodes: [], result: [], error: '', reason: '', loginRequired: false })
 
-    let id = workflowIds.current[templateId]
-    if (!id) {
+    const create = async () => {
       const made = await callStep(() => GoApp.CreateWorkflowFromTemplate(templateId))
-      if (!alive()) return
-      if (!made.ok) return refused(made)
-      id = made.value?.id
-      if (!id) return fail({ error: '', reason: 'noText' })
-      workflowIds.current[templateId] = id
+      if (!alive()) return null
+      if (!made.ok) { refused(made); return null }
+      if (!made.value?.id) { fail({ error: '', reason: 'noText' }); return null }
+      workflowIds.set(templateId, made.value.id)
+      return made.value.id
     }
-    const wf = await callStep(() => GoApp.GetWorkflow(id))
+    let id = workflowIds.get(templateId)
+    const reused = !!id
+    if (!id && !(id = await create())) return
+    let wf = await callStep(() => GoApp.GetWorkflow(id))
     if (!alive()) return
+    if (!wf.ok && reused && !wf.loginRequired) {
+      // the copy made earlier is gone (deleted meanwhile): make a new one
+      workflowIds.delete(templateId)
+      if (!(id = await create())) return
+      wf = await callStep(() => GoApp.GetWorkflow(id))
+      if (!alive()) return
+    }
     if (!wf.ok) return refused(wf)
     nodes = orderNodes(wf.value?.nodes)
     update({ nodes: nodeStates(nodes, null) })
@@ -75,15 +88,19 @@ export function useStarterRun({ onSuccess } = {}) {
     let completion = null
     let failures = 0
     let chain = Promise.resolve()
+    let queued = 0
     const l = { offs: [], timer: null, interval: null }
     live.current = l
+    // A poll queued before the run ended (stop) does nothing: no second
+    // success, no late "lost" over a finished run.
+    const current = () => alive() && live.current === l
 
     const pollOnce = async (final) => {
-      if (!alive() || !execId) return
+      if (!current() || !execId) return
       // Wrapped: a failed execution's detail carries its own "error" field,
       // which callStep would read as the call failing.
       const got = await callStep(async () => ({ detail: await GoApp.GetExecutionDetail(execId) }))
-      if (!alive()) return
+      if (!current()) return
       const detail = got.ok ? got.value.detail : null
       failures = nextPollFailures(failures, detail)
       if (!detail) {
@@ -103,10 +120,15 @@ export function useStarterRun({ onSuccess } = {}) {
       let reason = ''
       if (needsSiteApproval(error) || waiting) reason = 'approval'
       else if (agentNotSetup(completion)) reason = 'agent'
+      else if (isPartial(detail)) reason = 'partial'
       else if (!error) reason = 'noText'
       update({ phase: 'failed', nodes: states, error, reason })
     }
-    const poll = (final) => { chain = chain.then(() => pollOnce(final)); return chain }
+    const poll = (final) => {
+      queued++
+      chain = chain.then(() => pollOnce(final)).finally(() => { queued-- })
+      return chain
+    }
 
     l.offs.push(subscribeEvent('workflow:exec-started', (data) => {
       if (!alive() || data?.workflow_id !== id || execId || !data?.execution_id) return
@@ -114,7 +136,7 @@ export function useStarterRun({ onSuccess } = {}) {
       clearTimeout(l.timer)
       update({ phase: 'running' })
       poll(false)
-      l.interval = setInterval(() => poll(false), POLL_MS)
+      l.interval = setInterval(() => { if (queued === 0) poll(false) }, POLL_MS) // a tick never piles up behind a slow poll
     }))
     l.offs.push(subscribeEvent('workflow:complete', (data) => {
       if (!alive() || data?.workflow_id !== id) return

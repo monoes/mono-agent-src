@@ -1,40 +1,46 @@
 // "Finish setting up": the onboarding steps still skipped or not done, at the
 // top of the dashboard. Each row reopens the onboarding at its step
-// (OnboardingContext). The rows come from the gate's state once loadFull()
-// has read it with every step's facts (the gate's first, fast read leaves out
-// a completed install's facts), read when the card shows and again whenever
-// the dashboard is shown again. Welcome and You're set are never rows: they
-// are not setup left to do. Hiding it is remembered (getStarted.js, the key
-// the old Get started checklist used).
+// (OnboardingContext). The rows come from the full state read, made once per
+// app session and kept in setupSession.js: read when the card first shows,
+// again only after the onboarding was opened from the app, or on the card's
+// refresh; never once the card is hidden, and not again while the last read
+// left nothing to do. The result stays local, so a read never re-renders the
+// app. Welcome and You're set are never rows: they are not setup left to do.
+// Hiding it is remembered (getStarted.js, the key the old Get started
+// checklist used).
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Circle, Rocket, X } from 'lucide-react'
+import { Circle, RefreshCw, Rocket, X } from 'lucide-react'
 import { OnboardingContext } from '../../onboarding/onboardingContext.js'
 import { STEPS, statusesOf, railLabel } from '../../onboarding/steps.js'
 import { loadDismissed, saveDismissed } from './getStarted.js'
+import { setupSnapshot, readSetupState, markSetupStale } from './setupSession.js'
 
 const SETUP_STEPS = STEPS.filter(s => s.id !== 'welcome' && s.id !== 'finish').map(s => s.id)
 
 export default function FinishSetupCard({ isActive = true }) {
   const { t } = useTranslation()
-  const { openOnboarding, state, loadFull } = useContext(OnboardingContext)
+  const { openOnboarding } = useContext(OnboardingContext)
   const [hidden, setHidden] = useState(loadDismissed)
-  const [full, setFull] = useState(false) // the gate's state carries every fact
+  const [snap, setSnap] = useState(setupSnapshot)
   const [opening, setOpening] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
   const read = useCallback(async () => {
-    const r = await loadFull()
-    if (r && r.ok) setFull(true)
-    else console.error('finish-setup card: onboarding state', r?.message) // the card stays as it was
-  }, [loadFull])
-  useEffect(() => { if (!hidden) read() }, [hidden, read])
+    const r = await readSetupState()
+    if (r.ok) setSnap(setupSnapshot())
+    else console.error('finish-setup card: onboarding state', r.message) // the card stays as it was
+  }, [])
+  // read when there is no answer that still stands (first show; after the onboarding was opened)
+  useEffect(() => { if (!hidden && !setupSnapshot().fresh) read() }, [hidden, read])
   const wasActive = useRef(isActive)
   useEffect(() => {
     const back = isActive && !wasActive.current
     wasActive.current = isActive
-    if (back && !hidden) read()
+    if (back && !hidden && !setupSnapshot().fresh) read()
   }, [isActive, hidden, read])
 
-  if (hidden || !full || !state) return null
+  const state = snap.state
+  if (hidden || !state) return null
   const statuses = statusesOf(state)
   const left = SETUP_STEPS.filter(id => statuses[id] !== 'done')
   if (left.length === 0) return null
@@ -42,9 +48,15 @@ export default function FinishSetupCard({ isActive = true }) {
   const open = async (id) => {
     if (opening) return
     setOpening(id)
+    markSetupStale()
     try { await openOnboarding(id) } finally { setOpening('') }
   }
   const dismiss = () => { saveDismissed(); setHidden(true) }
+  const refresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try { await read() } finally { setRefreshing(false) }
+  }
 
   return (
     <div className="card" data-testid="finish-setup" style={{ marginBottom: 16 }}>
@@ -53,6 +65,10 @@ export default function FinishSetupCard({ isActive = true }) {
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', marginLeft: 'auto', marginRight: 6 }}>
           {t('onboarding.finishCard.progress', { done: SETUP_STEPS.length - left.length, total: SETUP_STEPS.length })}
         </span>
+        <button className="btn btn-ghost btn-icon" onClick={refresh} disabled={refreshing}
+          aria-label={t('onboarding.finishCard.refresh')} title={t('onboarding.finishCard.refresh')}>
+          <RefreshCw size={12} style={{ animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }} />
+        </button>
         <button className="btn btn-ghost btn-icon" onClick={dismiss} aria-label={t('onboarding.finishCard.dismiss')} title={t('onboarding.finishCard.dismiss')}>
           <X size={13} />
         </button>

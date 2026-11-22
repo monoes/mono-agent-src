@@ -4,8 +4,8 @@
 // the page's navData. A card with no page of its own opens where it lives:
 // chat starts from the AI agents page, schedules and triggers are trigger
 // nodes in Workflows, social automations and the Library are the editor's
-// Templates dialog (which opens the monoes.me Library), API and MCP are in
-// Settings.
+// Templates dialog (which opens the monoes.me Library), API and MCP are
+// Settings' API section (navData.section 'api').
 export const CATALOGUE = [
   { id: 'workflows', icon: 'workflow', page: 'noderunner',
     titleKey: 'onboarding.finish.cat.workflows.title', lineKey: 'onboarding.finish.cat.workflows.line', whereKey: 'onboarding.finish.cat.workflows.where' },
@@ -25,7 +25,7 @@ export const CATALOGUE = [
     titleKey: 'onboarding.finish.cat.tasks.title', lineKey: 'onboarding.finish.cat.tasks.line', whereKey: 'onboarding.finish.cat.tasks.where' },
   { id: 'secrets', icon: 'key', page: 'secretsVault',
     titleKey: 'onboarding.finish.cat.secrets.title', lineKey: 'onboarding.finish.cat.secrets.line', whereKey: 'onboarding.finish.cat.secrets.where' },
-  { id: 'api', icon: 'plug', page: 'settings',
+  { id: 'api', icon: 'plug', page: 'settings', opts: { section: 'api' },
     titleKey: 'onboarding.finish.cat.api.title', lineKey: 'onboarding.finish.cat.api.line', whereKey: 'onboarding.finish.cat.api.where' },
   { id: 'library', icon: 'library', page: 'noderunner', opts: { openTemplates: true },
     titleKey: 'onboarding.finish.cat.library.title', lineKey: 'onboarding.finish.cat.library.line', whereKey: 'onboarding.finish.cat.library.where' },

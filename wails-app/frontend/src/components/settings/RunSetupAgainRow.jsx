@@ -7,6 +7,7 @@ import { RotateCcw } from 'lucide-react'
 import { OnboardingContext } from '../../onboarding/onboardingContext.js'
 import { onboarding } from '../../services/onboarding.js'
 import { callStep } from '../../onboarding/callStep.js'
+import { markSetupStale } from '../../pages/dashboard/setupSession.js'
 
 export default function RunSetupAgainRow() {
   const { t } = useTranslation()
@@ -24,6 +25,7 @@ export default function RunSetupAgainRow() {
       setBusy(false)
       return
     }
+    markSetupStale() // the dashboard card reads again once the onboarding closes
     await openOnboarding()
     setBusy(false)
   }

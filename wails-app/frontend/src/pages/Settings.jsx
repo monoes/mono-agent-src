@@ -322,7 +322,7 @@ function LanguageSection() {
 export default function Settings({ onNavigate, navData, isActive = true }) {
   const { t } = useTranslation()
   // Deep links (the dashboard's "health" and "Jev" rows) scroll to a section.
-  const sectionRefs = { health: useRef(null), jev: useRef(null), version: useRef(null) }
+  const sectionRefs = { health: useRef(null), jev: useRef(null), version: useRef(null), api: useRef(null) }
   const section = navData?.section
   useEffect(() => {
     const el = section && sectionRefs[section]?.current
@@ -491,7 +491,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
             <JevSection part="machine" jev={jev} collapsible defaultExpanded={section === 'jev'} expandToken={section === 'jev' ? navData : null} />
           </div>
 
-          <ApiSection part="machine" onNavigate={onNavigate} isActive={isActive} onStatus={setApiStatus} />
+          <div ref={sectionRefs.api} data-section="api"><ApiSection part="machine" onNavigate={onNavigate} isActive={isActive} onStatus={setApiStatus} /></div>
 
           {/* Application Info */}
           <div ref={sectionRefs.version} data-section="version" style={headingStyle}>

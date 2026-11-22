@@ -111,7 +111,7 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
               onCreated={(p) => p?.id && switchToProfile(p.id)} />
           </div>
         ) : (<>
-        {scope === 'profile' && !loading && <FinishSetupCard isActive={isActive} />}
+        {scope === 'profile' && <FinishSetupCard isActive={isActive} />}
         <AttentionStrip items={items} loading={loading} failed={summaryFailed} unread={unreadSections(summary)}
           onNavigate={onNavigate} onOpenHil={onOpenHil} />
         <StatRow summary={summary} orgs={orgs} loading={loading} onNavigate={onNavigate} />

@@ -7,7 +7,7 @@ import { execStatus } from '../lib/execStatus.js'
 export const STARTERS = [
   { templateId: 'starter_page_read', needs: [], fields: ['title', 'first_paragraph'] },
   { templateId: 'starter_summarise_page', needs: ['agents'], fields: ['summary'] },
-  { templateId: 'starter_browser_read', needs: ['agents', 'browser', 'permissions'], fields: ['title', 'description'] },
+  { templateId: 'starter_browser_read', needs: ['agents', 'browser', 'permissions'], fields: ['title', 'first_paragraph', 'description'] },
 ]
 
 // The first step a starter needs that is not done (skipped counts as not done), or ''.
@@ -62,6 +62,7 @@ export function runError(detail, event) {
 }
 
 export const isSuccess = (detail) => execStatus(detail?.status).key === 'success'
+export const isPartial = (detail) => execStatus(detail?.status).key === 'partial'
 export const isLive = (detail) => execStatus(detail?.status).live
 
 // browser.read at level "ask" raises an "allow this site?" Human-in-Loop item and

@@ -5,7 +5,7 @@ import { PairExtension } from '../../wailsjs/go/main/App'
 // Pairing the browser extension from the app: `monoagentcli extension pair
 // --open --json` (PairExtension in app_browsers.go) opens the running
 // bridge's one-time pairing page, or says what to do instead. Used by
-// Settings → Browsers and the dashboard's "Get started" step. Keys are
+// Settings → Browsers. Keys are
 // written out in full for the key scan.
 
 const hintStyle = { fontFamily: 'var(--font-body)', fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5 }

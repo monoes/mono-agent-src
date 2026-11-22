@@ -1307,7 +1307,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     return () => { cancelled = true }
   }, [navData?.workflowId, navData?.executionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The dashboard's "Get started" sends { openTemplates: true }.
+  // The onboarding's catalogue cards (Social automations, Library) send { openTemplates: true }.
   useEffect(() => { if (navData?.openTemplates) setShowWfModal('templates') }, [navData])
 
   // When arriving from Dashboard with an executionId, load workflow + overlay

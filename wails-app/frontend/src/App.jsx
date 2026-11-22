@@ -141,7 +141,7 @@ export default function App({ banners = null, initialNav = null }) {
   // System health section can finish it.
   useEffect(() => {
     const stop = startBackgroundHealth()
-    // A page the onboarding opened (initialNav) is not taken over by it.
+    // A page the onboarding opened (initialNav) is not taken over by it (its System check just covered health).
     let opened = !!initialNavRef.current?.page
     const off = subscribeHealth(h => {
       if (opened || (!h.report && !h.cliMissing)) return

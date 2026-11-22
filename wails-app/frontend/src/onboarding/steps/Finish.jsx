@@ -25,7 +25,13 @@ export default function Finish({ state, complete, onFinish, goTo, setCanContinue
   useEffect(() => { setContinueLabel(t('onboarding.finish.open')) }, [setContinueLabel, t])
   useEffect(() => { setCanContinue(!busy) }, [busy, setCanContinue])
   // The shell shows a failed callStep result and stays; otherwise it finishes.
-  useEffect(() => { setOnContinue(async () => signInFirst(await complete())) })
+  // the cards wait while Continue completes, so complete() never runs twice at once
+  useEffect(() => {
+    setOnContinue(async () => {
+      setBusy(true)
+      try { return signInFirst(await complete()) } finally { setBusy(false) }
+    })
+  })
 
   const openCard = async (card) => {
     if (busy) return

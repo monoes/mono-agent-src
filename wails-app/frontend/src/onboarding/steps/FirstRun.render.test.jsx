@@ -27,6 +27,7 @@ vi.mock('../../services/api.js', () => ({
 
 import i18n from '../../i18n.js'
 import FirstRun from './FirstRun.jsx'
+import { forgetStarterWorkflows } from './useStarterRun.js'
 
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
 const stateOf = (done = [], skipped = []) => ({ completed: false, currentStep: 'firstRun', profileId: 'p1', steps: IDS.map(id => ({ id, status: done.includes(id) ? 'done' : skipped.includes(id) ? 'skipped' : 'todo' })) })
@@ -60,6 +61,7 @@ beforeEach(async () => {
   go.SetWorkflowActive.mockReset().mockResolvedValue(undefined)
   go.RunWorkflow.mockReset().mockResolvedValue(undefined)
   go.GetExecutionDetail.mockReset()
+  forgetStarterWorkflows()
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -196,6 +198,83 @@ describe('Your first run', () => {
     expect(screen.getByRole('alert')).toHaveClass('onb-error')
     expect(go.RunWorkflow).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Read a web page/ })).toBeEnabled()
+  })
+
+  it('a poll queued before the run ended changes nothing', async () => {
+    renderStep([])
+    await startPageRead()
+    let answer
+    go.GetExecutionDetail.mockImplementationOnce(() => new Promise(r => { answer = r }))
+    go.GetExecutionDetail.mockRejectedValue('bridge went away') // any later fetch would say "lost"
+    await emit('workflow:exec-started', { workflow_id: 'wf1', execution_id: 'ex1' }) // first poll, in flight
+    await emit('workflow:complete', { workflow_id: 'wf1', success: true }) // final poll, queued behind it
+    await act(async () => {
+      answer(detail('SUCCESS', [{ node_id: 'n3', node_name: 'Pick Title and First Paragraph', status: 'SUCCESS', output_items: JSON.stringify([{ json: { title: 'Example Domain' } }]) }]))
+    })
+    await act(async () => {})
+    expect(screen.getByText('Example Domain')).toBeInTheDocument()
+    expect(screen.queryByText(/Lost contact/)).not.toBeInTheDocument()
+    expect(go.GetExecutionDetail).toHaveBeenCalledTimes(1)
+    expect(props.mark).toHaveBeenCalledTimes(1)
+  })
+
+  it('the browser starter shows the title, the first paragraph and what it is', async () => {
+    renderStep(['agents', 'browser', 'permissions'])
+    go.GetWorkflow.mockResolvedValue({ id: 'wf1', nodes: [{ id: 'b1', name: 'Read in Browser', position_x: 320 }, { id: 'b2', name: 'Show Result', position_x: 960 }] })
+    fireEvent.click(screen.getByRole('button', { name: /Read a page in your browser/ }))
+    await waitFor(() => expect(go.RunWorkflow).toHaveBeenCalledWith('wf1'))
+    go.GetExecutionDetail.mockResolvedValue(detail('SUCCESS', [
+      { node_id: 'b1', node_name: 'Read in Browser', status: 'SUCCESS' },
+      { node_id: 'b2', node_name: 'Show Result', status: 'SUCCESS', output_items: JSON.stringify([{ json: { title: 'Example Domain', first_paragraph: 'This domain is for use in documentation examples.', description: 'A placeholder page. It exists for examples.' } }]) },
+    ]))
+    await emit('workflow:exec-started', { workflow_id: 'wf1', execution_id: 'ex1' })
+    await emit('workflow:complete', { workflow_id: 'wf1', success: true })
+    await waitFor(() => expect(screen.getByText('A placeholder page. It exists for examples.')).toBeInTheDocument())
+    expect(screen.getByText('Example Domain')).toBeInTheDocument()
+    expect(screen.getByText('First paragraph')).toBeInTheDocument()
+    expect(screen.getByText('This domain is for use in documentation examples.')).toBeInTheDocument()
+  })
+
+  it('says it waits for you while a node waits in Human-in-Loop', async () => {
+    renderStep([])
+    await startPageRead()
+    go.GetExecutionDetail.mockResolvedValue(detail('WAITING', [{ node_id: 'n2', node_name: 'Fetch Page', status: 'WAITING' }]))
+    await emit('workflow:exec-started', { workflow_id: 'wf1', execution_id: 'ex1' })
+    await waitFor(() => expect(screen.getByText('Waiting for you in Human-in-Loop: Fetch Page')).toBeInTheDocument())
+  })
+
+  it('a run that ends with errors says so and does not mark the step', async () => {
+    renderStep([])
+    await startPageRead()
+    go.GetExecutionDetail.mockResolvedValue(detail('SUCCESS_WITH_ERRORS', [{ node_id: 'n2', node_name: 'Fetch Page', status: 'SUCCESS' }]))
+    await emit('workflow:exec-started', { workflow_id: 'wf1', execution_id: 'ex1' })
+    await emit('workflow:complete', { workflow_id: 'wf1', success: true })
+    await waitFor(() => expect(screen.getByText('The run finished, but some steps reported errors.')).toBeInTheDocument())
+    expect(screen.queryByText('The run did not finish.')).not.toBeInTheDocument()
+    expect(props.mark).not.toHaveBeenCalled()
+  })
+
+  it('coming back to the step runs the same copy', async () => {
+    const first = renderStep([])
+    await startPageRead()
+    first.unmount()
+    renderStep([])
+    await startPageRead()
+    expect(go.CreateWorkflowFromTemplate).toHaveBeenCalledTimes(1)
+    expect(go.RunWorkflow).toHaveBeenCalledTimes(2)
+  })
+
+  it('makes a new copy when the earlier one is gone', async () => {
+    const first = renderStep([])
+    await startPageRead()
+    first.unmount()
+    go.GetWorkflow.mockRejectedValueOnce('workflow wf1 not found')
+    go.CreateWorkflowFromTemplate.mockResolvedValue({ id: 'wf2' })
+    go.GetWorkflow.mockResolvedValue({ id: 'wf2', nodes: WF_NODES })
+    renderStep([])
+    fireEvent.click(screen.getByRole('button', { name: /Read a web page/ }))
+    await waitFor(() => expect(go.RunWorkflow).toHaveBeenCalledWith('wf2'))
+    expect(go.CreateWorkflowFromTemplate).toHaveBeenCalledTimes(2)
   })
 
   it('stops listening when the step is left mid-run', async () => {

@@ -92,6 +92,8 @@ function StatusLine({ run }) {
   if (run.phase === 'preparing') return <p className="onb-muted" aria-live="polite">{t('onboarding.firstRun.preparing')}</p>
   if (run.phase === 'starting') return <p className="onb-muted" aria-live="polite">{t('onboarding.firstRun.starting')}</p>
   if (run.phase !== 'running') return null
+  const waiting = run.nodes.find(n => n.state === 'waiting')
+  if (waiting) return <p className="onb-hint" aria-live="polite">{t('onboarding.firstRun.waiting', { name: waiting.name })}</p>
   const at = run.nodes.find(n => n.state === 'running')
   return <p className="onb-muted" aria-live="polite">{at ? t('onboarding.firstRun.running', { name: at.name }) : t('onboarding.firstRun.started')}</p>
 }
@@ -168,7 +170,7 @@ export default function FirstRun({ state, mark, goTo, setCanContinue }) {
           )}
           {run.phase === 'failed' && (
             <div className="onb-fr-failed">
-              <p className="onb-fr-failed-h">{t('onboarding.firstRun.failed')}</p>
+              <p className="onb-fr-failed-h">{run.reason === 'partial' ? t('onboarding.firstRun.partial') : t('onboarding.firstRun.failed')}</p>
               {run.loginRequired
                 ? <p className="onb-error" role="alert">{t('onboarding.shell.signIn')}</p>
                 : run.error && <p className="onb-error" role="alert">{run.error}</p>}

@@ -4,7 +4,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react'
 
 import i18n from '../../i18n.js'
 import Finish from './Finish.jsx'
@@ -69,6 +69,23 @@ describe("You're set", () => {
     renderStep()
     fireEvent.click(screen.getByRole('button', { name: /^Library/ }))
     await waitFor(() => expect(props.onFinish).toHaveBeenCalledWith({ page: 'noderunner', opts: { openTemplates: true } }))
+  })
+
+  it('the API card opens the API section of Settings', async () => {
+    renderStep()
+    fireEvent.click(screen.getByRole('button', { name: /^API and MCP/ }))
+    await waitFor(() => expect(props.onFinish).toHaveBeenCalledWith({ page: 'settings', opts: { section: 'api' } }))
+  })
+
+  it('the cards wait while Continue completes', async () => {
+    let done
+    renderStep(stateOf(), { complete: vi.fn(() => new Promise(r => { done = r })) })
+    const handler = props.setOnContinue.mock.calls.at(-1)[0]
+    let pending
+    act(() => { pending = handler() })
+    expect(screen.getByRole('button', { name: /^Orgs/ })).toBeDisabled()
+    await act(async () => { done({ ok: true }); await pending })
+    expect(props.complete).toHaveBeenCalledTimes(1)
   })
 
   it('a card stays when completing fails, and says why', async () => {
