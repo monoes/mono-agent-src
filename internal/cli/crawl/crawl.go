@@ -2,12 +2,11 @@ package crawl
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/integrations"
 	"github.com/monoes/mono-agent/internal/statedir"
 	"github.com/spf13/cobra"
@@ -45,18 +44,12 @@ For the full guide:  monoagentcli ref crawling`,
 				return fmt.Errorf("--wait must be between 0 and 120 seconds, got %d", waitSecs)
 			}
 
-			parsed, err := url.Parse(rawURL)
-			if err != nil {
-				return fmt.Errorf("invalid URL %q: %w", rawURL, err)
-			}
-			// file://, javascript:, and friends would point Rod at local or
+			// file://, javascript:, and friends would point the browser at local or
 			// non-web content; only plain web pages make sense to crawl.
-			if parsed.Scheme != "http" && parsed.Scheme != "https" {
-				return fmt.Errorf("unsupported URL scheme %q — only http and https can be crawled", parsed.Scheme)
+			parsed, err := clicore.WebURL(rawURL)
+			if err != nil {
+				return err
 			}
-
-			domain := strings.ReplaceAll(parsed.Hostname(), ".", "_")
-			timestamp := time.Now().Format("20060102_150405")
 
 			home, err := os.UserHomeDir()
 			if err != nil {
@@ -66,7 +59,7 @@ For the full guide:  monoagentcli ref crawling`,
 			if err := statedir.MkdirAll(captureDir); err != nil {
 				return fmt.Errorf("create capture dir: %w", err)
 			}
-			htmlFile := filepath.Join(captureDir, fmt.Sprintf("%s_%s.html", domain, timestamp))
+			htmlFile := filepath.Join(captureDir, clicore.CaptureFileName(parsed.Hostname(), time.Now()))
 
 			fmt.Fprintf(os.Stderr, "Opening %s in your browser through the extension...\n", parsed.Hostname())
 			html, err := d.RenderHTML(cmd.Context(), rawURL, time.Duration(waitSecs)*time.Second)
@@ -82,6 +75,12 @@ For the full guide:  monoagentcli ref crawling`,
 			skillInstalled := false
 			if _, err := os.Stat(integrations.ClaudeSkillFile(filepath.Join(claudeDir, "skills"), integrations.ClaudeSkillNames[0])); err == nil {
 				skillInstalled = true
+			}
+
+			if d.JSONOutput() {
+				return clicore.WriteJSONTo(cmd.OutOrStdout(), map[string]any{
+					"url": rawURL, "html_file": htmlFile, "html_size": len(html), "skill_ready": skillInstalled,
+				})
 			}
 
 			// Print structured output Claude can read and act on.

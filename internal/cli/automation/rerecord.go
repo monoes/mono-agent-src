@@ -197,6 +197,13 @@ func rerecordSelector(ctx context.Context, open pickerOpener, reg packageGetter,
 	if url == "" {
 		return nil, fmt.Errorf("automation %s has no site.startUrl; pass --url", id)
 	}
+	// The page opens in the user's logged-in browser: plain web pages, and a real wait.
+	if _, err := clicore.WebURL(url); err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		return nil, fmt.Errorf("--timeout must be positive, got %s", timeout)
+	}
 	label := prev.Intent
 	if label == "" {
 		label = key

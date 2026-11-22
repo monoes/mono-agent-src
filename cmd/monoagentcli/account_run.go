@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/account"
@@ -43,8 +45,17 @@ func reportGateRefusal(args []string, err error, stdout, stderr io.Writer) {
 func argsWantJSON(args []string) bool {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if a == "--json" || a == "--json=true" {
+		if a == "--" {
+			return false // what follows is for the child, not for us
+		}
+		if a == "--json" {
 			return true
+		}
+		if v, ok := strings.CutPrefix(a, "--json="); ok {
+			if b, err := strconv.ParseBool(v); err == nil && b {
+				return true
+			}
+			continue
 		}
 		if name, isFlag := valueFlagName(a); isFlag && name != "" {
 			i++

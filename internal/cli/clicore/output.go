@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/renderer"
@@ -32,15 +34,49 @@ func PrintJSON(v interface{}) error {
 	return enc.Encode(v)
 }
 
-// TruncateStr shortens s to at most n characters, appending "..." if truncated.
+// TruncateStr shortens s to at most n characters (runes), appending "..." if truncated.
 func TruncateStr(s string, n int) string {
-	if len(s) <= n {
+	if n < 0 {
+		n = 0
+	}
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
 	if n <= 3 {
-		return s[:n]
+		return string(r[:n])
 	}
-	return s[:n-3] + "..."
+	return string(r[:n-3]) + "..."
+}
+
+// CaptureFileName is the name of a captured page's HTML file: the host with every
+// character outside a-z0-9 replaced by '_' (an IPv6 host's ':' is invalid on Windows),
+// then a timestamp down to the nanosecond so two captures of one host never collide.
+func CaptureFileName(host string, at time.Time) string {
+	stem := []rune(strings.ToLower(host))
+	for i, r := range stem {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			stem[i] = '_'
+		}
+	}
+	return fmt.Sprintf("%s_%s_%09d.html", string(stem), at.Format("20060102_150405"), at.Nanosecond())
+}
+
+// WebURL parses raw and accepts only an http or https URL with a host: the pages the
+// CLI may open in the user's logged-in browser. file:, javascript:, chrome: and the like
+// are refused.
+func WebURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL %q: %w", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported URL scheme %q — only http and https are allowed", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("invalid URL %q: no host", raw)
+	}
+	return u, nil
 }
 
 // userHomeDir is os.UserHomeDir; a test replaces it.
