@@ -37,14 +37,8 @@ func ProviderKeySourceOf(ctx context.Context, db *sql.DB, profileID, provider st
 	if provider == jev.ProviderTypeSafe {
 		return KeySource(ctx, db, profileID)
 	}
-	p, ok, err := FindProvider(db, provider)
+	p, err := usableProvider(db, provider)
 	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("%w %q (`jev provider list` shows the configured ones)", ErrUnknownProvider, provider)
-	}
-	if err := checkProvider(p); err != nil {
 		return "", err
 	}
 	if _, ok := builderFor(p.Kind); !ok {

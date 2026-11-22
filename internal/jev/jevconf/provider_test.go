@@ -105,14 +105,15 @@ func TestSaveProviderChecksTheRecord(t *testing.T) {
 		{"reserved kind", Provider{Name: "ts2", Kind: "typesafe", BaseURL: "https://x.example"}, "built-in"},
 		{"bad name", Provider{Name: "My Box", Kind: kind, BaseURL: "https://x.example"}, "provider name"},
 		{"long name", Provider{Name: strings.Repeat("a", 33), Kind: kind, BaseURL: "https://x.example"}, "provider name"},
-		{"unknown kind", Provider{Name: "x", Kind: "nope", BaseURL: "https://x.example"}, "not in this build"},
+		{"unknown kind", Provider{Name: "x", Kind: "nope", BaseURL: "https://x.example", SecretName: "k"}, "not in this build"},
 		{"http to the LAN", Provider{Name: "x", Kind: kind, BaseURL: "http://192.168.1.5:11434/v1"}, "base_url refused"},
 		{"credentials in the URL", Provider{Name: "x", Kind: kind, BaseURL: "https://u:pw@x.example"}, "base_url refused"},
 		{"no URL", Provider{Name: "x", Kind: kind}, "base_url refused"},
 		{"the TypeSafe key", Provider{Name: "x", Kind: kind, BaseURL: "https://x.example", SecretName: "typesafe"}, "TypeSafe key"},
 		{"a TypeSafe key alias", Provider{Name: "x", Kind: kind, BaseURL: "https://x.example", SecretName: "Jev API key"}, "TypeSafe key"},
 		{"a reference", Provider{Name: "x", Kind: kind, BaseURL: "https://x.example", SecretName: "@secret:openai"}, "TypeSafe key"},
-		{"a bad probability kind", Provider{Name: "x", Kind: kind, BaseURL: "https://x.example", Caps: jev.Capabilities{Probability: "vibes"}}, "probability"},
+		{"a bad probability kind", Provider{Name: "x", Kind: kind, BaseURL: "https://x.example", SecretName: "k", Caps: jev.Capabilities{Probability: "vibes"}}, "probability"},
+		{"keyless on another host", Provider{Name: "x", Kind: kind, BaseURL: "https://x.example"}, "another host needs a key"},
 	} {
 		err := SaveProvider(ctx, db, c.p)
 		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), "pw@") {
@@ -294,12 +295,13 @@ func TestRemoveProviderRefusesAProviderAnOrgDeciderNames(t *testing.T) {
 		('default', 'acme', 'full', '{"kind":"jev","provider":"a"}', 'x', 'cli'),
 		('default', 'beta', 'full', '{"kind":"jev","provider":"b"}', 'x', 'cli'),
 		('p2', 'gamma', 'full', '{"kind":"jev","provider" "a"', 'x', 'cli'),
-		('p2', 'delta', 'mid', '{"kind":"model","model":"a"}', 'x', 'cli')`); err != nil {
+		('p2', 'delta', 'mid', '{"kind":"model","model":"a"}', 'x', 'cli'),
+		('p2', 'eps', 'mid', '{"kind":"boss","provider":"a"}', 'x', 'cli')`); err != nil {
 		t.Fatal(err)
 	}
 	err := RemoveProvider(ctx, db, "a")
 	if err == nil || !strings.Contains(err.Error(), "org decider of default/acme") || strings.Contains(err.Error(), "beta") ||
-		strings.Contains(err.Error(), "gamma") || strings.Contains(err.Error(), "delta") {
+		strings.Contains(err.Error(), "gamma") || strings.Contains(err.Error(), "delta") || strings.Contains(err.Error(), "eps") {
 		t.Fatalf("removing a provider an org decider names: %v", err)
 	}
 	if _, ok, _ := FindProvider(db, "a"); !ok {
