@@ -137,7 +137,7 @@ func fetch(ctx context.Context, params url.Values) (apiResponse, error) {
 		return out, fmt.Errorf("jobicy: building request: %w", err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; MonoAgent/1.0)")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := discovery.Client.Do(req)
 	if err != nil {
 		return out, fmt.Errorf("jobicy: fetching %s: %w", pageURL, err)
 	}
@@ -149,7 +149,7 @@ func fetch(ctx context.Context, params url.Values) (apiResponse, error) {
 		}
 		return out, fmt.Errorf("jobicy: fetching %s: status %d", pageURL, resp.StatusCode)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(discovery.LimitBody(resp.Body, discovery.MaxAPIBytes)).Decode(&out); err != nil {
 		return out, fmt.Errorf("jobicy: decoding response: %w", err)
 	}
 	return out, nil

@@ -2,15 +2,14 @@ package action
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"text/tabwriter"
 	"time"
 
 	actiondef "github.com/monoes/mono-agent/internal/action"
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/statedir"
 	"github.com/spf13/cobra"
 )
@@ -63,13 +62,14 @@ func (d Deps) newActionTemplateCaptureCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rawURL := args[0]
 
-			parsed, err := url.Parse(rawURL)
-			if err != nil {
-				return fmt.Errorf("invalid URL %q: %w", rawURL, err)
+			// The page opens in the user's logged-in browser: plain web pages only.
+			if waitSecs < 0 || waitSecs > 120 {
+				return fmt.Errorf("--wait must be between 0 and 120 seconds, got %d", waitSecs)
 			}
-
-			domain := strings.ReplaceAll(parsed.Hostname(), ".", "_")
-			timestamp := time.Now().Format("20060102_150405")
+			parsed, err := clicore.WebURL(rawURL)
+			if err != nil {
+				return err
+			}
 
 			captureDir, err := userCaptureDir()
 			if err != nil {
@@ -78,7 +78,7 @@ func (d Deps) newActionTemplateCaptureCmd() *cobra.Command {
 
 			dest := outFile
 			if dest == "" {
-				dest = filepath.Join(captureDir, fmt.Sprintf("%s_%s.html", domain, timestamp))
+				dest = filepath.Join(captureDir, clicore.CaptureFileName(parsed.Hostname(), time.Now()))
 			}
 
 			fmt.Fprintf(os.Stderr, "Opening the page in your browser through the extension...\n")

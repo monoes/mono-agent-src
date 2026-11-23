@@ -83,6 +83,26 @@ fi
 
 command -v curl >/dev/null 2>&1 || err "curl is required but not installed"
 
+# Test/mirror overrides replace parts of the trust path: say so, and refuse a
+# replaced signing key unless the caller opts in explicitly.
+for ov in MONOAGENT_MANIFEST_URL MONOAGENT_TEST_ASSET_URL_PREFIX; do
+  if [ -n "${!ov+x}" ]; then
+    printf 'install.sh: WARNING: %s is set; using an override instead of the production default\n' "$ov" >&2
+  fi
+done
+if [ -n "${MONOAGENT_RELEASE_PUBKEY:-}" ]; then
+  printf 'install.sh: WARNING: MONOAGENT_RELEASE_PUBKEY is set; the pinned signing key is replaced\n' >&2
+  [ "${MONOAGENT_INSTALL_UNSAFE_OVERRIDES:-}" = "1" ] \
+    || err "MONOAGENT_RELEASE_PUBKEY replaces the trust root; set MONOAGENT_INSTALL_UNSAFE_OVERRIDES=1 to allow it"
+fi
+
+# HTTPS only for every request and redirect, unless a test prefix (loopback http) is set.
+if [ -n "${MONOAGENT_TEST_ASSET_URL_PREFIX+x}" ]; then
+  CURL_OPTS=()
+else
+  CURL_OPTS=(--proto '=https' --proto-redir '=https')
+fi
+
 # sha256_of <file> — print the hex sha256 of a file.
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -164,7 +184,7 @@ verify_manifest_signature() {
     echo "NOTE: this openssl cannot verify raw Ed25519 signatures (no pkeyutl -rawin); manifest signature verification is SKIPPED (checksum-only)." >&2
     return 2
   fi
-  curl --retry 3 --fail --location -fsSL -o "${m_tmp}/manifest.json.sig" "$m_sigurl" || return 1
+  curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location -fsSL -o "${m_tmp}/manifest.json.sig" "$m_sigurl" || return 1
   # Contract: ONE line "<keyid> <base64sig>". keyid is the hex of the first 8
   # bytes of SHA-256 of the raw public key. Anything else is malformed.
   m_nfields="$(awk 'NR==1{print NF}' "${m_tmp}/manifest.json.sig")"
@@ -236,7 +256,7 @@ manifest_fetch_asset() {
 
   echo "Downloading ${A_NAME} (${TAG:-unknown version})..."
   A_FILE="${TMP_DIR}/${A_NAME}"
-  curl --retry 3 --fail --location --progress-bar -o "$A_FILE" "$a_url" \
+  curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location --progress-bar -o "$A_FILE" "$a_url" \
     || err "download failed: $a_url"
 
   if [ "$NO_VERIFY" -ne 1 ]; then
@@ -253,7 +273,7 @@ manifest_fetch_asset() {
 install_from_manifest() {
   for u in $MANIFEST_URLS; do
     echo "Fetching release manifest: ${u}"
-    if curl --retry 3 --fail --location -fsSL -o "${TMP_DIR}/manifest.json" "$u"; then
+    if curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location -fsSL -o "${TMP_DIR}/manifest.json" "$u"; then
       MANIFEST_URL="$u"; break
     fi
   done
@@ -308,21 +328,21 @@ install_from_manifest() {
 # ── Legacy path: GitHub API + SHA256SUMS.txt ─────────────────────────────────
 install_from_github_legacy() {
   echo "Using the legacy GitHub release path for ${REPO} (no signed manifest)."
-  RELEASE_JSON="$(curl --retry 3 --fail --location -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
+  RELEASE_JSON="$(curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
     || err "could not reach the GitHub API (network down, rate-limited, or the repository is not public)"
   TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
   [ -n "$TAG" ] || err "could not parse the latest tag from the GitHub API response"
   URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
 
   echo "Downloading ${ASSET} (${TAG})..."
-  curl --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${ASSET}" "$URL" \
+  curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${ASSET}" "$URL" \
     || err "download failed: $URL (does this release include the ${ASSET} asset?)"
 
   if [ "$NO_VERIFY" -eq 1 ]; then
     echo "WARNING: --no-verify given; skipping checksum verification." >&2
   else
     SUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/SHA256SUMS.txt"
-    curl --retry 3 --fail --location -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "$SUMS_URL" \
+    curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "$SUMS_URL" \
       || err "SHA256SUMS.txt not found at ${SUMS_URL}. Refusing to install an unverified binary; re-run with --no-verify to override at your own risk."
     VERIFIED="$(verify_checksum "${TMP_DIR}" "${ASSET}")" \
       || err "checksum verification FAILED for ${ASSET}; the download does not match ${TAG}'s published digest. Nothing was installed."
@@ -337,7 +357,7 @@ install_from_github_legacy() {
       *) err "the release has no desktop app for ${os}/${arch} (apps are built for linux/amd64, darwin/arm64 and windows/amd64)" ;;
     esac
     echo "Downloading ${app_asset} (${TAG})..."
-    curl --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${app_asset}" \
+    curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${app_asset}" \
       "https://github.com/${REPO}/releases/download/${TAG}/${app_asset}" \
       || err "download failed: ${app_asset}"
     if [ "$NO_VERIFY" -ne 1 ]; then
@@ -412,7 +432,7 @@ install_app() {
 Type=Application
 Name=MonoAgent
 GenericName=Workflow Automation
-Exec=${app_dir}/MonoAgent
+Exec="${app_dir//%/%%}/MonoAgent"
 Icon=monoagent
 Terminal=false
 Categories=Development;Utility;

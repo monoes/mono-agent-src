@@ -97,6 +97,13 @@ func TestIntegrationImportOpenAPI(t *testing.T) {
 	if p, ok := apipkg.ForNodeType("app.petstore"); !ok || len(p.Operations) != 9 {
 		t.Errorf("installed package not loaded")
 	}
+	// Replacing an installed package of the same id needs --yes.
+	if _, err := runIntegration(t, false, "import-openapi", spec, "--id", "petstore"); clicore.ExitCodeFor(err) != 3 {
+		t.Errorf("import over an installed package: exit %d (%v)", clicore.ExitCodeFor(err), err)
+	}
+	if _, err := runIntegration(t, false, "import-openapi", spec, "--id", "petstore", "--yes"); err != nil {
+		t.Errorf("import --yes over an installed package: %v", err)
+	}
 	if _, err := runIntegration(t, false, "import-openapi", "/nope.yaml"); clicore.ExitCodeFor(err) != 2 {
 		t.Errorf("missing file: %v", err)
 	}

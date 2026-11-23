@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import '../i18n.js'
 import MonomindInitPrompt from './MonomindInitPrompt.jsx'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { onApiError } from '../services/api.js'

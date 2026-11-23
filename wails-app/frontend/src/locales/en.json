@@ -3123,5 +3123,43 @@
       "noAnswer": "decision provider {{name}} did not answer ({{cause}}).",
       "remoteFromAIRun": "provider {{name}} is at {{url}}, another host, and a decision provider on another host is not used from a run an AI started or wrote ({{why}}). Name a provider on this computer or typesafe, or run the workflow yourself."
     }
+  },
+  "vaultItem": {
+    "editLogin": "Edit Login",
+    "editItem": "Edit Item",
+    "name": "Name",
+    "username": "Username",
+    "url": "URL",
+    "notes": "Notes",
+    "loading": "Loading fields…",
+    "cancel": "Cancel",
+    "save": "Save",
+    "loadFailed": "Failed to load entry: {{error}}",
+    "fieldRequired": "At least one field is required.",
+    "saveFailed": "Save failed: {{error}}"
+  },
+  "vaultAccess": {
+    "confirmReveal": "Allow all agents to retrieve plaintext passwords from this profile’s vault?",
+    "confirmUse": "Allow all agents to use this profile’s vault passwords through supported tools and workflows?",
+    "confirmTitle": "Change vault agent access",
+    "confirmAllow": "Allow access"
+  },
+  "monomindInit": {
+    "title": "This profile isn’t set up with monomind yet",
+    "titleRunning": "Setting up monomind…",
+    "desc": "Orgs and agents need monomind initialized in this profile’s folder first. Setting it up also sends one short prompt through your Claude Code account.",
+    "descRunning": "This can take a minute or two.",
+    "start": "Set up agents for this profile",
+    "signInAgain": "{{error}} — sign in to monoes.me, then try again."
+  },
+  "taskHeader": {
+    "cancel": "Cancel task",
+    "cancelBody": "Cancel this running task? Work it has done so far may be lost.",
+    "keep": "Keep running"
+  },
+  "budgets": {
+    "removeBody": "Remove the cap for {{name}}? Spend is no longer limited by it.",
+    "removeLabel": "Remove cap",
+    "keep": "Keep cap"
   }
 }

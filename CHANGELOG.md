@@ -372,49 +372,6 @@ Every command, tool and request that acts on a profile now names that profile. T
 - Versions before this one are not gated; only the monoes.me library, which monoes.me already gates, stops for them. A build from source is gated like a release: developers build with `-tags devaccount` (CONTRIBUTING.md), and releases never carry the tag.
 - **Contributors: list every migration in `data/migrations.txt`.** A new migration file goes in as the last line of that file, in the same change; a test fails when the two disagree. Two branches that take the same migration number both change that last line, so the second to merge gets a conflict instead of master getting two migrations with one number.
 
-## [0.107.0] - 2026-10-06
-
-### Added
-- **Org sections in the model** (#337). `sections`, `documents` and `requires` are typed fields of the org design, with the one-section-per-role rule kept by every edit. Saving an org keeps the loaded file's layout (key order, untouched values) and still re-signs only when it replaces exactly the loaded bytes. Saving through the app no longer reorders the file.
-- **Sections in the Org Designer** (#338). Sections are containers on the canvas: drag a role in or out, mark the lead, edit budget, `writes` and `max_rework_rounds`, and draw document edges between sections. A direct link across sections is refused with the reason.
-- **Documents panel** (#339). `org documents <org>` and a Documents tab show each run's documents by section and type: status, producer and consumer, round N of the cap, version lineage, deliverables, and a badge when the rework cap is hit. Unknown and old `loops` events are skipped.
-- **Section budgets** (#340). `org budget <org>` and the canvas show each section's spend against its allocation, role caps, and the soft-closure moment. `org estimate <org>` shows monomind's pre-run estimate, including its stale-rates line. monomind 2.24.1 reports no per-section figures, so the spend is derived from its usage events.
-- **Runtime picker follows sections** (#341). In a sections org, runtimes monomind refuses (kilo, freebuff) are disabled with its reason and unverified ones carry a warning. `org sections-runtimes` reads the policy from monomind itself.
-- **Scheduled sections orgs** (#342). The designer sets a schedule on a sections org, and the Logs tab shows `schedule-audit.jsonl` (refused, skipped, coalesced ticks). A workflow schedule no longer starts an org that monomind's own `org serve` already schedules.
-- **monomind version pin and golden tests** (#344). The doctor warns below monomind 2.24.1 and says what degrades. The org parsers are tested against output recorded from a real 2.24.1 sections run; `scripts/monomind-golden-check.sh` re-records and re-runs them against the newest monomind before a release.
-
-### Changed
-- **Org start waits for monomind's own record** (#343). A start returns once monomind's `runtime.json` shows the run up, with a 3 second cap. A start that exits early is an error that carries the output.
-
-### Fixed
-- **Operator-only signing** (#343). A sign or review attempted from inside an org role now fails with monomind's refusal text, and the signature and key files are not read from a role context. `org sign` help states that only the operator signs and that `~/.monomind/orgrt-operator` is protected.
-- **Start refusals are readable** (#343). A start or resume refused by the host preflight (R6) or the daemon lock (R1) shows monomind's message and a hint instead of "org start failed".
-
-## [0.100.1] - 2026-10-01
-
-### Fixed
-- **A profile batch keeps the profiles it read when one fails** (#314). v0.100.0 saved a `scrape_profile_info` result only if the whole action succeeded, so one account that no longer exists ("This account doesn't exist") cost the whole batch. The profiles read before and after it are now saved; the run still reports the failure.
-
-## [0.100.0] - 2026-10-01
-
-### Added
-- **Delete people in the app** (#311). The People page has row checkboxes and a Delete button that asks first. `people delete` now takes several ids and removes each person's saved photo too.
-
-### Fixed
-- **A profile read now reaches the people table** (#312). The X, Instagram and LinkedIn `scrape_profile_info` actions only returned what they read, so the people they named got no photo, bio or extras (TikTok's saved its own). The browser node now saves the result, and the save keeps follower, following and post counts as well.
-
-## [0.99.0] - 2026-10-01
-
-### Added
-- **Profile photos are saved locally** (#307). A profile read stored only the platform's image URL, which expires or blocks hotlinking, so people lost their photo. The photo is now downloaded into the image vault and `people.image_url` points at the local copy; the original URL is kept as `photo_source_url` in the person's profile details. A photo that can't be fetched keeps its URL. `people photos` saves the photos of people still stored as URLs. People pulled by older versions have no photo, bio or extras until their profile is read again.
-- **Blueprint roles are hashed in Go** (#299, #308). Orgs whose roles name a blueprint get the blueprint digests in the signed projection, so they re-sign automatically again. A blueprint that can't be loaded or verified gives no hash and nothing is signed.
-
-### Changed
-- **Open tabs reload when you come back to them** without losing your place (#306).
-- **Org signatures:** mono-agent no longer reads the operator key after a designer save when monomind 2.22+ checks the signature (#296, #308).
-
-## [Unreleased]
-
 ### Added
 - **Task board, phase 1.** `monoagentcli task` keeps a task board for each profile. People use `add`, `list`, `board`, `show`, `edit`, `move`, `approve`, `archive` and `unarchive`; AI agents use `next`, `claim`, `comment`, `finish`, `release` and `digest`, and can also `list`, `show` and `add` to the Inbox. Five columns (inbox, ready, in progress, review, done). Everything captured or added by an agent lands in the Inbox, only you approve a task into Ready, and an agent claims a ready task for a lease (30 minutes by default; a comment extends it to 30 minutes from the comment, if that is later) in one atomic step, so two sessions never take the same task. A task always sits in one profile (new tables `tasks`, `task_events` and `task_board_rev`, migration 062; a profile's board is deleted with it). The commands only you may run (`board`, `edit`, `move`, `approve`, `archive`, `unarchive` and `add --ready`) refuse when an AI agent is running them. Reference: `monoagentcli ref tasks`; design: `docs/mastermind/specs/2026-10-05-task-board-design.md`. The desktop board, the MCP tools, the Chrome extension and the macOS menu follow in later releases.
 - **Task board, phase 2: MCP and discovery.** `monoagentcli mcp` serves the task board to AI agents: `task_list`, `task_get` and `task_next` in every server, and with `--allow-mutations` `task_claim`, `task_comment`, `task_finish`, `task_release` and `task_add`. The tools act on the server's one profile as an agent named after the MCP client and the session (`agent:<client>#<4 hex>`, recorded from `initialize`), return every text a person, an agent or a capture wrote in fields ending in `_untrusted`, refuse arguments they do not list, and include no tool that approves, edits, moves or archives a task. `mcp --tasks-only` (or `MONOAGENT_MCP_TASKS_ONLY=1`) serves those tools and no other: one server per profile, not with `--api-only` or `--grant`. `summary --section tasks` gives a profile's counts and its next task; `ref tasks` shows a session-start hook for `task digest`. A new Claude Code skill is written to `~/.claude/skills/monoagent-tasks/SKILL.md` by the next CLI run on a machine with `~/.claude` (create-only).
@@ -572,6 +529,47 @@ Every command, tool and request that acts on a profile now names that profile. T
   - On Linux, a monomind child that `monoagentcli` stops itself (`org events`, `org run`, `org serve`, agent turns) now gets SIGTERM when `monoagentcli` dies for any reason.
   - `monoagentcli` cancels on SIGHUP. `org events` stops when its reader goes away (a write fails with EPIPE) instead of dying of SIGPIPE.
   - The panel's stop and start of a tail no longer race: each tail has an id, and a stop that arrives before its tail is registered ends that tail as soon as it starts.
+
+## [0.107.0] - 2026-10-06
+
+### Added
+- **Org sections in the model** (#337). `sections`, `documents` and `requires` are typed fields of the org design, with the one-section-per-role rule kept by every edit. Saving an org keeps the loaded file's layout (key order, untouched values) and still re-signs only when it replaces exactly the loaded bytes. Saving through the app no longer reorders the file.
+- **Sections in the Org Designer** (#338). Sections are containers on the canvas: drag a role in or out, mark the lead, edit budget, `writes` and `max_rework_rounds`, and draw document edges between sections. A direct link across sections is refused with the reason.
+- **Documents panel** (#339). `org documents <org>` and a Documents tab show each run's documents by section and type: status, producer and consumer, round N of the cap, version lineage, deliverables, and a badge when the rework cap is hit. Unknown and old `loops` events are skipped.
+- **Section budgets** (#340). `org budget <org>` and the canvas show each section's spend against its allocation, role caps, and the soft-closure moment. `org estimate <org>` shows monomind's pre-run estimate, including its stale-rates line. monomind 2.24.1 reports no per-section figures, so the spend is derived from its usage events.
+- **Runtime picker follows sections** (#341). In a sections org, runtimes monomind refuses (kilo, freebuff) are disabled with its reason and unverified ones carry a warning. `org sections-runtimes` reads the policy from monomind itself.
+- **Scheduled sections orgs** (#342). The designer sets a schedule on a sections org, and the Logs tab shows `schedule-audit.jsonl` (refused, skipped, coalesced ticks). A workflow schedule no longer starts an org that monomind's own `org serve` already schedules.
+- **monomind version pin and golden tests** (#344). The doctor warns below monomind 2.24.1 and says what degrades. The org parsers are tested against output recorded from a real 2.24.1 sections run; `scripts/monomind-golden-check.sh` re-records and re-runs them against the newest monomind before a release.
+
+### Changed
+- **Org start waits for monomind's own record** (#343). A start returns once monomind's `runtime.json` shows the run up, with a 3 second cap. A start that exits early is an error that carries the output.
+
+### Fixed
+- **Operator-only signing** (#343). A sign or review attempted from inside an org role now fails with monomind's refusal text, and the signature and key files are not read from a role context. `org sign` help states that only the operator signs and that `~/.monomind/orgrt-operator` is protected.
+- **Start refusals are readable** (#343). A start or resume refused by the host preflight (R6) or the daemon lock (R1) shows monomind's message and a hint instead of "org start failed".
+
+## [0.100.1] - 2026-10-01
+
+### Fixed
+- **A profile batch keeps the profiles it read when one fails** (#314). v0.100.0 saved a `scrape_profile_info` result only if the whole action succeeded, so one account that no longer exists ("This account doesn't exist") cost the whole batch. The profiles read before and after it are now saved; the run still reports the failure.
+
+## [0.100.0] - 2026-10-01
+
+### Added
+- **Delete people in the app** (#311). The People page has row checkboxes and a Delete button that asks first. `people delete` now takes several ids and removes each person's saved photo too.
+
+### Fixed
+- **A profile read now reaches the people table** (#312). The X, Instagram and LinkedIn `scrape_profile_info` actions only returned what they read, so the people they named got no photo, bio or extras (TikTok's saved its own). The browser node now saves the result, and the save keeps follower, following and post counts as well.
+
+## [0.99.0] - 2026-10-01
+
+### Added
+- **Profile photos are saved locally** (#307). A profile read stored only the platform's image URL, which expires or blocks hotlinking, so people lost their photo. The photo is now downloaded into the image vault and `people.image_url` points at the local copy; the original URL is kept as `photo_source_url` in the person's profile details. A photo that can't be fetched keeps its URL. `people photos` saves the photos of people still stored as URLs. People pulled by older versions have no photo, bio or extras until their profile is read again.
+- **Blueprint roles are hashed in Go** (#299, #308). Orgs whose roles name a blueprint get the blueprint digests in the signed projection, so they re-sign automatically again. A blueprint that can't be loaded or verified gives no hash and nothing is signed.
+
+### Changed
+- **Open tabs reload when you come back to them** without losing your place (#306).
+- **Org signatures:** mono-agent no longer reads the operator key after a designer save when monomind 2.22+ checks the signature (#296, #308).
 
 ## [0.91.1] - 2026-09-29
 

@@ -101,6 +101,11 @@ func TestRowsShape(t *testing.T) {
 		want [][]string
 	}{
 		{
+			name: "a cell left of the cursor is placed, not appended",
+			rows: `<row r="1"><c r="B1"><v>2</v></c><c r="A1"><v>1</v></c><c r="C1"><v>3</v></c></row>`,
+			want: [][]string{{"1", "2", "3"}},
+		},
+		{
 			name: "sparse cells become empty strings",
 			rows: `<row r="1"><c r="C1"><v>3</v></c></row>`,
 			want: [][]string{{"", "", "3"}},

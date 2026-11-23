@@ -420,6 +420,11 @@ func (s *Server) Close() error {
 // It also answers the extension popup's "what is going on?" — see Status in
 // status.go for the shape and for why it is safe to serve without auth.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// A DNS-rebound page names its own host; only this machine's names are answered.
+	if !loopbackHost(r.Host) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	st := s.Status()
 	if r.URL.Query().Has(nonceParam) {
 		nonce := r.URL.Query().Get(nonceParam)

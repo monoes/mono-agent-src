@@ -207,3 +207,17 @@ func TestDefaultInboxIsUnderMonomindHome(t *testing.T) {
 		t.Fatalf("DefaultInbox = %q, want %q", got, want)
 	}
 }
+
+func TestReadMetaRefusesAnOversizeMetaFile(t *testing.T) {
+	dir := t.TempDir()
+	pad := strings.Repeat("x", MaxMetaFileBytes+10)
+	if err := os.WriteFile(filepath.Join(dir, MetaFile), []byte(`{"url":"https://a.test/","title":"`+pad+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadMeta(dir); err == nil {
+		t.Fatal("an oversize meta.json must not be read as a capture")
+	}
+	if _, err := ReadCapped(filepath.Join(dir, MetaFile), MaxMetaFileBytes); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("ReadCapped err = %v, want ErrTooLarge", err)
+	}
+}

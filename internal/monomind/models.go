@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -226,6 +227,21 @@ func builtinModels(ctx context.Context, runtimeID, binary string) ([]RuntimeMode
 	}
 }
 
+// probeCommand builds a model-listing probe: the filtered environment, run
+// from the neutral dir, and never a binary that sits in the caller's working
+// directory (the project's to swap).
+func probeCommand(ctx context.Context, binary string, args ...string) (*exec.Cmd, error) {
+	if cwd, err := os.Getwd(); err == nil {
+		if err := CheckOutside(binary, cwd); err != nil {
+			return nil, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = FilteredEnviron()
+	cmd.Dir = neutralDir()
+	return cmd, nil
+}
+
 // listAntigravityModels runs `agy models`, which prints one
 // "<id>\t<label>" pair per line (verified directly against a real
 // installation — no --json/--output-format flag exists for this
@@ -233,7 +249,11 @@ func builtinModels(ctx context.Context, runtimeID, binary string) ([]RuntimeMode
 func listAntigravityModels(ctx context.Context, binary string) ([]RuntimeModel, error) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, binary, "models").Output()
+	cmd, err := probeCommand(cctx, binary, "models")
+	if err != nil {
+		return nil, fmt.Errorf("agy models: %w", err)
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("agy models: %w", err)
 	}
@@ -288,7 +308,11 @@ type codexModelCatalog struct {
 func listCodexModels(ctx context.Context, binary string) ([]RuntimeModel, error) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, binary, "debug", "models").Output()
+	cmd, err := probeCommand(cctx, binary, "debug", "models")
+	if err != nil {
+		return nil, fmt.Errorf("codex debug models: %w", err)
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("codex debug models: %w", err)
 	}

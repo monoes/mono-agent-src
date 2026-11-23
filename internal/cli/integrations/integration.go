@@ -194,6 +194,7 @@ func (d Deps) newIntegrationValidateCmd() *cobra.Command {
 
 func (d Deps) newIntegrationImportOpenAPICmd() *cobra.Command {
 	var id, ops, outDir string
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "import-openapi <file|url>",
 		Short: "Convert an OpenAPI 3.x / Swagger 2.0 document (JSON or YAML) into an API package",
@@ -230,6 +231,9 @@ func (d Deps) newIntegrationImportOpenAPICmd() *cobra.Command {
 			if outDir != "" {
 				path = filepath.Join(outDir, p.ID+".json")
 			}
+			if _, statErr := os.Stat(path); statErr == nil && !yes {
+				return clicore.InvalidInput("%s already exists (package %q); pass --yes to replace it", path, p.ID)
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
@@ -248,6 +252,7 @@ func (d Deps) newIntegrationImportOpenAPICmd() *cobra.Command {
 	cmd.Flags().StringVar(&id, "id", "", "Package id ([a-z0-9_]+; default: from info.title)")
 	cmd.Flags().StringVar(&ops, "ops", "", "Only operations with one of these tags (comma-separated)")
 	cmd.Flags().StringVar(&outDir, "out", "", "Write <dir>/<id>.json instead of installing the package")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Replace a package of the same id that already exists")
 	return cmd
 }
 

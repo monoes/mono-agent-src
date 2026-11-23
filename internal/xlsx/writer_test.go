@@ -7,10 +7,36 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// WriteFile replaces the file through a private temporary file: no stray temp file stays, and the
+// result is not readable by other users.
+func TestWriteFileIsPrivateAndLeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.xlsx")
+	if err := WriteFile(path, "S", [][]any{{"a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(path, "S", [][]any{{"b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if st, err := os.Stat(path); err != nil || st.Mode().Perm()&0o077 != 0 {
+			t.Errorf("mode %v, err %v", st.Mode(), err)
+		}
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
+		t.Errorf("%d entries in the folder, want only the workbook", len(ents))
+	}
+	if got := readRows(t, path, "S"); !equalRows(got, [][]string{{"b"}}) {
+		t.Errorf("rows %v", got)
+	}
+}
 
 // TestRoundTrip is the writer's main contract: rows written come back out of
 // the reader unchanged.

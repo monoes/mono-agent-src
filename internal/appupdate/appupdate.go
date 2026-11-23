@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/release"
 	"github.com/monoes/mono-agent/internal/updatecheck"
@@ -103,7 +104,7 @@ func (u Updater) Run() (Result, error) {
 		u.Context = context.Background()
 	}
 	if u.Client == nil {
-		u.Client = http.DefaultClient
+		u.Client = &http.Client{Timeout: 30 * time.Minute}
 	}
 	if u.Progress == nil {
 		u.Progress = func(string) {}
@@ -201,11 +202,11 @@ func (u Updater) fetchRelease() (*releaseInfo, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxSmallBytes))
 		return nil, fmt.Errorf("GitHub API %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var rel releaseInfo
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSmallBytes)).Decode(&rel); err != nil {
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
 	return &rel, nil
@@ -252,13 +253,13 @@ func (u Updater) downloadVerified(rel *releaseInfo, names []string) (map[string]
 			return nil, fmt.Errorf("no app asset for %s/%s in release %s (wanted %s)", u.GOOS, u.GOARCH, rel.TagName, n)
 		}
 	}
-	sums, err := u.getAll(sumsURL)
+	sums, err := u.getAll(sumsURL, maxSmallBytes)
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %v — cannot verify the download, nothing was installed", updatecheck.SumsAssetName, err)
 	}
 	out := map[string][]byte{}
 	for _, n := range names {
-		data, err := u.getAll(urls[n])
+		data, err := u.getAll(urls[n], maxAppBytes)
 		if err != nil {
 			return nil, fmt.Errorf("download error: %v", err)
 		}
@@ -272,7 +273,7 @@ func (u Updater) downloadVerified(rel *releaseInfo, names []string) (map[string]
 
 // getAll fetches url; any status but 200 is an error (an HTML error page
 // must never be installed as the binary).
-func (u Updater) getAll(url string) ([]byte, error) {
+func (u Updater) getAll(url string, max int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(u.Context, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -285,7 +286,14 @@ func (u Updater) getAll(url string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("%s is larger than %d bytes", url, max)
+	}
+	return data, nil
 }
 
 // installWindows swaps the verified exe (and bundled CLI) in beside the
@@ -426,3 +434,9 @@ func SiblingCLI(execDir, goos, goarch string) (string, bool) {
 	}
 	return "", false
 }
+
+// Bounds for the unsigned download path: a server cannot make the app read without end.
+const (
+	maxAppBytes   = 1 << 30
+	maxSmallBytes = 1 << 20
+)

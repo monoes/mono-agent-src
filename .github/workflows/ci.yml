@@ -115,6 +115,7 @@ jobs:
   mcp-pin-guard:
     name: Guard .mcp.json version pin
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Reject floating Monomind version
@@ -138,6 +139,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -342,6 +344,7 @@ jobs:
   release-guard-test:
     name: Release guard test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -387,6 +390,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -404,6 +408,7 @@ jobs:
     if: needs.changes.outputs.extension == 'true'
     # Hosted: the job drives headless Chrome with an extension service worker, so it runs on a hosted runner (ubuntu-latest).
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -435,6 +440,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -466,6 +472,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -490,6 +497,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -517,6 +525,7 @@ jobs:
     # second guard.
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 90
     strategy:
       # Every shard always runs to the end, on PR runs too: one flaky shard must not cancel the healthy ones (a re-run then needs only the failed job), and a cancelled shard would also block the merge and the release proof. "Build & test (default)" and "(nosocial)" fail when any shard failed or was cancelled.
       fail-fast: false
@@ -555,8 +564,8 @@ jobs:
       # by 0), r0-r3 (saved by r0; they share their dependency compiles), tp1+tp2 (saved by tp1);
       # the nosocial rest shard has its own. restore-keys fall back to the newest older entry.
       # Hosted runners only: a persistent runner keeps its own caches. Both steps are best-effort
-      # (a cache outage must never fail a shard); the job has no timeout-minutes of its own
-      # (GitHub's 360 minute default), so the 4 + 4 minute budgets fit.
+      # (a cache outage must never fail a shard); the job's timeout-minutes (90) covers the
+      # 70 minute go test limit plus the 4 + 4 minute cache budgets.
       - name: Work out the Go build cache key
         id: gocache
         if: runner.environment == 'github-hosted' && (matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true')
@@ -617,7 +626,8 @@ jobs:
             # computed so it follows the files.
             pkgs="$(grep -rl --include='*.go' --exclude-dir=wails-app --exclude-dir=node_modules '//go:build.*nosocial' . | xargs -n1 dirname | sed 's|^\./||' | sort -u | grep -vx 'cmd/monoagentcli' | sed 's|^|./|' || true)"
             echo "nosocial packages: $pkgs"
-            if [ -n "$pkgs" ]; then go test $COUNT $GCF -timeout 60m $tags $pkgs -race -skip "^($heavy)\$"; fi
+            if [ -z "$pkgs" ]; then echo "::error::no nosocial-tagged packages found; the shard would run no tests"; exit 1; fi
+            go test $COUNT $GCF -timeout 60m $tags $pkgs -race -skip "^($heavy)\$"
           elif [ "$SHARD" = tp1 ] || [ "$SHARD" = tp2 ]; then
             go test $COUNT $GCF -timeout 60m $tags ./internal/tasks -race -run "^($(bash .github/scripts/tasks-heavy-tests.sh "$SHARD"))\$"
           elif [ "$SHARD" = rest ]; then
@@ -625,10 +635,12 @@ jobs:
           elif [ "${SHARD#r}" != "$SHARD" ]; then
             # r0..r3: the packages are dealt out by measured weight (.github/scripts/ci-package-weights.txt), heaviest first, so no shard gets two of the long ones by chance.
             pkgs="$(go list $tags ./... | grep -v -e '/cmd/monoagentcli$' -e '/internal/agentbox$' | bash .github/scripts/ci-rshard-packages.sh "$SHARD" 4)"
+            if [ -z "$pkgs" ]; then echo "::error::no packages dealt to shard $SHARD; it would run no tests"; exit 1; fi
             go test $COUNT $GCF -timeout 60m $tags $pkgs -race -skip "^($heavy)\$"
           else
             # Split by measured weight (.github/scripts/monoagentcli-test-weights.txt), not by position: every name lands in exactly one of the four shards.
             names="$(go test $tags ./cmd/monoagentcli -list '^(Test|Example)' | grep -E '^(Test|Example)' | bash .github/scripts/monoagentcli-shard.sh "$SHARD" 4)"
+            if [ -z "$names" ]; then echo "::error::no tests listed for cmd/monoagentcli shard $SHARD; it would run no tests"; exit 1; fi
             go test $COUNT $GCF -timeout 70m $tags ./cmd/monoagentcli -race -run "^($names)$"
           fi
 
@@ -653,6 +665,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -673,6 +686,7 @@ jobs:
     # first step), so the merge gate never waits on a trimmed job.
     if: ${{ !cancelled() }}
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     steps:
       - name: Fail if a test shard failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
@@ -738,6 +752,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.account == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -767,6 +782,7 @@ jobs:
     # or cancelled need still fails it in the first step.
     if: ${{ !cancelled() }}
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    timeout-minutes: 30
     steps:
       - name: Fail if a test shard failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
@@ -804,6 +820,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.wails == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -830,7 +847,7 @@ jobs:
         # npm 12 requires Node >=22.22; Node 22's own bundled npm predates
         # 12, so it's installed explicitly too.
         run: |
-          npm install -g npm@12
+          npm install -g npm@12.2.3
           npm ci
           npm run build
         working-directory: wails-app/frontend

@@ -365,7 +365,7 @@ func (r *Receiver) dispatch(ctx context.Context, row orggrant.EndpointRow, d End
 	}
 	if ref != "" {
 		asks := NewAskStore(r.DB)
-		if a, err := asks.Get(ctx, ref); err == nil && a != nil && a.OrgName == row.OrgName && a.EndpointRoleID == row.RoleID {
+		if a, err := asks.Get(ctx, ref); err == nil && a != nil && a.OrgName == row.OrgName && a.EndpointRoleID == row.RoleID && askedRoleReplied(a.RoleID, d.From) {
 			reply := map[string]interface{}{"from": d.From, "subject": d.Subject, "body": StripTrace(d.Body)}
 			if linked != nil {
 				reply["_jev"] = linked.jevReplyMeta()
@@ -428,4 +428,15 @@ func (r *Receiver) dispatch(ctx context.Context, row orggrant.EndpointRow, d End
 		return
 	}
 	_ = ledger.SetExecution(ctx, adm.ID, exec.ID)
+}
+
+// askedRoleReplied reports whether sender is the role an ask was sent to
+// ("org:role" and "role" forms both count). Asks recorded without a role
+// accept any sender, as before.
+func askedRoleReplied(asked, from string) bool {
+	if asked == "" {
+		return true
+	}
+	bare := func(s string) string { return s[strings.LastIndexByte(s, ':')+1:] }
+	return bare(asked) == bare(from)
 }

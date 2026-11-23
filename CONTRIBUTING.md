@@ -24,6 +24,11 @@ go test ./...
 go vet ./...
 ```
 
+A new database migration must also be listed, as the last line, in
+`data/migrations.txt` in the same change; `internal/storage`'s
+`TestMigrationManifestListsEveryMigration` fails when the file and
+`data/migrations` disagree.
+
 ### Social-platform nodes (built by default; `nosocial` opts out)
 
 Social-platform browser bots and their action templates are compiled into

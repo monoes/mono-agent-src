@@ -88,6 +88,20 @@ func TestWorkflowEngineCommandsUseBuildEngine(t *testing.T) {
 	}
 }
 
+// A --json caller cannot answer the prompt: delete without --yes is an invalid-input error (exit 3)
+// and deletes nothing, not a silent "Aborted." with exit 0 (R15-07).
+func TestWorkflowDeleteJSONNeedsYes(t *testing.T) {
+	t.Parallel()
+	cfg := newTestDB(t, "")
+	id := seedWorkflow(t, cfg, "needs-yes")
+	if err := execute(cfg, nil, "delete", id); exitCode(err) != 3 {
+		t.Fatalf("delete without --yes: exit %d (%v), want 3", exitCode(err), err)
+	}
+	if err := execute(cfg, nil, "get", id); err != nil {
+		t.Fatalf("workflow gone after a refused delete: %v", err)
+	}
+}
+
 func TestWorkflowDeleteRefusedByOrgReferences(t *testing.T) {
 	t.Parallel()
 	cfg := newTestDB(t, "")

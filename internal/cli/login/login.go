@@ -244,7 +244,8 @@ func (d Deps) newLoginCmd() *cobra.Command {
 }
 
 func (d Deps) newLoginConfirmCmd() *cobra.Command {
-	return &cobra.Command{
+	var replace bool
+	cmd := &cobra.Command{
 		Use:   "confirm <platform>",
 		Short: "Capture the session after you've logged in via `login <platform>`",
 		Long: "Reads the cookies directly from the Chrome tab opened by `login <platform>`, via the mono-agent " +
@@ -318,6 +319,17 @@ func (d Deps) newLoginConfirmCmd() *cobra.Command {
 				username = name
 			}
 
+			// An account the tab does not name always lands on the "unknown" row: a second one
+			// would silently replace the first one's cookies.
+			if username == automation.UnknownUsername && !replace {
+				var n int
+				_ = db.DB.QueryRowContext(cmd.Context(),
+					`SELECT COUNT(*) FROM crawler_sessions WHERE username = ? AND platform = ? AND profile_id = ?`,
+					username, strings.ToLower(platform), d.ProfileID()).Scan(&n)
+				if n > 0 {
+					return d.InvalidInput("a session for an unnamed %s account is already saved and this tab does not say whose it is; pass --replace to overwrite it", platform)
+				}
+			}
 			if err := upsertSessionRow(cmd.Context(), db.DB, d.ProfileID(), strings.ToLower(platform), username, cookiesJSON); err != nil {
 				return fmt.Errorf("saving session: %w", err)
 			}
@@ -327,4 +339,6 @@ func (d Deps) newLoginConfirmCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&replace, "replace", false, "Overwrite the saved session of an account this tab does not name")
+	return cmd
 }

@@ -40,7 +40,8 @@
       {
         "name": "maxComments",
         "type": "number",
-        "default": 0,
+        "default": 50,
+        "max": 500,
         "min": 0,
         "description": "Maximum comments to extract (0=all)"
       },
@@ -102,7 +103,7 @@
       "args": [
         "{{item.url or item.href or item}}",
         "{{includeComments}}",
-        "{{maxComments or 0}}"
+        "{{maxComments or 50}}"
       ],
       "variable_name": "postData",
       "timeout": 120,

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -231,8 +232,15 @@ func (d Deps) newProfileDocumentsRmCmd() *cobra.Command {
 			}
 			defer db.DB.Close()
 
-			if err := vault.DeleteDocument(cmd.Context(), db.DB, d.ProfileID(), args[0]); err != nil {
-				return d.NotFound("%v", err)
+			root := profiledir.Root(db.DB, d.ProfileID())
+			if root == "" {
+				return d.InvalidInput("invalid profile id %q", d.ProfileID())
+			}
+			if _, err := d.removeOne(cmd.Context(), db.DB, root, args[0], false); err != nil {
+				if errors.Is(err, errDocumentNotFound) {
+					return d.NotFound("%v", err)
+				}
+				return err
 			}
 			if d.JSONOutput() {
 				enc := json.NewEncoder(cmd.OutOrStdout())

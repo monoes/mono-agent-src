@@ -95,6 +95,9 @@ func (d Deps) updateApp(cmd *cobra.Command, appPath, current string, force bool,
 	if appPath == "" {
 		return AppResult{}, d.InvalidInput("--app needs the path of the desktop app's executable")
 	}
+	if current == "" && d.Version != nil && !IsDevVersion(d.Version()) { // no --current: compare against this binary, so an older release is not installed unguarded
+		current = d.Version()
+	}
 	if abs, err := filepath.EvalSymlinks(appPath); err == nil {
 		appPath = abs
 	}

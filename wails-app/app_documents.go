@@ -185,7 +185,7 @@ func (a *App) IndexProfileDocument(id string) (*UploadResult, error) {
 		return nil, err
 	}
 	var result UploadResult
-	if err := a.runMonoCLI("", &result, "profile", "documents", "index", id); err != nil {
+	if err := a.runMonoCLILong("", &result, "profile", "documents", "index", id); err != nil {
 		return nil, err
 	}
 	return &result, nil

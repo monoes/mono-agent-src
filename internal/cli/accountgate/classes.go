@@ -100,6 +100,9 @@ func Apply(root *cobra.Command) {
 	walk = func(parent *cobra.Command, inherited string) {
 		for _, c := range parent.Commands() {
 			class := inherited
+			if class == ClassServe { // serve is the command's own, never a descendant's: an unlisted subcommand is gated
+				class = ""
+			}
 			if listed, ok := accountClasses[CommandKey(c)]; ok {
 				class = listed
 			}

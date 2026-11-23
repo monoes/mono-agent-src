@@ -17,6 +17,7 @@ export GOMODCACHE="$(go env GOMODCACHE)" GOCACHE="$(go env GOCACHE)" GOPATH="$(g
 E2E="${E2E_DIR:-$(mktemp -d)}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 MM="${MONOMIND_WORKTREE:?set MONOMIND_WORKTREE to a built monomind checkout}"
+case "$E2E" in *..*) echo "refusing E2E_DIR=$E2E" >&2; exit 97 ;; "$HOME"/scratch/?*|/tmp/?*|/dev/shm/?*) ;; *) echo "refusing E2E_DIR=$E2E" >&2; exit 97 ;; esac
 rm -rf "$E2E/home" && mkdir -p "$E2E/home"
 export HOME="$E2E/home"
 export MONOMIND_BIN="$E2E/monomind"

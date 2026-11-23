@@ -307,3 +307,16 @@ func TestBioIsCapped(t *testing.T) {
 		t.Fatalf("bio runes = %d", n)
 	}
 }
+
+func TestCandidatesSkipsOversizedGroups(t *testing.T) {
+	db := newDB(t)
+	var ps []person
+	for i := 0; i < MaxGroupSize+1; i++ {
+		ps = append(ps, person{id: fmt.Sprintf("p%03d", i), platform: fmt.Sprintf("P%d", i), user: "u", name: "John Smith"})
+	}
+	seed(t, db, ps...)
+	got, err := Candidates(context.Background(), db, "default", 0)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("a name shared by %d people is not evidence, got %d pairs, %v", len(ps), len(got), err)
+	}
+}

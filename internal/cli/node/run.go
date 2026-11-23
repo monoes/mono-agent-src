@@ -151,10 +151,12 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 
 			// Open DB so AI nodes are available for execution.
 			var rawDB *sql.DB
-			if db, err := d.OpenDB(); err == nil {
-				rawDB = db.DB
-				defer db.Close()
+			db, err := d.OpenDB()
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
 			}
+			rawDB = db.DB
+			defer db.Close()
 			registry := d.BuildRegistry(rawDB)
 			factory, ok := registry.Get(nodeType)
 			if !ok {
@@ -206,9 +208,11 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			if rawDB != nil {
 				connStore := connections.NewStore(rawDB)
 				credKey := credentialID // from --credential flag
+				configCredential := false
 				if credKey == "" {
 					if cid, ok := config["credential_id"].(string); ok && cid != "" {
 						credKey = cid
+						configCredential = true
 					}
 				}
 				// Auto-resolve: if still empty, derive platform from node type and look up.
@@ -241,8 +245,8 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 						if d.Verbose() {
 							fmt.Fprintf(os.Stderr, "  Resolved credential for platform %q\n", credKey)
 						}
-					} else if credentialID != "" {
-						// Only error if --credential was explicitly provided.
+					} else if credentialID != "" || configCredential {
+						// Only error if a credential was named (--credential or config.credential_id).
 						return fmt.Errorf("credential resolution failed: %w", err)
 					}
 					// If auto-resolve fails silently, the node may still work
@@ -339,10 +343,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				// Wire up config manager for selector resolution.
 				cfgLogger := logging.Zerolog()
 				var cfgStore cfgpkg.ConfigStore
-				if cfgDB, err := d.OpenDB(); err == nil {
-					cfgStore = &cfgpkg.DBConfigStore{DB: cfgDB}
-					defer cfgDB.Close()
-				}
+				cfgStore = &cfgpkg.DBConfigStore{DB: db}
 				rawCfgMgr := cfgpkg.NewConfigManager(d.ConfigDir(), cfgStore, cfgLogger)
 				nodes.SetGlobalConfigMgr(&cfgpkg.ConfigManagerAdapter{Mgr: rawCfgMgr})
 			}

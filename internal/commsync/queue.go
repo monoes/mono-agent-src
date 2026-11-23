@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/monoes/mono-agent/internal/personitem"
 )
 
 // Kinds of a people row (people.kind).
@@ -153,7 +155,12 @@ func resolvePerson(ctx context.Context, db *sql.DB, profile, platform string, it
 			return r.PersonID, false, nil
 		}
 	}
-	handle := firstNonEmpty(r.Handle, handleOf(r.ProfileURL), r.Name)
+	handle := firstNonEmpty(r.Handle, handleFor(platform, r.ProfileURL))
+	if handle == "" && strings.TrimSpace(r.Name) != "" {
+		// A free-text name names nobody; saving it as the username would
+		// make a row no other writer can ever match.
+		return "", false, fmt.Errorf("commsync: recipient %q has no handle or profile URL", r.Name)
+	}
 	if handle != "" {
 		kind := r.Kind
 		if kind != KindCompany && isCompanyURL(r.ProfileURL) {
@@ -180,7 +187,10 @@ type personSpec struct {
 }
 
 // upsertPerson finds the People row of (platform, username) in the profile,
-// ignoring case, or creates it. Known facts fill gaps; nothing already saved
+// ignoring case, or creates it (with the platform as given: the people table
+// has rows of both cases, which peopledupes reconciles, and a lookup here
+// ignores case). Two concurrent creators of one row share it: the loser of the
+// unique key reads the winner's. Known facts fill gaps; nothing already saved
 // is overwritten, and neither category (the review state) nor introduction
 // (the DM draft) is touched.
 func upsertPerson(ctx context.Context, db *sql.DB, p personSpec) (string, error) {
@@ -192,8 +202,14 @@ func upsertPerson(ctx context.Context, db *sql.DB, p personSpec) (string, error)
 		id = uuid.NewString()
 		now := time.Now().UTC()
 		_, err = db.ExecContext(ctx, `INSERT INTO people (id, platform_username, platform, full_name, profile_url, kind, profile_id, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(platform_username, platform, profile_id) DO NOTHING`,
 			id, p.username, p.platform, nullStr(p.name), nullStr(p.profileURL), p.kind, p.profile, now, now)
+		if err == nil {
+			err = db.QueryRowContext(ctx, `SELECT id FROM people
+				WHERE profile_id = ? AND LOWER(platform) = LOWER(?) AND LOWER(platform_username) = LOWER(?) LIMIT 1`,
+				p.profile, p.platform, p.username).Scan(&id)
+		}
 	} else if err == nil {
 		_, err = db.ExecContext(ctx, `UPDATE people SET
 			full_name = COALESCE(NULLIF(full_name,''), ?),
@@ -212,6 +228,30 @@ func upsertPerson(ctx context.Context, db *sql.DB, p personSpec) (string, error)
 		}
 	}
 	return id, nil
+}
+
+// handleFor is the username a profile URL names on platform, the way the
+// platform's own adapter reads it, or the address of a mailto: link.
+func handleFor(platform, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(raw), "mailto:") {
+		addr := raw[len("mailto:"):]
+		if i := strings.IndexAny(addr, "?#"); i >= 0 {
+			addr = addr[:i]
+		}
+		return strings.ToLower(strings.TrimSpace(addr))
+	}
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		// LinkedIn: the member is the segment after /in/, whatever follows it
+		// (/in/alice/details/experience/ is alice).
+		if parts := strings.Split(strings.Trim(u.Path, "/"), "/"); len(parts) >= 2 && parts[0] == "in" {
+			return strings.TrimPrefix(parts[1], "@")
+		}
+		if h := personitem.Username(platform, raw); h != "" {
+			return h
+		}
+	}
+	return handleOf(raw)
 }
 
 // handleOf is the username in a profile URL or the address of a mailto: link.

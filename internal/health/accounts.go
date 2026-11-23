@@ -259,7 +259,7 @@ func checkLogins(ctx context.Context, env *Env) Result {
 	}
 	sessions, err := env.LoginSessions(ctx)
 	if err != nil {
-		return Result{Status: StatusSkip, Summary: "cannot read login sessions", Detail: err.Error()}
+		return Result{Status: StatusWarn, Summary: "cannot read login sessions", Detail: err.Error()}
 	}
 	if len(sessions) == 0 {
 		return Result{Status: StatusInfo, Summary: "no platform logins saved"}
@@ -273,17 +273,20 @@ func checkLogins(ctx context.Context, env *Env) Result {
 			expired++
 			child.Status, child.FixID = StatusWarn, FixLogin
 			child.FixCommand = "monoagentcli login " + orDefault(s.Platform, "<platform>")
-			child.Summary = fmt.Sprintf("%s — expired %s", s.Username, s.Expiry.Format("2006-01-02"))
+			child.Summary = fmt.Sprintf("expired %s", s.Expiry.Format("2006-01-02"))
 		} else {
+			// Only the stored cookie expiry is known; nothing is tested live,
+			// so a revoked session still reads as not expired.
 			child.Status = StatusOK
-			child.Summary = fmt.Sprintf("%s — valid until %s", s.Username, s.Expiry.Format("2006-01-02"))
+			child.Summary = fmt.Sprintf("not expired until %s", s.Expiry.Format("2006-01-02"))
 		}
+		child.Detail = s.Username // account name stays out of the summary line, which gets shared
 		res.Children = append(res.Children, child)
 	}
 	if expired > 0 {
 		res.Status, res.Summary = StatusWarn, fmt.Sprintf("%d of %d expired", expired, len(sessions))
 	} else {
-		res.Status, res.Summary = StatusOK, fmt.Sprintf("%d valid", len(sessions))
+		res.Status, res.Summary = StatusOK, fmt.Sprintf("%d not expired", len(sessions))
 	}
 	return res
 }

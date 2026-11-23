@@ -175,26 +175,46 @@ func (d *Database) writeSnapshotAs(ctx context.Context, conn *sql.Conn, name str
 	return path, nil
 }
 
+// keepAdoptionSnapshots is how many pre-migrate-*-adopt.db snapshots survive.
+// They are pruned apart from the real pre-migrate ones: up to one is written an
+// hour, and they must not push out the only snapshot taken before a migration.
+const keepAdoptionSnapshots = 3
+
 // prunePreMigrateSnapshots deletes pre-migrate-*.db files in dir beyond the
-// newest keep (names sort by their timestamp). Other files are left alone.
+// newest keep (names sort by their timestamp), and -adopt.db ones beyond the
+// newest keepAdoptionSnapshots, counted separately. Other files are left alone.
 func prunePreMigrateSnapshots(dir string, keep int) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	var snaps []string
+	var snaps, adopt []string
 	for _, e := range entries {
 		n := e.Name()
-		if !e.IsDir() && strings.HasPrefix(n, "pre-migrate-") && strings.HasSuffix(n, ".db") {
+		if e.IsDir() || !strings.HasPrefix(n, "pre-migrate-") || !strings.HasSuffix(n, ".db") {
+			continue
+		}
+		if strings.HasSuffix(n, "-adopt.db") {
+			adopt = append(adopt, n)
+		} else {
 			snaps = append(snaps, n)
 		}
 	}
-	if len(snaps) <= keep {
+	firstErr := pruneOldest(dir, snaps, keep)
+	if err := pruneOldest(dir, adopt, keepAdoptionSnapshots); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
+// pruneOldest removes all but the newest keep of names (which sort by time).
+func pruneOldest(dir string, names []string, keep int) error {
+	if len(names) <= keep {
 		return nil
 	}
-	sort.Strings(snaps)
+	sort.Strings(names)
 	var firstErr error
-	for _, n := range snaps[:len(snaps)-keep] {
+	for _, n := range names[:len(names)-keep] {
 		if err := os.Remove(filepath.Join(dir, n)); err != nil && firstErr == nil {
 			firstErr = err
 		}

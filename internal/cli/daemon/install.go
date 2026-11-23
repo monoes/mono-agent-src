@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -41,6 +42,9 @@ func newDaemonInstallCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("install: %w", err)
 			}
+			if d.JSONOutput() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"installed": true, "description": result.Description})
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), result.Description)
 			return nil
 		},
@@ -68,6 +72,9 @@ func newDaemonUninstallCmd(d Deps) *cobra.Command {
 			defer stop()
 			if err := d.NewInstaller().Uninstall(ctx); err != nil {
 				return fmt.Errorf("uninstall: %w", err)
+			}
+			if d.JSONOutput() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]bool{"uninstalled": true})
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Removed the daemon's auto-start registration.")
 			return nil

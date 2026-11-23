@@ -315,6 +315,10 @@ func (s *Server) fanoutCdpEvent(origin *extConn, resp *Response) {
 
 // handleCdpSocket serves /monoagent/cdp.
 func (s *Server) handleCdpSocket(w http.ResponseWriter, r *http.Request) {
+	if !loopbackHost(r.Host) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	// Compared before the upgrade so a rejected client gets a plain 401 it
 	// can read, rather than a WebSocket that closes for no stated reason.
 	if s.token == "" ||

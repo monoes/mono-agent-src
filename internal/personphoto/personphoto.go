@@ -52,7 +52,7 @@ var client = &http.Client{
 					return err
 				}
 				ip := net.ParseIP(host)
-				if ip == nil || !allowPrivate && (!ip.IsGlobalUnicast() || ip.IsPrivate()) {
+				if ip == nil || !allowPrivate && !publicIP(ip) {
 					return errors.New("refusing to fetch from a non-public address")
 				}
 				return nil
@@ -65,6 +65,35 @@ var client = &http.Client{
 		}
 		return nil
 	},
+}
+
+// reservedNets are ranges that are global unicast and not "private" to the
+// net package but still not the public internet: CGNAT (which holds tailnet
+// hosts), the benchmark range and the IETF protocol block.
+var reservedNets = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range []string{"100.64.0.0/10", "198.18.0.0/15", "192.0.0.0/24", "169.254.0.0/16"} {
+		_, n, _ := net.ParseCIDR(c)
+		out = append(out, n)
+	}
+	return out
+}()
+
+// publicIP reports whether ip is an address a scraped photo URL may be
+// fetched from. An IPv4-mapped IPv6 address is judged as the IPv4 it holds.
+func publicIP(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	for _, n := range reservedNets {
+		if n.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 // Ref names a person by platform and username (platform in upper case).

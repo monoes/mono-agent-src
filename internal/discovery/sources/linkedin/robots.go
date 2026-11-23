@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/discovery"
 )
 
 // fetchRobotsTxt fetches robotsURL directly via net/http — not via
@@ -18,7 +20,7 @@ func fetchRobotsTxt(ctx context.Context, robotsURL string) (string, error) {
 		return "", fmt.Errorf("linkedin: robots.txt request: %w", err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; MonoAgent/1.0)")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := discovery.Client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("linkedin: robots.txt fetch: %w", err)
 	}
@@ -29,7 +31,7 @@ func fetchRobotsTxt(ctx context.Context, robotsURL string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("linkedin: robots.txt returned status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(discovery.LimitBody(resp.Body, discovery.MaxRobotsBytes))
 	if err != nil {
 		return "", fmt.Errorf("linkedin: reading robots.txt: %w", err)
 	}

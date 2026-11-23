@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"os"
 	"path/filepath"
@@ -385,7 +386,8 @@ func (d Deps) newImageStatsCmd() *cobra.Command {
 }
 
 func (d Deps) newImageExportCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:     "export <id> <dest-file>",
 		Short:   "Copy a media item out of the vault to a file",
 		Example: `  monoagentcli media export img-004 ~/Desktop/banner.png`,
@@ -406,7 +408,10 @@ func (d Deps) newImageExportCmd() *cobra.Command {
 				if err != nil {
 					return d.InvalidInput("%v", err)
 				}
-				if err := copyImageFile(im.Path, dest); err != nil {
+				if err := copyImageFile(im.Path, dest, force); err != nil {
+					if errors.Is(err, fs.ErrExist) {
+						return d.InvalidInput("%s already exists; pass --force to overwrite it", dest)
+					}
 					return err
 				}
 				if d.JSONOutput() {
@@ -417,15 +422,21 @@ func (d Deps) newImageExportCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing destination file")
+	return cmd
 }
 
-func copyImageFile(src, dst string) (retErr error) {
+func copyImageFile(src, dst string, force bool) (retErr error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if force {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	out, err := os.OpenFile(dst, flags, 0o600)
 	if err != nil {
 		return err
 	}

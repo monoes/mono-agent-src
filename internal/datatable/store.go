@@ -315,7 +315,18 @@ type querier interface {
 }
 
 func loadRows(ctx context.Context, q querier, t Table) ([]row, error) {
-	rs, err := q.QueryContext(ctx, `SELECT id, data, created_at, updated_at FROM data_table_rows WHERE table_id = ? ORDER BY id`, t.ID)
+	return loadRowsFor(ctx, q, t, Filter{})
+}
+
+// loadRowsFor loads the rows f can match. An equality on a text column narrows the read in SQL (json_extract), so a
+// workflow looping Upsert over N rows does not decode the whole table N times; the caller still applies f to what it gets.
+func loadRowsFor(ctx context.Context, q querier, t Table, f Filter) ([]row, error) {
+	query, args := `SELECT id, data, created_at, updated_at FROM data_table_rows WHERE table_id = ?`, []interface{}{t.ID}
+	if col, val, ok := f.textEquality(t); ok {
+		query += ` AND json_extract(data, ?) = ?`
+		args = append(args, `$."`+col+`"`, val)
+	}
+	rs, err := q.QueryContext(ctx, query+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("reading data table %q: %w", t.Name, err)
 	}
@@ -360,7 +371,7 @@ func (s *Store) Select(ctx context.Context, t Table, q Query) ([]map[string]inte
 			return nil, fmt.Errorf("column %q does not exist in data table %q", q.SortBy, t.Name)
 		}
 	}
-	rows, err := loadRows(ctx, s.db, t)
+	rows, err := loadRowsFor(ctx, s.db, t, q.Filter)
 	if err != nil {
 		return nil, err
 	}

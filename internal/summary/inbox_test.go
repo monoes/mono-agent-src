@@ -116,3 +116,22 @@ func TestHILCountsCoderItemsTheCurrentAnswererIsThePerson(t *testing.T) {
 		t.Fatalf("hil = %+v", h)
 	}
 }
+
+func TestInboxPartialCountsKeepTheTotal(t *testing.T) {
+	db := testDB(t)
+	exec(t, db,
+		`INSERT INTO workflows (id, name, is_active, profile_id) VALUES ('w1','A',1,'default')`,
+		`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, created_at, profile_id) VALUES
+		 ('h1','e1','w1','n','N','pending','2026-09-26 08:00:00','default')`,
+		`INSERT INTO people (id, profile_id, platform, platform_username, full_name, category, created_at) VALUES
+		 ('p1','default','LINKEDIN','a','A','pending_approval','2026-09-25 10:00:00')`,
+		`ALTER TABLE person_links RENAME TO person_links_gone`,
+	)
+	h := hilSection(context.Background(), Options{DB: db.DB, ProfileID: "default", Now: now})
+	if h.Error == "" {
+		t.Fatal("expected the link count to fail")
+	}
+	if h.Total != 2 {
+		t.Fatalf("Total = %d with an error set; the 2 counted items must not read as nothing", h.Total)
+	}
+}

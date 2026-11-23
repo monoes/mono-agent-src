@@ -402,3 +402,82 @@ func TestImportRenamesPastANameTakenMidImport(t *testing.T) {
 		}
 	}
 }
+
+func TestImportSkipsDerivedFiles(t *testing.T) {
+	man, _ := json.Marshal(Manifest{Format: Format, Version: Version})
+	const dir = "captures/2026-09-20T10-00-00Z-x/"
+	blob := buildArchive(t, func(tw *tar.Writer) {
+		for name, body := range map[string]string{
+			ManifestPath:                string(man),
+			dir + capture.MetaFile:      `{"url":"https://a.test/","title":"t","capturedAt":"2026-09-20T10:00:00Z"}`,
+			dir + "readable.md":         "# kept",
+			dir + "classification.json": `{"category":"planted"}`,
+			dir + "summary.json":        `{"state":"done"}`,
+			dir + "summary.md":          "planted",
+		} {
+			if err := writeFileEntry(tw, name, []byte(body), zeroTime()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	inbox := filepath.Join(t.TempDir(), "inbox")
+	if _, err := Import(bytes.NewReader(blob), ImportOptions{Inbox: inbox}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	entries, _ := os.ReadDir(inbox)
+	if len(entries) != 1 {
+		t.Fatalf("want one capture, got %d", len(entries))
+	}
+	got := filepath.Join(inbox, entries[0].Name())
+	for _, f := range []string{"classification.json", "summary.json", "summary.md"} {
+		if _, err := os.Stat(filepath.Join(got, f)); err == nil {
+			t.Errorf("%s came out of an archive; it is regenerated locally", f)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(got, "readable.md")); err != nil {
+		t.Errorf("readable.md is capture content and must survive: %v", err)
+	}
+}
+
+func TestImportBoundsInflatedIgnoredMembers(t *testing.T) {
+	old := maxInflatedBytes
+	maxInflatedBytes = 1 << 20
+	defer func() { maxInflatedBytes = old }()
+	man, _ := json.Marshal(Manifest{Format: Format, Version: Version})
+	blob := buildArchive(t, func(tw *tar.Writer) {
+		if err := writeFileEntry(tw, ManifestPath, man, zeroTime()); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeFileEntry(tw, "elsewhere/bomb.bin", make([]byte, 8<<20), zeroTime()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if _, err := Import(bytes.NewReader(blob), ImportOptions{Inbox: filepath.Join(t.TempDir(), "inbox")}); err == nil {
+		t.Fatal("an archive that inflates past the cap must be refused even when the bytes are out of scope")
+	}
+}
+
+func TestCopyIntoRefusesASymlink(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secret, []byte("hunter2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "readable.md")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skip("no symlinks here")
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	note, err := copyInto(tw, "captures/x/readable.md", link, 7, zeroTime())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note == nil {
+		t.Fatal("a symlink must be refused with a note")
+	}
+	tw.Close()
+	if strings.Contains(buf.String(), "hunter2") {
+		t.Fatal("the symlink target was archived")
+	}
+}

@@ -3,7 +3,7 @@
   "schema": "monoagent.automation/v1",
   "id": "hackernews",
   "name": "Hacker News",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Read Hacker News items and comments, reply to comments and submit stories",
   "publisher": {
     "name": "Mono Agent",

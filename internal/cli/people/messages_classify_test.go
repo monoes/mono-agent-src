@@ -298,7 +298,7 @@ func TestMessagesListIntentFilter(t *testing.T) {
 
 func TestParseAge(t *testing.T) {
 	t.Parallel()
-	for in, ok := range map[string]bool{"": true, "12h": true, "7d": true, "1.5d": true, "x": false, "-1h": false} {
+	for in, ok := range map[string]bool{"": true, "12h": true, "7d": true, "1.5d": true, "x": false, "-1h": false, "7xd": false, "infd": false, "1e300d": false, "99999d": false} {
 		if _, err := parseAge(in); (err == nil) != ok {
 			t.Errorf("parseAge(%q) err=%v", in, err)
 		}

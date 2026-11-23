@@ -119,7 +119,17 @@ func CanonicalNodeTypes(nodes []workflow.WorkflowFileNode, resolve NodeResolver,
 
 // WriteFileAtomic writes b to path via a temp file in the same directory
 // and a rename, so readers never see a partial file.
+//
+// A symlink at path is written through (its target is replaced, the link is
+// kept), and the file keeps the mode of the one it replaces, else 0644.
 func WriteFileAtomic(path string, b []byte) error {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
@@ -131,6 +141,10 @@ func WriteFileAtomic(path string, b []byte) error {
 		return err
 	}
 	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Chmod(tmp, mode); err != nil {
 		os.Remove(tmp)
 		return err
 	}

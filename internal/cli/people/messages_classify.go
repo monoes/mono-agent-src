@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -231,8 +232,8 @@ func parseAge(s string) (time.Duration, error) {
 		return 0, nil
 	}
 	if strings.HasSuffix(s, "d") {
-		var days float64
-		if _, err := fmt.Sscanf(strings.TrimSuffix(s, "d"), "%g", &days); err == nil && days > 0 {
+		days, err := strconv.ParseFloat(strings.TrimSuffix(s, "d"), 64)
+		if err == nil && days > 0 && days <= 3650 {
 			return time.Duration(days * float64(24*time.Hour)), nil
 		}
 	}

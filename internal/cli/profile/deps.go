@@ -59,11 +59,12 @@ var NewFolderSyncResult = newFolderSyncResult
 // truncateStr shortens s to at most n characters, appending "..." if truncated (the CLI's
 // truncateStr).
 func truncateStr(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
 	if n <= 3 {
-		return s[:n]
+		return string(r[:n])
 	}
-	return s[:n-3] + "..."
+	return string(r[:n-3]) + "..."
 }

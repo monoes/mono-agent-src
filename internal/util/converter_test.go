@@ -30,6 +30,14 @@ func TestConvertAbbreviatedNumber(t *testing.T) {
 	}
 }
 
+func TestConvertAbbreviatedNumber_RefusesWhatIsNotAnInt64(t *testing.T) {
+	for _, in := range []string{"NaN", "Inf", "-Inf", "1e30", "1e19", "9999999999999B"} {
+		if got, err := ConvertAbbreviatedNumber(in); err == nil {
+			t.Errorf("ConvertAbbreviatedNumber(%q) = %d, want an error", in, got)
+		}
+	}
+}
+
 func TestConvertAbbreviatedNumber_Errors(t *testing.T) {
 	for _, in := range []string{"", "   ", "abc", "K"} {
 		if _, err := ConvertAbbreviatedNumber(in); err == nil {

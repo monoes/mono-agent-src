@@ -129,6 +129,11 @@ func (d Deps) newConnectSetOAuthClientCmd() *cobra.Command {
 }
 
 func (d Deps) runConnectPlatform(cmd *cobra.Command, platformID string, scopeGroups []string) error {
+	// Before any prompt or OAuth round-trip: a connection is saved under a profile.
+	profileID, perr := d.requireProfile()
+	if perr != nil {
+		return perr
+	}
 	db, err := d.OpenDB()
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
@@ -142,7 +147,7 @@ func (d Deps) runConnectPlatform(cmd *cobra.Command, platformID string, scopeGro
 
 	conn, err := mgr.Connect(cmd.Context(), platformID, connections.ConnectOptions{
 		OAuthTimeout: 5 * time.Minute,
-		ProfileID:    d.ProfileID(),
+		ProfileID:    profileID,
 		Scopes:       scopeGroups,
 	})
 	if err != nil {
@@ -184,7 +189,6 @@ func (d Deps) warnIfAccountProfileMismatch(db *sql.DB, conn *connections.Connect
 
 func (d Deps) newConnectListCmd() *cobra.Command {
 	var platform string
-	var jsonOut bool
 	var all bool
 
 	cmd := &cobra.Command{
@@ -192,7 +196,7 @@ func (d Deps) newConnectListCmd() *cobra.Command {
 		Short: "List saved connections (or all supported platforms with --all)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all {
-				return printAllPlatforms(cmd.OutOrStdout(), jsonOut || d.JSONOutput())
+				return printAllPlatforms(cmd.OutOrStdout(), d.JSONOutput())
 			}
 
 			db, err := d.OpenDB()
@@ -211,7 +215,7 @@ func (d Deps) newConnectListCmd() *cobra.Command {
 				return err
 			}
 
-			if jsonOut || d.JSONOutput() {
+			if d.JSONOutput() {
 				return d.WriteJSON(cmd.OutOrStdout(), connections.RedactAll(conns))
 			}
 
@@ -241,7 +245,6 @@ func (d Deps) newConnectListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&platform, "platform", "", "Filter by platform ID")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&all, "all", false, "Show all supported platforms, not just connected ones")
 
 	return cmd

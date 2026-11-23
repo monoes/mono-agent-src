@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -75,6 +76,9 @@ func main() {
 		}
 	}()
 
+	if at, err := time.Parse(time.RFC3339, buildDate); err == nil { // a stamped build only: a dev build has no floor
+		account.SetBuildFloor(at)
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 

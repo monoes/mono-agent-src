@@ -54,6 +54,7 @@ func TestDecisionResolveRefusesItemsThatSendAMessage(t *testing.T) {
 		}
 	}
 	store := orgdecide.NewStore(db.DB)
+	setOrgLevel(t, store, "sales", "mid", nil)
 	delegate := func(it orgdecide.Item) string {
 		t.Helper()
 		d, err := store.Delegate(ctx, "default", "sales", "mid", "hq", "ceo", it, time.Now().Add(time.Minute))

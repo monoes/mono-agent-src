@@ -183,6 +183,12 @@ func (d Deps) newPeopleReviewApproveCmd() *cobra.Command {
 			if send || sendPlan {
 				res.Send = &reviewSend{WorkflowID: wf.ID, WorkflowName: wf.Name, Input: peoplereview.SendInput(p)}
 			}
+			if send && d.JSONOutput() {
+				// Say who was approved and which workflow runs before the run's own output.
+				if err := printReviewJSON(res); err != nil {
+					return err
+				}
+			}
 			if !send {
 				if d.JSONOutput() {
 					return printReviewJSON(res)

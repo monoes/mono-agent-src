@@ -149,7 +149,7 @@ func TestNodeAndConnectionEdits(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &conn) != nil {
 		t.Fatalf("connect = %q, %v", out, err)
 	}
-	if out, err = run(t, cfg, "", "disconnect", "wf-e", conn.ID); err != nil || out != "Connection "+conn.ID+" removed.\n" {
+	if out, err = run(t, cfg, "", "disconnect", "wf-e", conn.ID); err != nil || !strings.Contains(out, `"removed":true`) || !strings.Contains(out, conn.ID) {
 		t.Fatalf("disconnect = %q, %v", out, err)
 	}
 }
@@ -172,9 +172,11 @@ func TestEditErrors(t *testing.T) {
 		{[]string{"node", "remove", "wf-e", "nope"}, 2},
 		{[]string{"connect", "nope", "--from", "a", "--to", "b"}, 2},
 		{[]string{"disconnect", "nope", "c1"}, 2},
-		// Not one of the CLI's exit-code errors: exit 1, as before.
-		{[]string{"node", "add", "wf-e", "--type", "core.set", "--name", "x", "--config", "{"}, 1},
-		{[]string{"disconnect", "wf-e", "nope"}, 1},
+		{[]string{"node", "add", "wf-e", "--type", "core.set", "--name", "x", "--config", "{"}, 3},
+		{[]string{"disconnect", "wf-e", "nope"}, 2},
+		// connect names nodes that exist in the workflow.
+		{[]string{"connect", "wf-e", "--from", "n1", "--to", "ghost"}, 2},
+		{[]string{"connect", "wf-e", "--from", "ghost", "--to", "n1"}, 2},
 	} {
 		if err := execute(cfg, "", tc.args...); exitCode(err) != tc.code {
 			t.Errorf("%v: exit %d (%v), want %d", tc.args, exitCode(err), err, tc.code)

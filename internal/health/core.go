@@ -150,14 +150,15 @@ func checkProfile(ctx context.Context, env *Env) Result {
 	}
 	if env.DB != nil {
 		var n int
-		if err := env.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles`).Scan(&n); err == nil && n > 0 {
-			var name string
-			if err := env.DB.QueryRowContext(ctx, `SELECT COALESCE(name, id) FROM profiles WHERE id = ?`, id).Scan(&name); err != nil {
-				return Result{Status: StatusFail, Summary: fmt.Sprintf("profile %q does not exist", id),
-					Detail: "list profiles with: monoagentcli profile list"}
-			}
-			id = fmt.Sprintf("%s (%s)", name, id)
+		if err := env.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles`).Scan(&n); err != nil {
+			return Result{Status: StatusWarn, Summary: "could not check profiles", Detail: err.Error()}
 		}
+		var name string
+		if err := env.DB.QueryRowContext(ctx, `SELECT COALESCE(name, id) FROM profiles WHERE id = ?`, id).Scan(&name); err != nil {
+			return Result{Status: StatusFail, Summary: fmt.Sprintf("profile %q does not exist", id),
+				Detail: "list profiles with: monoagentcli profile list"}
+		}
+		id = fmt.Sprintf("%s (%s)", name, id)
 	}
 	if env.ProfileRoot == nil {
 		return Result{Status: StatusOK, Summary: id}

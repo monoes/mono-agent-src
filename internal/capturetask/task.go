@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/capture"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 )
 
@@ -269,7 +270,7 @@ func loadBoard(path string) (map[string]json.RawMessage, []json.RawMessage, boar
 	if err != nil {
 		return nil, nil, boardStamp{}, err
 	}
-	blob, err := os.ReadFile(path)
+	blob, err := capture.ReadCapped(path, capture.MaxMetaFileBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]json.RawMessage{}, nil, boardStamp{}, nil
 	}

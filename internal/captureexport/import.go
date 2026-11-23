@@ -71,6 +71,38 @@ const (
 	maxNotes                 = 1000      // skips reported before they are only noise
 )
 
+// maxInflatedBytes bounds what the gzip layer may produce in all, members
+// this importer ignores included: tar.Next inflates and discards them, and
+// a bomb of out-of-scope members would otherwise cost unbounded time.
+var maxInflatedBytes = maxTotalBytes + 64<<20
+
+// derivedFiles are written by this machine's own classifier and summarizer
+// and later trusted as the user's state (a review decision, a finished
+// summary). An archive does not get to plant them; they are regenerated.
+var derivedFiles = map[string]bool{
+	"classification.json": true, // captureclassify.FileName
+	"summary.json":        true, // capturesummary.StatusFile
+	"summary.md":          true, // capturesummary.SummaryFile
+}
+
+// errInflated is returned by cappedReader past maxInflatedBytes.
+var errInflated = errors.New("captureexport: archive inflates past its size limit")
+
+// cappedReader fails once more than max bytes have been read through it.
+type cappedReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (c *cappedReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.left -= int64(n)
+	if c.left < 0 {
+		return n, errInflated
+	}
+	return n, err
+}
+
 // ImportOptions configures a restore.
 type ImportOptions struct {
 	// Inbox is where captures are restored to; empty means the default.
@@ -141,7 +173,7 @@ func Import(r io.Reader, opts ImportOptions) (*ImportResult, error) {
 	imp := &importer{opts: opts, inbox: inbox, mode: mode, res: res, seen: map[string]bool{}}
 	defer imp.discard()
 
-	tr := tar.NewReader(gz)
+	tr := tar.NewReader(&cappedReader{r: gz, left: maxInflatedBytes})
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -244,6 +276,10 @@ func (im *importer) entry(hdr *tar.Header, tr io.Reader) error {
 	// one component on this machine, three on Windows.
 	if file != capture.MetaFile && !capture.ValidArtifactName(file) {
 		im.skip(name, "unsafe file name")
+		return drain(tr)
+	}
+	if derivedFiles[file] {
+		im.skip(name, "derived file; regenerated locally")
 		return drain(tr)
 	}
 	cur.bytes += hdr.Size

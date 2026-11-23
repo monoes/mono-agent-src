@@ -286,10 +286,10 @@ func TestReleaseWorkflowGuardCatchesViolations(t *testing.T) {
 			return nth(t, s, jobEnvAnchor+"    env:\n", jobEnvAnchor+"    env:\n      LEAK: ${{ secrets.RELEASE_SIGNING_KEY }}\n", 0)
 		},
 		"workflow-level env has the key": func(t *testing.T, s string) string {
-			return nth(t, s, "permissions:\n  contents: write\n", "env:\n  LEAK: ${{ secrets.RELEASE_SIGNING_KEY }}\npermissions:\n  contents: write\n", 0)
+			return nth(t, s, "permissions:\n  contents: read\n", "env:\n  LEAK: ${{ secrets.RELEASE_SIGNING_KEY }}\npermissions:\n  contents: read\n", 0)
 		},
 		"workflow-level env indexes secrets": func(t *testing.T, s string) string {
-			return nth(t, s, "permissions:\n  contents: write\n", "env:\n  LEAK: ${{ secrets['RELEASE_SIGNING_KEY'] }}\npermissions:\n  contents: write\n", 0)
+			return nth(t, s, "permissions:\n  contents: read\n", "env:\n  LEAK: ${{ secrets['RELEASE_SIGNING_KEY'] }}\npermissions:\n  contents: read\n", 0)
 		},
 		"second step gets the key": func(t *testing.T, s string) string {
 			return nth(t, s, "          BOOTSTRAP: ${{ vars.RELEASE_SIGNING_BOOTSTRAP }}\n", "          BOOTSTRAP: ${{ vars.RELEASE_SIGNING_BOOTSTRAP }}\n"+signEnvKey, 0)
@@ -301,7 +301,7 @@ func TestReleaseWorkflowGuardCatchesViolations(t *testing.T) {
 			return nth(t, s, "        run: |\n          set +x\n          min_args=()", "        shell: bash -ex {0}\n        run: |\n          set +x\n          min_args=()", 0)
 		},
 		"workflow default shell traces": func(t *testing.T, s string) string {
-			return nth(t, s, "permissions:\n  contents: write\n", "defaults:\n  run:\n    shell: bash -x {0}\npermissions:\n  contents: write\n", 0)
+			return nth(t, s, "permissions:\n  contents: read\n", "defaults:\n  run:\n    shell: bash -x {0}\npermissions:\n  contents: read\n", 0)
 		},
 		"job default shell traces": func(t *testing.T, s string) string {
 			return nth(t, s, jobEnvAnchor+"    env:\n", jobEnvAnchor+"    defaults:\n      run:\n        shell: bash -x {0}\n    env:\n", 0)
@@ -313,7 +313,7 @@ func TestReleaseWorkflowGuardCatchesViolations(t *testing.T) {
 			return nth(t, s, "          LATEST: ${{ steps.latest.outputs.tag }}\n", "          LATEST: ${{ steps.latest.outputs.tag }}\n          BASH_XTRACEFD: '2'\n", 0)
 		},
 		"workflow env BASH_ENV": func(t *testing.T, s string) string {
-			return nth(t, s, "permissions:\n  contents: write\n", "env:\n  BASH_ENV: /tmp/x\npermissions:\n  contents: write\n", 0)
+			return nth(t, s, "permissions:\n  contents: read\n", "env:\n  BASH_ENV: /tmp/x\npermissions:\n  contents: read\n", 0)
 		},
 		"second lowercase secret reference": func(t *testing.T, s string) string {
 			return nth(t, s, "          LATEST: ${{ steps.latest.outputs.tag }}\n", "          LATEST: ${{ steps.latest.outputs.tag }}\n          COPY: ${{ secrets.release_signing_key }}\n", 0)

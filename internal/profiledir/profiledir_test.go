@@ -147,6 +147,29 @@ func TestEnsureLayout_NeverOverwritesExistingMonoagentGitignore(t *testing.T) {
 	}
 }
 
+// A dangling symlink planted at .monoagent/.gitignore must not make EnsureLayout create its target.
+func TestEnsureLayout_DoesNotFollowADanglingGitignoreLink(t *testing.T) {
+	home := t.TempDir()
+	testhome.SetHome(t, home)
+	if err := EnsureLayout(nil, "work"); err != nil {
+		t.Fatalf("EnsureLayout: %v", err)
+	}
+	gitignorePath := filepath.Join(Root(nil, "work"), ".monoagent", ".gitignore")
+	target := filepath.Join(t.TempDir(), "created-by-mistake")
+	if err := os.Remove(gitignorePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, gitignorePath); err != nil {
+		t.Skip("no symlinks here")
+	}
+	if err := EnsureLayout(nil, "work"); err != nil {
+		t.Fatalf("EnsureLayout (repeat): %v", err)
+	}
+	if _, err := os.Lstat(target); err == nil {
+		t.Fatal("the link's target was created")
+	}
+}
+
 func TestIsDefaultManaged(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)

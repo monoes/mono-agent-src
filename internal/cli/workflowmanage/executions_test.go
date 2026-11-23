@@ -29,6 +29,16 @@ func TestWorkflowExecutionsAll(t *testing.T) {
 
 // Argument errors are exit 3, and another profile's workflow is not found (exit 2) rather than
 // leaking its run history.
+// A workflow with no profile id belongs to no profile (workflow.OwnedBy), so its run history is not
+// readable from every profile (R15-12).
+func TestWorkflowExecutionsNoProfileWorkflowNotFound(t *testing.T) {
+	t.Parallel()
+	cfg := newTestDB(t, `INSERT INTO workflows (id, name, is_active, profile_id) VALUES ('w4','D',1,'')`)
+	if err := execute(cfg, nil, "executions", "w4"); exitCode(err) != 2 {
+		t.Fatalf("executions of a profile-less workflow: exit %d (%v), want 2", exitCode(err), err)
+	}
+}
+
 func TestWorkflowExecutionsArgs(t *testing.T) {
 	t.Parallel()
 	cfg := newTestDB(t, `INSERT INTO workflows (id, name, is_active, profile_id) VALUES ('w1','A',1,'default'),('w3','C',1,'other')`)

@@ -62,3 +62,18 @@ func TestTheClockGuardCannotPostponeTheDate(t *testing.T) {
 		t.Errorf("before the date a machine with no session is not locked: %+v", st)
 	}
 }
+
+// A clock set back with no high-water mark (account folder deleted) cannot un-enforce a binary built after the date.
+func TestBuildDateFloorsTheClock(t *testing.T) {
+	d := time.Date(2030, time.January, 15, 0, 0, 0, 0, time.UTC)
+	SetEnforceFromForTest(t, d)
+	SetBuildFloor(d.Add(24 * time.Hour))
+	t.Cleanup(func() { SetBuildFloor(time.Time{}) })
+	if !Enforced(d.Add(-48*time.Hour), time.Time{}) {
+		t.Error("a clock before the date must not un-enforce a binary built after it")
+	}
+	SetBuildFloor(time.Time{})
+	if Enforced(d.Add(-48*time.Hour), time.Time{}) {
+		t.Error("an unstamped build has no floor")
+	}
+}

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/orgdecide"
+	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -100,6 +102,16 @@ func (s *Server) callDecisionTool(ctx context.Context, rt *runtime, b *orggrant.
 	}
 	if d.Status != orgdecide.DelegationPending {
 		return nil, true, fmt.Errorf("decision %s is already %s", a.ID, d.Status)
+	}
+	// The pause brake: a paused or manual org settles nothing through a
+	// delegation either, whatever level the item was delegated at. An
+	// unreadable setting refuses too.
+	auto, err := store.Get(ctx, b.ProfileID, d.OrgName)
+	if err != nil {
+		return nil, true, fmt.Errorf("%s: cannot read %s's autonomy setting: %v", codeRefusedGrant, d.OrgName, err)
+	}
+	if auto.EffectiveLevel(time.Now()) == orgdesign.LevelManual {
+		return nil, true, fmt.Errorf("%s: %s is paused or set to manual, so decision %s waits for the user", codeRefusedGrant, d.OrgName, a.ID)
 	}
 	verdict := strings.ToLower(strings.TrimSpace(a.Verdict))
 	allowed := orgdecide.AllowedVerdicts(d.Item.Kind, d.Level)

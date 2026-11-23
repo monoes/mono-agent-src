@@ -486,9 +486,11 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
   useEffect(() => {
     if (!pickerMode) { setConnections([]); return }
     setLoadingCreds(true)
+    let alive = true
     const load = pickerMode === 'any' ? api.listConnections('') : api.getConnectionsForPlatform(platformId)
     load
       .then(list => {
+        if (!alive) return
         const conns = Array.isArray(list) ? list : []
         setConnections(conns)
         // Auto-select the first (or only) credential if none is set. Not in
@@ -498,8 +500,9 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
           if (firstId) onConfigChange(node.id, 'credential_id', firstId)
         }
       })
-      .catch(() => setConnections([]))
-      .finally(() => setLoadingCreds(false))
+      .catch(() => { if (alive) setConnections([]) })
+      .finally(() => { if (alive) setLoadingCreds(false) })
+    return () => { alive = false }
   }, [platformId, pickerMode, node?.id])
 
   useEffect(() => {
@@ -1142,6 +1145,8 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const [wfActive, setWfActive] = useState(false)
   const [saving,        setSaving]       = useState(false)
   const [saveMsg,       setSaveMsg]       = useState(null) // { ok: bool, text: string }
+  const saveMsgTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(saveMsgTimerRef.current), [])
   const [showWfModal,   setShowWfModal]   = useState(false) // false | 'saved' | 'templates'
   const [showImport,    setShowImport]    = useState(false)
   const [showGenerate,  setShowGenerate]  = useState(false)
@@ -1808,6 +1813,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     } catch (err) {
       console.error('Run failed', err)
       setRunning(false)
+      notify('run workflow', err?.message || String(err))
     }
   }
   const startRunRef = useRef(startRun)
@@ -1872,7 +1878,8 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       return null
     } finally {
       setSaving(false)
-      setTimeout(() => setSaveMsg(null), 3000)
+      clearTimeout(saveMsgTimerRef.current)
+      saveMsgTimerRef.current = setTimeout(() => setSaveMsg(null), 3000)
     }
   }, [saving, wfId, wfName, nodes, edges, setShowSaveModal])
 

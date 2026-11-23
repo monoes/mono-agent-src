@@ -158,10 +158,14 @@ func EnsureLayout(db *sql.DB, profileID string) error {
 // failing profile setup over.
 func ensureMonoagentGitignore(db *sql.DB, profileID string) {
 	path := filepath.Join(Root(db, profileID), ".monoagent", ".gitignore")
-	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+	// O_EXCL fails on any existing entry, a dangling symlink included, so a link planted there
+	// cannot make this create its target.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, []byte("*\n"), 0600)
+	_, _ = f.WriteString("*\n")
+	_ = f.Close()
 }
 
 // Exists reports whether a profile's folder has already been created —

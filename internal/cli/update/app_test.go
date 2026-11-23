@@ -265,3 +265,23 @@ func TestUpdateAppHelperProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// With no --current the app update compares against this binary's own version, so a
+// release older than it is not installed.
+func TestUpdateAppDefaultsCurrentToTheBinaryVersion(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("linux install path")
+	}
+	latest := fakeAppRelease(t, tgz(t, map[string]string{"MonoAgent-linux-amd64": "new"}), false)
+	app, _ := appInstallDir(t)
+	d := testDeps(t, latest)
+	d.Version = func() string { return "v99.0.0" }
+	res, _ := runUpdateAppCmd(t, d, "--app", app)
+	if res.NewVersion != "" {
+		t.Fatalf("an older release must not be installed: %+v", res)
+	}
+	if b, _ := os.ReadFile(app); string(b) != "old" {
+		t.Fatal("the app changed")
+	}
+}

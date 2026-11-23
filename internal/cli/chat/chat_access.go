@@ -10,6 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
 // A conversation's access level (ai.AccessScoped … ai.AccessFull) is what
@@ -97,6 +98,7 @@ type loweredEffects struct {
 	Survivors      []survivor `json:"survivors"`       // recorded processes that were not stopped, with why
 	WorkersDropped bool       `json:"workers_dropped"` // its kept org workers were forgotten
 	TaskRevoked    bool       `json:"task_revoked"`    // its open AI task's token was replaced
+	SessionRevoked bool       `json:"session_revoked"` // the session token of its running turn was dropped
 }
 
 // lowerAccessEffects takes the privileges of a conversation that now has less
@@ -104,6 +106,15 @@ type loweredEffects struct {
 // dynamic-org workers forgotten and its open AI task's token replaced by one
 // nobody holds. All of it runs before the next turn is admitted.
 func lowerAccessEffects(cfg *Deps, store *ai.AIStore, profileID, conversationID string) (loweredEffects, error) {
+	eff, err := lowerOne(cfg, store, profileID, conversationID)
+	if err != nil {
+		return eff, err
+	}
+	return eff, lowerChildren(cfg, store, profileID, conversationID)
+}
+
+// lowerOne takes the privileges of one conversation, not of its children.
+func lowerOne(cfg *Deps, store *ai.AIStore, profileID, conversationID string) (loweredEffects, error) {
 	eff := loweredEffects{Stopped: []int{}, Survivors: []survivor{}}
 	stop, _, err := stopConversationBackground(store, profileID, conversationID, true)
 	if err != nil {
@@ -131,7 +142,48 @@ func lowerAccessEffects(cfg *Deps, store *ai.AIStore, profileID, conversationID 
 		}
 		eff.TaskRevoked = true
 	}
+	// The running turn's master tools stop working with its session token.
+	if err := coderhost.NewStore(db.DB).RevokeSessionTokensErr(profileID, conversationID); err != nil {
+		return eff, fmt.Errorf("revoking the session token: %w", err)
+	}
+	eff.SessionRevoked = true
 	return eff, nil
+}
+
+// lowerChildren brings every session below conversationID down to its level
+// when it is above it, taking the privileges of each one it lowers.
+func lowerChildren(cfg *Deps, store *ai.AIStore, profileID, conversationID string) error {
+	parent, err := store.GetConversation(conversationID, profileID)
+	if err != nil {
+		return err
+	}
+	level := parent.EffectiveAccess()
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return fmt.Errorf("initializing database: %w", err)
+	}
+	defer db.Close()
+	hs := coderhost.NewStore(db.DB)
+	all, err := hs.ListSessions(profileID)
+	if err != nil {
+		return err
+	}
+	for _, x := range all {
+		if !hs.IsDescendant(profileID, conversationID, x.ConversationID) {
+			continue
+		}
+		child, err := store.GetConversation(x.ConversationID, profileID)
+		if err != nil || ai.AccessRank(child.EffectiveAccess()) <= ai.AccessRank(level) {
+			continue
+		}
+		if _, err := store.SetConversationAccess(child.ID, profileID, level, ""); err != nil {
+			return err
+		}
+		if _, err := lowerOne(cfg, store, profileID, child.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // enforceLoweredAccess runs when a coder turn ends: a conversation whose
@@ -145,6 +197,9 @@ func enforceLoweredAccess(cfg *Deps, store *ai.AIStore, profileID string, starte
 	}
 	_, _ = lowerAccessEffects(cfg, store, profileID, started.ID)
 }
+
+// afterAccessRead runs once set-access has read the level it will compare against; tests move the row here.
+var afterAccessRead = func() {}
 
 // accessChange is `chat history set-access --json`.
 type accessChange struct {
@@ -184,6 +239,7 @@ func newChatHistorySetAccessCmd(cfg *Deps) *cobra.Command {
 				return chatStoreErr(err)
 			}
 			prev := conv.EffectiveAccess()
+			afterAccessRead()
 			if expect != "" {
 				if !ai.ValidAccess(expect) {
 					return clicore.InvalidInput("unknown --expect %q (scoped, coding, workspace or full)", expect)
@@ -207,15 +263,16 @@ func newChatHistorySetAccessCmd(cfg *Deps) *cobra.Command {
 			}
 			out := accessChange{Previous: prev}
 			if level != prev {
-				if expect != "" {
-					// The level the caller saw must still be the row's at the update itself.
-					conv, err = store.SetConversationAccessIf(id, profileID, level, newCwd, expect)
-					var changed *ai.AccessChangedError
-					if errors.As(err, &changed) {
-						return errAccessChanged(changed.Current, expect)
-					}
-				} else {
-					conv, err = store.SetConversationAccess(id, profileID, level, newCwd)
+				// The level the caller saw (the one it named, else the one it read) must still be the row's at the
+				// update itself: the raise check above was made against it.
+				seen := expect
+				if seen == "" {
+					seen = prev
+				}
+				conv, err = store.SetConversationAccessIf(id, profileID, level, newCwd, seen)
+				var changed *ai.AccessChangedError
+				if errors.As(err, &changed) {
+					return errAccessChanged(changed.Current, seen)
 				}
 				if err != nil {
 					return chatStoreErr(err)

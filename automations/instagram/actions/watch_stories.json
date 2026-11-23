@@ -23,7 +23,8 @@
       {
         "name": "maxStoriesPerUser",
         "type": "number",
-        "default": 0,
+        "default": 50,
+        "max": 500,
         "min": 0,
         "description": "Max stories per user (0=all)"
       },
@@ -89,7 +90,7 @@
       "methodName": "view_stories",
       "args": [
         "{{item.url or item.href or item.username or item}}",
-        "{{maxStoriesPerUser or 0}}"
+        "{{maxStoriesPerUser or 50}}"
       ],
       "variable_name": "storyResult",
       "timeout": 300,

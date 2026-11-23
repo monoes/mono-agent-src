@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -329,8 +328,8 @@ func (a *App) ExportWorkflow(workflowID string) (string, error) {
 	return string(file), nil
 }
 
-// ImportWorkflow imports a workflow from raw WorkflowFile JSON or a path to
-// a JSON file, by feeding it to `monoagentcli workflow import` on stdin (the
+// ImportWorkflow imports a workflow from raw WorkflowFile JSON (never a file
+// path: the frontend must not make this read local files), by feeding it to `monoagentcli workflow import` on stdin (the
 // CLI import reads stdin when --file is absent) — the same path a CLI import
 // takes, including legacy-format normalization and node-id collision
 // remapping. Returns the imported workflow's {id, name}.
@@ -340,18 +339,12 @@ func (a *App) ImportWorkflow(jsonOrPath string) (*WorkflowImportResult, error) {
 	}
 	jsonOrPath = strings.TrimSpace(jsonOrPath)
 	if jsonOrPath == "" {
-		return nil, fmt.Errorf("import input is empty — pass workflow JSON or a path to a JSON file")
+		return nil, fmt.Errorf("import input is empty — pass workflow JSON")
 	}
+	// Raw JSON only: a path from the frontend is never read from disk here.
 	raw := []byte(jsonOrPath)
-	if fileExists(jsonOrPath) {
-		data, err := os.ReadFile(jsonOrPath)
-		if err != nil {
-			return nil, fmt.Errorf("read workflow file: %w", err)
-		}
-		raw = data
-	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("import input is neither an existing file nor valid workflow JSON")
+		return nil, fmt.Errorf("import input is not valid workflow JSON")
 	}
 
 	cliBin, err := findMonoAgentCLI()

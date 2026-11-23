@@ -2,7 +2,9 @@ package capture
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,6 +60,32 @@ type Entry struct {
 	Meta    Meta   `json:"meta"`
 }
 
+// MaxMetaFileBytes bounds the small JSON files of an envelope (meta.json,
+// classification.json, summary status, the task board). One planted huge
+// file must not stall every list, sync or index pass.
+const MaxMetaFileBytes = 4 << 20
+
+// ErrTooLarge is wrapped by ReadCapped when a file is over its cap.
+var ErrTooLarge = errors.New("file is too large")
+
+// ReadCapped reads path, refusing (ErrTooLarge) one longer than max bytes
+// without loading more than max+1 of it.
+func ReadCapped(path string, max int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	blob, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(blob)) > max {
+		return nil, fmt.Errorf("%s: %w (over %d bytes)", path, ErrTooLarge, max)
+	}
+	return blob, nil
+}
+
 // ReadMeta reads one capture directory's provenance record.
 //
 // This is the single-capture counterpart to List: a caller that was handed
@@ -67,7 +95,7 @@ type Entry struct {
 // caller distinguishes "not a capture" from "unreadable capture".
 func ReadMeta(dir string) (*Meta, error) {
 	path := filepath.Join(dir, MetaFile)
-	blob, err := os.ReadFile(path)
+	blob, err := ReadCapped(path, MaxMetaFileBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}

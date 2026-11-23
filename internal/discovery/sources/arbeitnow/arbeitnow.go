@@ -168,7 +168,7 @@ func fetchPage(ctx context.Context, pageURL string) (*apiResponse, error) {
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; MonoAgent/1.0)")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := discovery.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s: %w", pageURL, err)
 	}
@@ -177,7 +177,7 @@ func fetchPage(ctx context.Context, pageURL string) (*apiResponse, error) {
 		return nil, fmt.Errorf("fetching %s: status %d", pageURL, resp.StatusCode)
 	}
 	var out apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(discovery.LimitBody(resp.Body, discovery.MaxAPIBytes)).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decoding response from %s: %w", pageURL, err)
 	}
 	return &out, nil

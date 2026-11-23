@@ -1533,6 +1533,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     .catch((err) => console.warn("[monoagent] binding update:", err.message));
 });
 
+// fromOwnPage: the sender is one of this extension's own pages (the side
+// panel), not a content script on a web page.
+function fromOwnPage(sender) {
+  return !!sender && sender.id === chrome.runtime.id && String(sender.url || "").startsWith(chrome.runtime.getURL(""));
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "get_status") {
     // A worker woken by this question answers once it has read the last report.
@@ -1569,12 +1575,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (msg.type === "set_ws_url") {
+    if (!fromOwnPage(sender)) return false;
     setWsUrl(msg.url)
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true; // async response
   }
   if (msg.type === "set_pairing_token") {
+    if (!fromOwnPage(sender)) return false;
     setPairingToken(msg.value)
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ ok: false, error: err.message }));

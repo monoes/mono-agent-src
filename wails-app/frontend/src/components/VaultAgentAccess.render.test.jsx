@@ -5,6 +5,8 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import VaultAgentAccess from './VaultAgentAccess.jsx'
 import { confirm } from './ConfirmDialog.jsx'
+import i18n from '../i18n.js'
+import es from '../locales/es.json'
 
 vi.mock('./ConfirmDialog.jsx', () => ({ confirm: vi.fn() }))
 const App = {}
@@ -92,5 +94,16 @@ describe('VaultAgentAccess', () => {
     expect(screen.getByRole('combobox')).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue('strict'))
+  })
+
+  it('asks the access question in the chosen language', async () => {
+    await i18n.changeLanguage('es')
+    try {
+      render(<VaultAgentAccess />)
+      const select = screen.getByRole('combobox')
+      await waitFor(() => expect(select).toBeEnabled())
+      fireEvent.change(select, { target: { value: 'reveal' } })
+      await waitFor(() => expect(confirm).toHaveBeenCalledWith(es.vaultAccess.confirmReveal, expect.objectContaining({ title: es.vaultAccess.confirmTitle, confirmLabel: es.vaultAccess.confirmAllow })))
+    } finally { await i18n.changeLanguage('en') }
   })
 })

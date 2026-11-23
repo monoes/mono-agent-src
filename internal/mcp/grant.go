@@ -308,6 +308,9 @@ func (s *Server) grantRun(ctx context.Context, rt *runtime, b *orggrant.Bundle, 
 		ProfileID: b.ProfileID, Trace: orgbridge.Trace{ChainID: meta.Trace.ChainID, Hop: meta.Trace.Hop},
 		OriginOrg: b.OrgName, Direction: orgbridge.DirRoleTool, OrgName: b.OrgName, RoleID: b.RoleID,
 		WorkflowID: tool.WorkflowID, GrantID: grant.ID, RunID: runID,
+		// Admit re-counts these inside its transaction; the reads below
+		// only give the usual early, specific refusal.
+		Caps: &orgbridge.GrantCaps{PerRun: tool.MaxCallsPerRun, PerDay: tool.MaxCallsPerDay},
 	}
 	// A cap that cannot be read refuses: these two counts are the only
 	// quantity bound on a granted automation, and a transient read failure

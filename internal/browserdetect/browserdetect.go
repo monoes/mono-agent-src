@@ -100,12 +100,7 @@ func IsBrowserRunning() bool {
 		// like chrome-native-host. -i makes the match case-insensitive so
 		// "Chromium"/"Google Chrome Canary"/"Brave Browser" (macOS) and the
 		// lowercase Linux binary names all match one pattern.
-		pattern := "(Google Chrome( Canary)?\\.app/Contents/MacOS/|" +
-			"Chromium\\.app/Contents/MacOS/|" +
-			"Brave Browser\\.app/Contents/MacOS/|" +
-			"Microsoft Edge\\.app/Contents/MacOS/|" +
-			"google-chrome|chromium|brave-browser|microsoft-edge|msedge)"
-		cmd := exec.Command("pgrep", "-i", "-f", pattern)
+		cmd := exec.Command("pgrep", pgrepArgs(runtime.GOOS)...)
 		out, err := cmd.Output()
 		if err == nil && len(strings.TrimSpace(string(out))) > 0 {
 			return true
@@ -124,21 +119,37 @@ func IsBrowserRunning() bool {
 	}
 }
 
+// pgrepArgs is the pgrep call that finds a running browser. macOS matches the
+// app bundles' executable paths; Linux used to match any command line that
+// mentioned a browser's name (an editor, a path argument), so it matches the
+// process name only.
+func pgrepArgs(goos string) []string {
+	pattern := "(Google Chrome( Canary)?\\.app/Contents/MacOS/|" +
+		"Chromium\\.app/Contents/MacOS/|" +
+		"Brave Browser\\.app/Contents/MacOS/|" +
+		"Microsoft Edge\\.app/Contents/MacOS/|" +
+		"google-chrome|chromium|brave-browser|microsoft-edge|msedge)"
+	if goos == "darwin" {
+		return []string{"-i", "-f", pattern}
+	}
+	return []string{"-i", "-x", "chrome|chromium|chromium-browse|google-chrome|google-chrome-s|brave|brave-browser|msedge|microsoft-edge"}
+}
+
 // ExtensionDir returns the path to the chrome-extension directory to display in instructions.
 func ExtensionDir() string {
-	// 1. Try finding the chrome-extension directory relative to current working dir
-	cwd, err := os.Getwd()
-	if err == nil {
-		p := filepath.Join(cwd, "chrome-extension")
-		if _, err := os.Stat(filepath.Join(p, "manifest.json")); err == nil {
-			return p
-		}
-	}
-	// 2. Try ~/.monoagent/extension, where `monoagentcli extension install` unpacks it
+	// 1. ~/.monoagent/extension, where `monoagentcli extension install` unpacks it
 	home, err := os.UserHomeDir()
 	if err == nil {
 		p := filepath.Join(home, ".monoagent", "extension")
 		if _, err := os.Stat(filepath.Join(p, "manifest.json")); err == nil {
+			return p
+		}
+	}
+	// 2. A chrome-extension folder in the current directory, only if it is
+	// MonoAgent's: a hostile checkout must not be offered for Load unpacked.
+	if cwd, err := os.Getwd(); err == nil {
+		p := filepath.Join(cwd, "chrome-extension")
+		if manifestIsMonoAgent(filepath.Join(p, "manifest.json")) {
 			return p
 		}
 	}
@@ -235,6 +246,19 @@ func ExtensionInstalled() (found, checked bool) {
 		}
 	}
 	return false, !sawUnreadable
+}
+
+// manifestIsMonoAgent reports whether the manifest at path is MonoAgent's.
+func manifestIsMonoAgent(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var m struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	return json.Unmarshal(data, &m) == nil && nameLooksLikeMonoAgent(m.Name, m.Description)
 }
 
 // nameLooksLikeMonoAgent applies the same name/description substring match

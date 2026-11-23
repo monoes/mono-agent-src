@@ -79,6 +79,9 @@ type Service struct {
 	// Admit, when set, reserves the task's spend cap at start and returns the
 	// cap its turn runs under; its refusal keeps the task queued (budget).
 	Admit func(context.Context, Task) (float64, error)
+	// Unadmit, when set, gives back what Admit reserved for a task whose start
+	// failed after it was admitted.
+	Unadmit func(context.Context, string)
 	// Remote says the caller is the daemon API acting for a task's session
 	// rather than that session's own process: Complete and Fail check the task
 	// token's hash but not the process tree (Store.CheckTokenRemote).
@@ -275,14 +278,6 @@ func (s *Service) Start(ctx context.Context, id string) (Task, error) {
 	if err := s.verifyAtStart(ctx, t); err != nil {
 		return Task{}, err
 	}
-	if s.Admit != nil {
-		if _, err := s.Admit(ctx, t); err != nil {
-			if IsBudgetHold(err) {
-				return Task{}, &budgetHold{err}
-			}
-			return Task{}, err
-		}
-	}
 	// The turn reads a verified, read-only copy, never the original folder.
 	snapshot, err := s.SnapshotContext(id)
 	if err != nil {
@@ -291,12 +286,23 @@ func (s *Service) Start(ctx context.Context, id string) (Task, error) {
 	if err := s.Store.SetPrompt(id, useSnapshot(t.Prompt, id, snapshot)); err != nil {
 		return Task{}, err
 	}
+	// Admit goes last, so a start that fails on the snapshot or the prompt has
+	// reserved nothing; one that fails after it gives the reservation back.
+	if s.Admit != nil {
+		if _, err := s.Admit(ctx, t); err != nil {
+			if IsBudgetHold(err) {
+				return Task{}, &budgetHold{err}
+			}
+			return Task{}, err
+		}
+	}
 	token := NewToken()
 	// The token is set by the same statement that wins the queued->running
 	// move, so a second Start that lost the race cannot replace it.
 	moved, err := s.Store.move(id, []string{StatusQueued}, StatusRunning,
 		map[string]any{"token_hash": HashToken(t.Profile, t.ID, t.ConversationID, token)})
 	if err != nil {
+		s.unadmit(ctx, id)
 		return Task{}, err
 	}
 	if !moved {
@@ -304,9 +310,16 @@ func (s *Service) Start(ctx context.Context, id string) (Task, error) {
 	}
 	if err := s.Launcher.Detach(ctx, id, token); err != nil {
 		_, _ = s.Store.move(id, []string{StatusRunning}, StatusFailed, map[string]any{"error": clip(err.Error()), "token_hash": ""})
+		s.unadmit(ctx, id)
 		return Task{}, err
 	}
 	return s.Store.Get(id)
+}
+
+func (s *Service) unadmit(ctx context.Context, id string) {
+	if s.Unadmit != nil {
+		s.Unadmit(ctx, id)
+	}
 }
 
 func (s *Service) verifyAtStart(ctx context.Context, t Task) error {

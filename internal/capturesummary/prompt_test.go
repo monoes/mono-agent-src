@@ -1,8 +1,13 @@
 package capturesummary
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/capture"
 )
 
 func TestPromptWebPageStructureAndEnglish(t *testing.T) {
@@ -71,5 +76,34 @@ func TestPromptVideoStructureAndEnglish(t *testing.T) {
 
 	if !(superIdx < summaryIdx && summaryIdx < keyPointsIdx && keyPointsIdx < highlightsIdx) {
 		t.Errorf("sections not in expected order: super=%d summary=%d keyPoints=%d highlights=%d", superIdx, summaryIdx, keyPointsIdx, highlightsIdx)
+	}
+}
+
+func TestLoadInputDoesNotLoadAHugeReadableWhole(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "readable.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(64 << 20); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	// A sparse file reads as NULs, which are valid UTF-8; give it text.
+	if err := os.WriteFile(filepath.Join(dir, "readable.md"), []byte(strings.Repeat("word ", 64<<17)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	in, err := LoadInput(dir, capture.Meta{URL: "https://a.test/"}, KindPage, 1000)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !in.Truncated {
+		t.Error("a clipped input must say so")
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 16<<20 {
+		t.Errorf("LoadInput allocated %d MiB for a 1000-char input", got>>20)
 	}
 }

@@ -288,13 +288,15 @@ func (d Deps) newDeleteCmd() *cobra.Command {
 			}
 
 			if !force && !yes {
-				fmt.Fprintf(os.Stdout, "Delete workflow %q? This is irreversible. [y/N] ", workflowID)
+				if d.JSONOutput() || !stdinIsTerminal() {
+					return d.InvalidInput("pass --yes to delete %q", workflowID)
+				}
+				fmt.Fprintf(os.Stderr, "Delete workflow %q? This is irreversible. [y/N] ", workflowID)
 				reader := bufio.NewReader(os.Stdin)
 				answer, _ := reader.ReadString('\n')
 				answer = strings.TrimSpace(strings.ToLower(answer))
 				if answer != "y" && answer != "yes" {
-					fmt.Fprintln(os.Stdout, "Aborted.")
-					return nil
+					return d.InvalidInput("workflow %q not deleted", workflowID)
 				}
 			}
 
@@ -391,14 +393,7 @@ func (d Deps) newExecutionsCmd() *cobra.Command {
 			// Load the workflow and enforce the profile boundary before
 			// listing executions — otherwise an ID guessed from another
 			// profile leaks that profile's execution history here.
-			wf, err := store.GetWorkflow(ctx, args[0])
-			if err != nil {
-				return fmt.Errorf("get workflow: %w", err)
-			}
-			if wf == nil {
-				return d.NotFound("workflow %q not found", args[0])
-			}
-			if wf.ProfileID != "" && wf.ProfileID != d.ProfileID() {
+			if d.OwnedWorkflow(ctx, store, db.DB, d.ProfileID(), args[0]) == nil {
 				return d.NotFound("workflow %q not found", args[0])
 			}
 
@@ -511,4 +506,10 @@ func (d Deps) newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&description, "description", "", "Workflow description")
 	cmd.Flags().BoolVar(&active, "active", false, "Mark workflow as active immediately")
 	return cmd
+}
+
+// stdinIsTerminal reports whether a person can answer a prompt on stdin.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }

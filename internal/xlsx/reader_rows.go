@@ -180,6 +180,12 @@ func (f *File) readRow(d *xml.Decoder, start *xml.StartElement, cells *int) ([]s
 			if *cells > maxCells {
 				return nil, fmt.Errorf("sheet exceeds the %d cell limit", maxCells)
 			}
+			if col-1 < len(row) { // an out-of-order or repeated reference: place it, do not shift the rest
+				if val != "" {
+					row[col-1] = val
+				}
+				continue
+			}
 			for len(row) < col-1 {
 				row = append(row, "")
 			}

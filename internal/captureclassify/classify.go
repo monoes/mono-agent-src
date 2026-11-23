@@ -175,7 +175,7 @@ func Write(dir string, r Result) error {
 
 // Read loads classification.json from dir; ok is false when there is none.
 func Read(dir string) (r Result, ok bool, err error) {
-	raw, err := os.ReadFile(filepath.Join(dir, FileName))
+	raw, err := capture.ReadCapped(filepath.Join(dir, FileName), capture.MaxMetaFileBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return Result{}, false, nil
 	}

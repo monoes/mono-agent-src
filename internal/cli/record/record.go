@@ -200,8 +200,13 @@ func newRecordDeleteCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !yes && !d.JSONOutput() && !confirmYes(os.Stdin, cmd.OutOrStdout(), "Delete recording "+dir+"?") {
-				return d.InvalidInput("not deleted")
+			if !yes {
+				if d.JSONOutput() {
+					return d.InvalidInput("pass --yes to delete %s", dir)
+				}
+				if !confirmYes(os.Stdin, cmd.OutOrStdout(), "Delete recording "+dir+"?") {
+					return d.InvalidInput("not deleted")
+				}
 			}
 			if err := recording.Delete(args[0]); err != nil {
 				return err

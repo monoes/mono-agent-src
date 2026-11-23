@@ -61,6 +61,26 @@ func (f Filter) compile(t Table) (func(row) bool, error) {
 	}, nil
 }
 
+// textEquality returns an equality on a text column that every row f selects must satisfy: the only condition, or one
+// of an all-conditions filter.
+func (f Filter) textEquality(t Table) (col, val string, ok bool) {
+	if !f.All && len(f.Conditions) != 1 {
+		return "", "", false
+	}
+	for _, c := range f.Conditions {
+		if c.Op != "" && c.Op != OpEq {
+			continue
+		}
+		typ, known := t.ColumnType(c.Column)
+		v, isText := c.Value.(string)
+		if !known || typ != TypeString || !isText || strings.ContainsAny(c.Column, `"\'`) {
+			continue
+		}
+		return c.Column, v, true
+	}
+	return "", "", false
+}
+
 func (c Condition) compile(t Table) (func(row) bool, error) {
 	typ, ok := t.ColumnType(c.Column)
 	if !ok {

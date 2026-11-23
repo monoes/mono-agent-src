@@ -9,6 +9,8 @@ package agentbox
 // not change: code placed in them runs outside the sandbox at the next login or session.
 var ReadOnlyHomePaths = []string{
 	".bashrc", ".bash_profile", ".profile", ".zshrc",
+	".zshenv", ".zprofile", ".zlogin", ".bash_login", ".pam_environment",
+	".config/environment.d", ".local/bin",
 	".config/systemd/user", ".config/autostart", ".local/share/applications", ".config/fish",
 }
 

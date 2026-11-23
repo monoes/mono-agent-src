@@ -26,11 +26,11 @@ export function setupSteps(report) {
 }
 
 function StepMark({ step, state, n }) {
-  if (state?.running) return <Loader2 size={13} className="spin" style={{ color: '#00b4d8' }} />
+  if (state?.running) return <Loader2 size={13} className="spin" style={{ color: 'var(--cyan)' }} />
   if (state?.done) return <span style={{ color: 'var(--green-neon)' }}>✓</span>
   if (state?.error) return <span style={{ color: 'var(--red)' }}>✗</span>
   if (state?.cancelled) return <span style={{ color: 'var(--text-muted)' }}>–</span>
-  return <span style={{ color: step.kind === 'fix' ? '#00b4d8' : 'var(--text-muted)' }}>{n}</span>
+  return <span style={{ color: step.kind === 'fix' ? 'var(--cyan)' : 'var(--text-muted)' }}>{n}</span>
 }
 
 // fixingAll: the steps are running (label says so); busy: something else
@@ -42,7 +42,7 @@ export default function SetupSteps({ report, level, fixStates, fixingAll, busy, 
   const runnable = steps.filter(s => s.kind === 'fix').length
 
   return (
-    <div data-testid="setup-steps" style={{ background: 'var(--surface)', border: '1px solid rgba(0,180,216,.3)', borderRadius: 'var(--radius-lg)', padding: '12px 18px', marginBottom: 12 }}>
+    <div data-testid="setup-steps" style={{ background: 'var(--surface)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-lg)', padding: '12px 18px', marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <span style={{ ...mono, fontSize: 12, color: 'var(--text)', flex: 1 }}>
           {level === 'broken' ? t('settings.health.finishSetup') : t('settings.health.stepsToFix')}
@@ -51,7 +51,7 @@ export default function SetupSteps({ report, level, fixStates, fixingAll, busy, 
           <button
             onClick={onRunAll}
             disabled={fixingAll || busy}
-            style={{ ...mono, fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 5, border: 'none', background: '#00b4d8', color: '#fff', cursor: fixingAll || busy ? 'default' : 'pointer', opacity: fixingAll || busy ? 0.6 : 1 }}
+            style={{ ...mono, fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 5, border: 'none', background: 'var(--cyan)', color: '#fff', cursor: fixingAll || busy ? 'default' : 'pointer', opacity: fixingAll || busy ? 0.6 : 1 }}
           >
             {fixingAll ? <Loader2 size={12} className="spin" /> : <Wrench size={12} />}
             {fixingAll ? t('settings.health.fixing') : t('settings.health.fixIssues', { n: runnable })}
@@ -85,7 +85,7 @@ export default function SetupSteps({ report, level, fixStates, fixingAll, busy, 
                 </button>
               )}
               {s.kind === 'runtime' && onNavigate && (
-                <button onClick={() => onNavigate('ai')} style={{ ...mono, fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 4, background: 'transparent', color: '#00b4d8', border: '1px solid rgba(0,180,216,.25)', cursor: 'pointer' }}>
+                <button onClick={() => onNavigate('ai')} style={{ ...mono, fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 4, background: 'transparent', color: 'var(--cyan)', border: '1px solid var(--border-bright)', cursor: 'pointer' }}>
                   <Bot size={11} />{t('settings.health.openAgentsShort')}
                 </button>
               )}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { aitaskBudgetApi, money } from './aitaskBudgetApi.js'
+import { confirm } from '../ConfirmDialog.jsx'
 
 // AI task budgets: spend caps for the tasks the Send to coder buttons and
 // workflows hand to the coder. A task runs under the lowest cap that applies
@@ -79,6 +81,7 @@ function CapRows({ caps, busy, onClear }) {
 }
 
 export default function AiTaskBudgetsSection() {
+  const { t } = useTranslation()
   const [doc, setDoc] = useState(null)
   const [loadErr, setLoadErr] = useState('')
   const [err, setErr] = useState('')
@@ -94,7 +97,10 @@ export default function AiTaskBudgetsSection() {
     try { await fn(); await load(); return true } catch (e) { setErr(errMsg(e)); return false } finally { setBusy(false) }
   }
   const save = (scope, key, usd) => run(() => aitaskBudgetApi.set(scope, key, usd))
-  const clear = (c) => run(() => aitaskBudgetApi.clear(c.scope, c.key))
+  const clear = async (c) => {
+    if (!(await confirm(t('budgets.removeBody', { name: c.key || c.scope }), { danger: true, confirmLabel: t('budgets.removeLabel'), cancelLabel: t('budgets.keep') }))) return
+    return run(() => aitaskBudgetApi.clear(c.scope, c.key))
+  }
 
   if (!doc) {
     return (
