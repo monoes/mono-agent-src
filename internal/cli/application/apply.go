@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/monoes/mono-agent/internal/applications"
+	"github.com/monoes/mono-agent/internal/applypark"
 	"github.com/monoes/mono-agent/internal/apply"
 	"github.com/monoes/mono-agent/internal/documents"
 
@@ -137,6 +138,10 @@ func (d Deps) newSendCmd() *cobra.Command {
 			store := applications.NewStore(db.DB)
 			if err := store.SetStatus(cmd.Context(), d.ProfileID(), args[0], applications.StatusApplied, applications.ActorUser, note); err != nil {
 				return fmt.Errorf("recording send: %w", err)
+			}
+			// The application is over: free its tab slot now (the tab itself stays open for you).
+			if err := (applypark.Store{DB: db.DB, Profile: d.ProfileID()}).SetState(cmd.Context(), args[0], applypark.StateClosed, ""); err != nil {
+				return fmt.Errorf("closing the tab binding: %w", err)
 			}
 			if d.JSONOutput() {
 				enc := json.NewEncoder(cmd.OutOrStdout())
