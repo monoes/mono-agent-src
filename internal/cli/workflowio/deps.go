@@ -20,6 +20,9 @@ import (
 
 // Deps is what the commands take from the CLI around them.
 type Deps struct {
+	// Refusal says why this process is not the operator's own terminal ("" when it is). nil
+	// means operator.Refusal. `workflow import --replace-automations` asks it.
+	Refusal func() string
 	// JSONOutput reports the global --json flag; it is read when a command runs.
 	JSONOutput func() bool
 	// ProfileID is the profile the command runs in once OpenDB has resolved it; it is read when

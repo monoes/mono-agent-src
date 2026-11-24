@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/workflowbundle"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -125,6 +126,15 @@ func (d Deps) newImportCmd() *cobra.Command {
 		Use:   "import",
 		Short: "Import a workflow from a JSON file (--file or stdin)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if replaceAutomations {
+				refusal := d.Refusal
+				if refusal == nil {
+					refusal = operator.Refusal
+				}
+				if why := clicore.OperatorRefusal(refusal); why != "" {
+					return clicore.OperatorOnly("workflow import --replace-automations replaces installed automation code with the file's copy, which only the user decides: %s; run it yourself in your terminal or the app", why)
+				}
+			}
 			var raw []byte
 			var err error
 			if inputFile != "" {
@@ -364,7 +374,7 @@ func (d Deps) newImportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&asNew, "as-new", false, "Always create a new workflow, even when this file was imported before")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Install automations bundled in the file that are not installed yet")
 	cmd.Flags().BoolVar(&replaceAutomations, "replace-automations", false,
-		"Replace installed automations whose bundled copy (same version) has different content, after showing the review (asks unless --yes)")
+		"Replace installed automations whose bundled copy (same version) has different content, after showing the review (asks unless --yes). The user's own: an agent, the chat or a workflow is refused (exit 3, operator_only)")
 	// With --json a failure is also {"error","code"} on stdout (contracts
 	// §5), as the automation commands do; the exit code is unchanged.
 	d.WithJSONErrors(cmd)
