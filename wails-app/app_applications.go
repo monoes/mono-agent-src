@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -324,23 +323,6 @@ func (a *App) SetApplicationStatus(id, status, note string) error {
 	return a.runMonoCLI("", nil, args...)
 }
 
-// TagApplication adds or removes a tag. action must be "add" or "remove".
-func (a *App) TagApplication(id, tag, action string) error {
-	if err := a.signedOut(); err != nil {
-		return err
-	}
-	if err := cliToken("application id", id); err != nil {
-		return err
-	}
-	if action != "add" && action != "remove" {
-		return fmt.Errorf("invalid tag action %q", action)
-	}
-	if err := cliToken("tag", tag); err != nil {
-		return err
-	}
-	return a.runMonoCLI("", nil, "application", "tag", id, action, tag)
-}
-
 // FitVerdictInfo mirrors internal/matching.FitVerdict's own json tags
 // exactly (that struct already has them, unlike Application/JobDetails).
 type FitVerdictInfo struct {
@@ -374,39 +356,6 @@ func (a *App) EvaluateApplication(id, runtime string) (*FitVerdictInfo, error) {
 	var result FitVerdictInfo
 	if err := a.runMonoCLILong("", &result, "application", "evaluate", id, "--runtime", runtime); err != nil {
 		return nil, err
-	}
-	return &result, nil
-}
-
-// EvaluateBatchResult is EvaluatePendingApplications' return value.
-type EvaluateBatchResult struct {
-	Evaluated int            `json:"evaluated"`
-	Verdicts  map[string]int `json:"verdicts"`
-}
-
-// EvaluatePendingApplications evaluates every not-yet-evaluated pending
-// job application. limit of 0 means no limit. runtime defaults to
-// "claude" if empty.
-func (a *App) EvaluatePendingApplications(evalRuntime string, limit int) (*EvaluateBatchResult, error) {
-	if err := a.signedOut(); err != nil {
-		return nil, err
-	}
-	if evalRuntime == "" {
-		evalRuntime = "claude"
-	}
-	args := []string{"application", "evaluate-pending", "--runtime", evalRuntime}
-	if limit > 0 {
-		args = append(args, "--limit", strconv.Itoa(limit))
-	}
-	if err := cliToken("runtime", evalRuntime); err != nil {
-		return nil, err
-	}
-	var result EvaluateBatchResult
-	if err := a.runMonoCLILong("", &result, args...); err != nil {
-		return nil, err
-	}
-	if result.Verdicts == nil {
-		result.Verdicts = map[string]int{}
 	}
 	return &result, nil
 }

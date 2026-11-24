@@ -139,12 +139,6 @@ esac
 	a.ctx = context.Background()
 	a.selectForTest("work")
 
-	if err := a.AddPersonMessage("p1", "manual", "", "", "", "Hi", "hello there"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.AddPersonMessage("p1", "outlook", "x1", "outbound", "me", "", ""); err != nil {
-		t.Fatal(err)
-	}
 	m, err := a.ComposePersonMessage("p1", "outlook", "Hi", "<p>body</p>", true)
 	if err != nil || m.ID != "m1" || m.Status != "draft" {
 		t.Fatalf("ComposePersonMessage = %+v, %v", m, err)

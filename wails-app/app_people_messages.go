@@ -88,24 +88,6 @@ func (a *App) MarkPersonMessageUnread(id string) error {
 	return a.runMonoCLI("", nil, "people", "messages", "unread", id)
 }
 
-// AddPersonMessage records a message/interaction for a person —
-// `people messages add`.
-func (a *App) AddPersonMessage(personID, source, externalID, direction, sender, subject, body string) error {
-	if err := a.signedOut(); err != nil {
-		return err
-	}
-	args := []string{"people", "messages", "add", "--source=" + source}
-	for _, f := range []struct{ flag, value string }{
-		{"external-id", externalID}, {"direction", direction}, {"sender", sender},
-		{"subject", subject}, {"body", body},
-	} {
-		if f.value != "" {
-			args = append(args, "--"+f.flag+"="+f.value)
-		}
-	}
-	return a.runMonoCLI("", nil, append(args, "--", personID)...)
-}
-
 // ComposePersonMessage sends (or drafts, when asDraft is true) an email to a
 // person via the given Outlook connection and records it on their message
 // history — `people messages compose`.

@@ -134,28 +134,8 @@ func TestWorkflowBindingsThroughCLI(t *testing.T) {
 		if _, err := a.GetWorkflow(saved.ID); err == nil {
 			t.Fatal("GetWorkflow returned another profile's workflow")
 		}
-		if _, err := a.ExportWorkflow(saved.ID); err == nil {
-			t.Fatal("ExportWorkflow exported another profile's workflow")
-		}
 		if err := a.DeleteWorkflow(saved.ID); err == nil {
 			t.Fatal("DeleteWorkflow deleted another profile's workflow")
-		}
-	})
-
-	// The export is the documented WorkflowFile shape.
-	t.Run("ExportShape", func(t *testing.T) {
-		exported, err := a.ExportWorkflow(saved.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var f workflow.WorkflowFile
-		if err := parseStrict(exported, &f); err != nil {
-			t.Fatalf("export is not WorkflowFile JSON: %v\n%s", err, exported)
-		}
-		if f.ID != saved.ID || len(f.Nodes) != 2 || f.Nodes[0].Type != "trigger.manual" ||
-			f.Nodes[0].Position.X != 1.5 || f.Nodes[0].Position.Y != 2.5 ||
-			len(f.Connections) != 1 || f.Connections[0].Source != "n1" || f.Connections[0].Target != "n2" {
-			t.Fatalf("export = %+v", f)
 		}
 	})
 

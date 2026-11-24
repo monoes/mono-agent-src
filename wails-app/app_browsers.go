@@ -85,31 +85,6 @@ func (a *App) AssignBrowser(profileID, instance string) (*AssignReport, error) {
 	return &r, nil
 }
 
-// BindBrowser adds a profile to a browser's profiles; an empty profileID
-// makes the browser run none (a default browser again).
-func (a *App) BindBrowser(instance, profileID string) (*BrowserRow, error) {
-	if err := a.signedOut(); err != nil {
-		return nil, err
-	}
-	instance = strings.TrimSpace(instance)
-	if instance == "" {
-		return nil, errors.New("no browser given")
-	}
-	profileID = strings.TrimSpace(profileID)
-	if strings.HasPrefix(instance, "-") || strings.HasPrefix(profileID, "-") {
-		return nil, errors.New("invalid profile or browser")
-	}
-	args := []string{"extension", "unbind", instance}
-	if profileID != "" {
-		args = []string{"extension", "bind", instance, profileID}
-	}
-	var row BrowserRow
-	if err := a.runMonoCLI("", &row, args...); err != nil {
-		return nil, err
-	}
-	return &row, nil
-}
-
 // GetExtensionStatus returns `monoagentcli extension status --json`
 // verbatim: whether a bridge is running, whether the extension is attached,
 // and whether this client's pairing token is accepted (clientPairing). The
