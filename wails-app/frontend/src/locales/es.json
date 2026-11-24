@@ -3153,6 +3153,29 @@
     "signInAgain": "{{error}} — inicia sesión en monoes.me e inténtalo de nuevo."
   },
   "nodeRunner": {
+    "canvas": {
+      "configure": "Configurar",
+      "deleteNode": "Eliminar nodo",
+      "dragHere": "arrastra aquí el puerto superior de un nodo {{label}}",
+      "dragToAi": "Arrastra para conectar este {{label}} a un nodo de IA",
+      "error": "error",
+      "items_one": "{{count}} elemento",
+      "items_other": "{{count}} elementos",
+      "needs": "Necesita una conexión {{what}}",
+      "region": "Lienzo del flujo de trabajo (solo con ratón). Usa el botón de vista JSON de la barra de herramientas para una vista accesible con teclado y lector de pantalla.",
+      "required": "(obligatorio)",
+      "running": "en curso",
+      "skipped": "omitido",
+      "upTo": "hasta {{max}}",
+      "waiting": "en espera"
+    },
+    "palette": {
+      "add": "Haz clic o arrastra para añadir {{label}}",
+      "browse": "explorar e instalar automatizaciones web",
+      "noMatches": "Sin coincidencias",
+      "noneInstalled": "Ninguna instalada —",
+      "search": "Buscar nodos…"
+    },
     "toolbar": {
       "activate": "Activar",
       "active": "ACTIVO",

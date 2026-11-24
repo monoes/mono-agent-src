@@ -128,6 +128,7 @@ const parseGoTime = (s) => {
 
 // ── Status badge on node ──────────────────────────────────────────────────────
 function NodeStatusBadge({ status, itemCount, durationMs }) {
+  const { t } = useTranslation()
   if (!status) return null
   const color = status === 'ok' ? '#10b981' : status === 'error' ? '#ef4444' : status === 'skipped' ? '#6b7280' : status === 'waiting' ? '#f59e0b' : '#00b4d8'
   const icon = status === 'ok' ? '✓' : status === 'error' ? '✕' : status === 'skipped' ? '—' : status === 'waiting' ? '⏸' : '…'
@@ -144,7 +145,7 @@ function NodeStatusBadge({ status, itemCount, durationMs }) {
       boxShadow: `0 0 8px ${color}66`,
       whiteSpace: 'nowrap',
     }}>
-      {icon} {status === 'ok' ? `${itemCount} item${itemCount !== 1 ? 's' : ''}` : status === 'running' ? 'running' : status === 'waiting' ? 'waiting' : status === 'skipped' ? 'skipped' : 'error'}
+      {icon} {status === 'ok' ? t('nodeRunner.canvas.items', { count: itemCount }) : status === 'running' ? t('nodeRunner.canvas.running') : status === 'waiting' ? t('nodeRunner.canvas.waiting') : status === 'skipped' ? t('nodeRunner.canvas.skipped') : t('nodeRunner.canvas.error')}
       {durationMs != null && !isNaN(durationMs) && status === 'ok' && <span style={{ opacity: 0.7 }}> · {durationMs}ms</span>}
     </div>
   )
@@ -156,6 +157,7 @@ function NodeStatusBadge({ status, itemCount, durationMs }) {
 // top edge for its sub_output. While a sub-node connection is being dragged
 // (dragKind), the inputs of that kind light up.
 function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInputMouseUp }) {
+  const { t } = useTranslation()
   const k = node.subInputs?.length || 0
   const diamond = (active, required) => ({
     position: 'absolute', width: PORT_R * 2, height: PORT_R * 2,
@@ -177,7 +179,7 @@ function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInpu
           }}>{s.label}{s.required ? '*' : ''}{n > 1 ? ` ·${n}` : ''}</div>
           <div
             data-testid={`sub-in-${node.id}-${s.handle}`}
-            title={`${s.label}${s.required ? ' (required)' : ''}${s.max ? ` · up to ${s.max}` : ''} — drag a ${s.label} node's top port here`}
+            title={`${s.label}${s.required ? ' ' + t('nodeRunner.canvas.required') : ''}${s.max ? ' · ' + t('nodeRunner.canvas.upTo', { max: s.max }) : ''} — ${t('nodeRunner.canvas.dragHere', { label: s.label })}`}
             onMouseUp={e => { e.stopPropagation(); onSubInputMouseUp(s.handle) }}
             style={{ ...diamond(lit, s.required && n === 0), left: cx - PORT_R, top: h - PORT_R }}
           />
@@ -187,7 +189,7 @@ function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInpu
     {node.subOutput && (
       <div
         data-testid={`sub-out-${node.id}`}
-        title={`Drag to connect this ${node.label} to an AI node`}
+        title={t('nodeRunner.canvas.dragToAi', { label: node.label })}
         onMouseDown={e => { e.stopPropagation(); onSubOutputMouseDown(e) }}
         style={{ ...diamond(false, false), left: NODE_W / 2 - PORT_R, top: -PORT_R }}
       />
@@ -196,6 +198,7 @@ function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInpu
 }
 
 function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouseDown, onInputPortMouseUp, onClick, onDelete, onConfigure, missing, subCounts, dragKind, onSubOutputMouseDown, onSubInputMouseUp }) {
+  const { t } = useTranslation()
   const h = nodeH(node)
   const compact = !hasMainPorts(node)
   const color = node.color || catColor(node.category)
@@ -228,8 +231,8 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
       {missing?.length > 0 && (
         <div
           role="img"
-          aria-label={`Needs a ${missing.join(', ')} connection`}
-          title={`Needs a ${missing.join(', ')} connection`}
+          aria-label={t('nodeRunner.canvas.needs', { what: missing.join(', ') })}
+          title={t('nodeRunner.canvas.needs', { what: missing.join(', ') })}
           data-testid={`missing-sub-${node.id}`}
           style={{
             position: 'absolute', top: -9, left: -9, zIndex: 3, width: 18, height: 18, borderRadius: '50%',
@@ -266,7 +269,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
         <button
           onMouseDown={e => e.stopPropagation()}
           onClick={e => { e.stopPropagation(); onConfigure() }}
-          title="Configure"
+          title={t('nodeRunner.canvas.configure')}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.5)', padding: 2, display: 'flex', alignItems: 'center', transition: 'color 100ms' }}
           onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
           onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,.5)'}
@@ -274,7 +277,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
         <button
           onMouseDown={e => e.stopPropagation()}
           onClick={e => { e.stopPropagation(); onDelete() }}
-          title="Delete node"
+          title={t('nodeRunner.canvas.deleteNode')}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.3)', padding: 2, display: 'flex', alignItems: 'center', transition: 'color 100ms' }}
           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
           onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,.3)'}
@@ -349,6 +352,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
 
 // ── Node palette sidebar ──────────────────────────────────────────────────────
 function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(() => {
     try { return JSON.parse(localStorage.getItem('nr2-palette-open') || '{}') } catch { return {} }
@@ -381,7 +385,8 @@ function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search nodes…"
+            placeholder={t('nodeRunner.palette.search')}
+            aria-label={t('nodeRunner.palette.search')}
             style={{
               width: '100%', background: '#020509',
               border: '1px solid rgba(0,180,216,0.15)', borderRadius: 6,
@@ -404,12 +409,12 @@ function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
             </div>
             {sec.categories.length === 0 && (
               <div style={{ padding: '2px 10px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                {search ? 'No matches' : <>
-                  None installed —{' '}
+                {search ? t('nodeRunner.palette.noMatches') : <>
+                  {t('nodeRunner.palette.noneInstalled')}{' '}
                   <button onClick={onBrowseAutomations} style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                     fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00b4d8', textDecoration: 'underline', textAlign: 'left',
-                  }}>browse and install web automations</button>
+                  }}>{t('nodeRunner.palette.browse')}</button>
                 </>}
               </div>
             )}
@@ -432,7 +437,7 @@ function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
                   key={n.subtype}
                   onMouseDown={e => { e.preventDefault(); onNodeMouseDown(e, { ...n, category: n.category || cat.id }) }}
                   onClick={() => onAdd({ ...n, category: n.category || cat.id })}
-                  title={`Click or drag to add ${n.label}`}
+                  title={t('nodeRunner.palette.add', { label: n.label })}
                   style={{
                     padding: '5px 14px 5px 20px',
                     cursor: 'grab',
@@ -2316,7 +2321,11 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <Palette categories={categories} onAdd={addNode} onNodeMouseDown={onPaletteNodeMouseDown}
           onBrowseAutomations={() => onNavigate?.('connections')} />
 
-        {/* Canvas / JSON view */}
+        {/* Canvas / JSON view. The canvas is mouse-driven (drag to place and
+            connect nodes, no keyboard model); that is a decided limit (r21-D-02),
+            not an oversight. The JSON view (toolbar toggle, aria-pressed) is the
+            keyboard and screen-reader path to the same workflow, so the canvas is
+            labelled as mouse-only and points to it. */}
         {jsonView ? (
           <div style={{
             flex: 1, position: 'relative', overflow: 'auto',
@@ -2367,6 +2376,8 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         ) : (
           <div
             ref={wrapperRef}
+            role="region"
+            aria-label={t('nodeRunner.canvas.region')}
             style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor: 'default' }}
             onMouseDown={(e) => {
               if (e.target !== wrapperRef.current && !e.target.dataset.bg) return

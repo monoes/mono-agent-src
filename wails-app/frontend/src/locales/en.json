@@ -3153,6 +3153,29 @@
     "signInAgain": "{{error}} — sign in to monoes.me, then try again."
   },
   "nodeRunner": {
+    "canvas": {
+      "configure": "Configure",
+      "deleteNode": "Delete node",
+      "dragHere": "drag a {{label}} node's top port here",
+      "dragToAi": "Drag to connect this {{label}} to an AI node",
+      "error": "error",
+      "items_one": "{{count}} item",
+      "items_other": "{{count}} items",
+      "needs": "Needs a {{what}} connection",
+      "region": "Workflow canvas (mouse only). Use the JSON view button in the toolbar for a keyboard and screen reader view.",
+      "required": "(required)",
+      "running": "running",
+      "skipped": "skipped",
+      "upTo": "up to {{max}}",
+      "waiting": "waiting"
+    },
+    "palette": {
+      "add": "Click or drag to add {{label}}",
+      "browse": "browse and install web automations",
+      "noMatches": "No matches",
+      "noneInstalled": "None installed —",
+      "search": "Search nodes…"
+    },
     "toolbar": {
       "activate": "Activate",
       "active": "ACTIVE",
