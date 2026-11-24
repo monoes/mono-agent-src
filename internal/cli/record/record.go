@@ -1,14 +1,17 @@
 package record
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/capture"
 	"github.com/monoes/mono-agent/internal/recording"
 )
 
@@ -190,7 +193,7 @@ func newRecordDeleteCmd(d Deps) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "delete <recording>",
-		Short: "Delete a recording",
+		Short: "Delete a recording (by its full id; a prefix is refused)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := applyRecordScope(d); err != nil {
@@ -199,6 +202,9 @@ func newRecordDeleteCmd(d Deps) *cobra.Command {
 			dir, err := recording.Find(args[0])
 			if err != nil {
 				return err
+			}
+			if !isFullRecordingID(dir, args[0]) {
+				return d.InvalidInput("%q is only the start of an id: deleting needs the full id of the recording (%s)", args[0], filepath.Base(dir))
 			}
 			if !yes {
 				if d.JSONOutput() {
@@ -220,6 +226,23 @@ func newRecordDeleteCmd(d Deps) *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
 	return cmd
+}
+
+// isFullRecordingID reports whether ref names the recording in dir by its whole id: the
+// envelope directory name, or the extension's own recording id. A prefix that Find
+// resolves is not enough for something that cannot be undone.
+func isFullRecordingID(dir, ref string) bool {
+	ref = strings.TrimSpace(ref)
+	if ref == filepath.Base(dir) {
+		return true
+	}
+	meta, err := capture.ReadMeta(dir)
+	if err != nil {
+		return false
+	}
+	var id string
+	raw, ok := meta.Extra[recording.ExtraRecordingID]
+	return ok && json.Unmarshal(raw, &id) == nil && id == ref
 }
 
 func recordFirstNonBlank(vals ...string) string {

@@ -167,7 +167,7 @@ func TestWorkflowVersions(t *testing.T) {
 	if out, err = run(t, cfg, "versions", "show", id, "1"); err != nil || !strings.Contains(out, `"version":1`) {
 		t.Fatalf("show = %q, %v", out, err)
 	}
-	if out, err = run(t, cfg, "versions", "restore", id, "1"); err != nil || !strings.Contains(out, `"restored_from":1`) {
+	if out, err = run(t, cfg, "versions", "restore", id, "1", "--force"); err != nil || !strings.Contains(out, `"restored_from":1`) {
 		t.Fatalf("restore = %q, %v", out, err)
 	}
 	if out, err = run(t, cfg, "versions", "prune", "--all", "--keep", "1"); err != nil || !strings.Contains(out, `"deleted":`) {

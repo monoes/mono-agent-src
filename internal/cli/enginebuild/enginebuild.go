@@ -47,6 +47,17 @@ type Deps struct {
 	NewSessionProvider func(logger zerolog.Logger, defaultProfile string) SessionProvider
 	BotRegistry        nodes.BotRegistry
 	OpenWorkflowStore  func(*storage.Database) *workflow.HybridWorkflowStore
+	// ConfigDir is the directory of the selector configs, the one `node run` uses
+	// (~/.monoagent/configs when nil).
+	ConfigDir func() string
+}
+
+// configDir is the selector config directory the engine's nodes read.
+func (d Deps) configDir() string {
+	if d.ConfigDir != nil {
+		return d.ConfigDir()
+	}
+	return expandPath("~/.monoagent/configs")
 }
 
 // Build constructs a fully wired WorkflowEngine suitable for CLI use.
@@ -82,7 +93,7 @@ func Build(opts Options, deps Deps) (*workflow.WorkflowEngine, func(), error) {
 
 	cfgLogger := logging.Zerolog()
 	cfgStore := cfgpkg.ConfigStore(&cfgpkg.DBConfigStore{DB: db})
-	rawCfgMgr := cfgpkg.NewConfigManager(expandPath("~/.monoagent/configs"), cfgStore, cfgLogger)
+	rawCfgMgr := cfgpkg.NewConfigManager(deps.configDir(), cfgStore, cfgLogger)
 	nodes.SetGlobalConfigMgr(&cfgpkg.ConfigManagerAdapter{Mgr: rawCfgMgr})
 
 	sched := scheduler.NewScheduler(logger)

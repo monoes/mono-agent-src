@@ -10,4 +10,7 @@ type Deps struct {
 	JSONOutput func() bool
 	// StdinIsTerminal says whether `nodejs remove` may ask instead of requiring --yes.
 	StdinIsTerminal func() bool
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal, which is also what nil means. `nodejs remove` asks it.
+	Refusal func() string
 }

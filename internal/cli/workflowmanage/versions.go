@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -109,12 +110,13 @@ func (d Deps) newVersionsShowCmd() *cobra.Command {
 }
 
 func (d Deps) newVersionsRestoreCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "restore <workflow-id> <version>",
 		Short: "Make a saved version the workflow's definition again (recorded as a new version)",
 		Long: "Saves the workflow with the definition of the given version. History is kept: " +
 			"the restore is recorded as a new version. Whether the workflow is active is unchanged. " +
-			"A version that fails `workflow validate` is restored anyway, with a warning for each error.",
+			"A version that fails `workflow validate` is refused, with each error, unless --force restores it anyway (with a warning for each error).",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			n, err := d.parseVersionArg(args[1])
@@ -127,15 +129,19 @@ func (d Deps) newVersionsRestoreCmd() *cobra.Command {
 					return err
 				}
 				restored := v.Snapshot.Apply(wf)
-				actx := operator.ApprovingContext(ctx)
-				if err := store.SaveWorkflowWithNote(actx, restored, fmt.Sprintf("restored from version %d", n)); err != nil {
-					return fmt.Errorf("restore version %d: %w", n, err)
-				}
-				// An old version may not pass today's checks: say so, but
-				// restore it anyway.
+				// An old version may not pass today's checks (a removed node type, an
+				// expression the templates cannot parse): saved as approved it would run on
+				// the next trigger, so it is refused unless --force.
 				warnings := []string{}
 				for _, e := range workflow.ValidateWorkflow(restored, workflow.ValidateOptions{}).Errors {
 					warnings = append(warnings, "fails `workflow validate`: "+e)
+				}
+				if len(warnings) > 0 && !force {
+					return d.InvalidInput("version %d cannot be restored, it %s; pass --force to restore it anyway", n, strings.Join(warnings, "; it "))
+				}
+				actx := operator.ApprovingContext(ctx)
+				if err := store.SaveWorkflowWithNote(actx, restored, fmt.Sprintf("restored from version %d", n)); err != nil {
+					return fmt.Errorf("restore version %d: %w", n, err)
 				}
 				note := operator.NoteUnapproved(actx, "restored", wf.ID)
 				if d.JSONOutput() {
@@ -151,6 +157,8 @@ func (d Deps) newVersionsRestoreCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Restore a version that fails `workflow validate` anyway")
+	return cmd
 }
 
 func (d Deps) newVersionsPruneCmd() *cobra.Command {

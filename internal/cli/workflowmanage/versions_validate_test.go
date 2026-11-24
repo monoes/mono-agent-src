@@ -11,7 +11,7 @@ import (
 )
 
 // QA-A U7: restoring a version that fails `workflow validate` (here an
-// expression the templates cannot parse) restores it, with a warning.
+// expression the templates cannot parse) is refused; --force restores it, with a warning.
 func TestWorkflowVersionsRestoreWarnsWhenInvalid(t *testing.T) {
 	cfg := newTestDB(t, "")
 	db, err := storage.NewDatabase(cfg.DBPath)
@@ -36,7 +36,10 @@ func TestWorkflowVersionsRestoreWarnsWhenInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := run(t, cfg, "versions", "restore", wf.ID, "1")
+	if out, err := run(t, cfg, "versions", "restore", wf.ID, "1"); err == nil {
+		t.Fatalf("restore without --force succeeded: %s", out)
+	}
+	out, err := run(t, cfg, "versions", "restore", wf.ID, "1", "--force")
 	if err != nil {
 		t.Fatalf("restore: %v\n%s", err, out)
 	}
