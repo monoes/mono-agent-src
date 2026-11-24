@@ -2,6 +2,9 @@
   "commsPage": {
     "capped": "Showing the latest {{n}} messages. Counts and filters cover only these."
   },
+  "connectionsPage": {
+    "stale": "The list could not be refreshed and may be out of date."
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Dashboard",

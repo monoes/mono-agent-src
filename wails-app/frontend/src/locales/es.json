@@ -2,6 +2,9 @@
   "commsPage": {
     "capped": "Se muestran los últimos {{n}} mensajes. Los recuentos y filtros solo cubren estos."
   },
+  "connectionsPage": {
+    "stale": "No se pudo actualizar la lista; puede estar desactualizada."
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Panel",

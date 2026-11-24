@@ -3,6 +3,7 @@
 // browser login; API Connections are the registry platforms that can be
 // connected without the browser. A site with both appears in both.
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { RefreshCw, Upload, Circle } from 'lucide-react'
 import { api } from '../services/api.js'
 import { emitAutomationsChanged } from '../lib/appEvents.js'
@@ -18,6 +19,7 @@ import ImportDialog from './connections/ImportDialog.jsx'
 const DRAWER_TABS = { overview: 'Overview', session: 'Session', actions: 'Actions', health: 'Health', recordings: 'Recordings' }
 
 export default function Connections({ onRefresh, navData }) {
+  const { t } = useTranslation()
   const [platforms,    setPlatforms]    = useState([])
   const [connections,  setConnections]  = useState([])
   const [automations,  setAutomations]  = useState([])
@@ -30,6 +32,7 @@ export default function Connections({ onRefresh, navData }) {
   const [importing,    setImporting]    = useState(false)
   const [recordHelp,   setRecordHelp]   = useState(false)
   const [libraryOpen,  setLibraryOpen]  = useState(false)
+  const [pollFailed, setPollFailed] = useState(false)
   const pollRef = useRef(null)
 
   const loadAutomations = useCallback(async () => {
@@ -50,8 +53,10 @@ export default function Connections({ onRefresh, navData }) {
       ])
       setPlatforms(Array.isArray(plats) ? plats : [])
       setConnections(Array.isArray(conns) ? conns : [])
+      setPollFailed(false)
     } catch (e) {
       if (!silent) setError(e?.message || 'Failed to load connections')
+      else setPollFailed(true) // keep the stale rows but say they may be out of date
     } finally {
       if (!silent) setLoading(false)
     }
@@ -117,6 +122,7 @@ export default function Connections({ onRefresh, navData }) {
       </div>
 
       <div className="page-body">
+        {pollFailed && !error && <div role="status" data-testid="conn-stale" style={{ marginBottom: 12, fontSize: 11, color: 'var(--text-muted)' }}>{t('connectionsPage.stale')}</div>}
         {error && <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 'var(--radius)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 12 }}>{error}</div>}
         {loading ? (
           <div className="empty-state"><div className="spinner" /></div>
