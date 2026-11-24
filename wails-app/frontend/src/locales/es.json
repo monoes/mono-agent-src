@@ -1,4 +1,7 @@
 {
+  "commsPage": {
+    "capped": "Se muestran los últimos {{n}} mensajes. Los recuentos y filtros solo cubren estos."
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Panel",

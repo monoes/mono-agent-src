@@ -1,4 +1,7 @@
 {
+  "commsPage": {
+    "capped": "Showing the latest {{n}} messages. Counts and filters cover only these."
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Dashboard",
