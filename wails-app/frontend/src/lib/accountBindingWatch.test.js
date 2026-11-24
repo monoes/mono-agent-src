@@ -11,13 +11,13 @@ const callbacks = () => ({ onLoginRequired: vi.fn(), onSessionChange: vi.fn() })
 
 describe('what counts as a login_required answer', () => {
   it('is the CLI\'s JSON, an object with the flag, or the gate\'s own message', () => {
-    for (const v of [LOGIN_REQUIRED, { login_required: true }, GATE_MESSAGE]) expect(loginRequiredIn(v)).toBe(true)
+    for (const v of [LOGIN_REQUIRED, { login_required: true }]) expect(loginRequiredIn(v)).toBe(true)
     for (const e of [new Error(GATE_MESSAGE), GATE_MESSAGE]) expect(loginRequiredInError(e)).toBe(true)
   })
 
   it('is not a payload that merely mentions it, nor an ordinary answer, nor a big string', () => {
     const quiet = [JSON.stringify({ rows: [{ error: 'login_required: Log in to monoes.me first' }] }), JSON.stringify({ login_required: false }),
-      '{"login_required": broken', ['login_required'], null, 42, 'x'.repeat(100000) + 'login_required']
+      '{"login_required": broken', ['login_required'], GATE_MESSAGE, `${GATE_MESSAGE} (quoted from a document)`, null, 42, 'x'.repeat(100000) + 'login_required']
     for (const v of quiet) expect(loginRequiredIn(v)).toBe(false)
     for (const e of [new Error('workflow failed: login_required: Log in to monoes.me first'), undefined]) expect(loginRequiredInError(e)).toBe(false)
   })

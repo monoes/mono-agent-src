@@ -4,6 +4,7 @@ import { Trash2 } from 'lucide-react'
 import * as WailsApp from '../../wailsjs/go/main/App'
 import { iconUrl } from '../orgdesigner/roleIcons.js'
 import IconPickerModal from '../orgdesigner/IconPickerModal.jsx'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 const card = {
   background: 'var(--surface)',
@@ -43,11 +44,7 @@ export function DeleteProfileDialog({ profile, onClose, onDeleted }) {
       .catch(e => setError(e?.message || String(e)))
   }, [profile.id])
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !busy && backup === null) onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [busy, backup, onClose])
+  useEscapeClose(() => { if (!busy && backup === null) onClose() })
 
   const total = (tables || []).reduce((n, row) => n + row.rows, 0)
 

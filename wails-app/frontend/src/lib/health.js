@@ -302,6 +302,10 @@ export function installRuntime(runtimeId, update, onLine, approveURL = '') {
   return runStreamed(`agent.install:${runtimeId}`, () => InstallAgentRuntime(runtimeId, !!update, approveURL), onLine)
 }
 
+// A streamed fix that stays silent this long is given up on (installs can be
+// quiet for minutes, so this is generous).
+export const FIX_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+
 // runStreamed starts a streamed CLI command and follows its
 // health:fixProgress events (keyed by fix_id) to the final done/error. One
 // run per key: a second start while one runs is refused.
@@ -310,18 +314,30 @@ function runStreamed(key, start, onLine) {
   if (runningFixes.has(lock)) return Promise.resolve({ ok: false, busy: true, message: 'already running' })
   runningFixes.add(lock)
   return new Promise(resolve => {
+    // Watchdog: if the terminal event is lost (CLI killed, window event
+    // dropped) no progress ever arrives; release the lock after a quiet spell.
+    let watchdog = null
+    const arm = () => {
+      clearTimeout(watchdog)
+      watchdog = setTimeout(() => {
+        off()
+        resolve({ ok: false, message: 'no progress from the command; gave up waiting' })
+      }, FIX_IDLE_TIMEOUT_MS)
+    }
     const off = subscribeEvent('health:fixProgress', ev => {
       if (!ev || ev.fix_id !== key) return
-      if (ev.kind === 'line') { onLine?.(ev.message || ''); return }
+      if (ev.kind === 'line') { arm(); onLine?.(ev.message || ''); return }
+      clearTimeout(watchdog)
       off()
       resolve(ev.kind === 'done' ? { ok: true, message: ev.message || '' } : { ok: false, cancelled: !!ev.cancelled, message: ev.message || 'failed' })
     })
     start()
       .then(s => {
         const r = JSON.parse(s)
-        if (r.error) { off(); resolve({ ok: false, message: r.error }) }
+        if (r.error) { clearTimeout(watchdog); off(); resolve({ ok: false, message: r.error }) }
       })
-      .catch(e => { off(); resolve({ ok: false, message: String(e) }) })
+      .catch(e => { clearTimeout(watchdog); off(); resolve({ ok: false, message: String(e) }) })
+    arm()
   }).finally(() => { runningFixes.delete(lock) })
 }
 

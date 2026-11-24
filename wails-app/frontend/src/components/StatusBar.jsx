@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useMountedTimers } from '../lib/useMountedTimers'
 import { useTranslation } from 'react-i18next'
 import { History, UserCheck } from 'lucide-react'
 import { getHealth, subscribeHealth, summarize } from '../lib/health.js'
@@ -37,6 +38,7 @@ function HealthDot({ onOpen }) {
 }
 
 export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, onToggleHil, onOpenHealth }) {
+  const timers = useMountedTimers()
   const { t } = useTranslation()
   const running = stats?.executions_by_status?.RUNNING || 0
   const total   = stats?.total_workflows || 0
@@ -69,7 +71,7 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
           setUpdate({ available: true, latest: info.latest_version, url: info.release_url })
         } else {
           setUpdate({ upToDate: true })
-          setTimeout(() => setUpdate(null), 3000)
+          timers.timeout(() => setUpdate(null), 3000)
         }
       })
       .catch(e => setUpdate({ error: String(e) }))

@@ -1,4 +1,32 @@
 {
+  "coderMode": {
+    "riskTitle": "¿Activar el modo Coder?",
+    "confirmOn": "Activar el modo Coder",
+    "riskIntro": "En un chat Coder, el agente de programación que elijas (Claude Code, Codex, OpenCode, …) trabaja en tu equipo sin solicitudes de aprobación:",
+    "riskCommands": "Puede ejecutar cualquier comando, leer y modificar cualquier archivo que tu cuenta de usuario pueda, e instalar software.",
+    "riskSteer": "Las páginas web y los archivos de la carpeta elegida pueden contener instrucciones que lo dirijan. Apúntalo solo a carpetas y repositorios de confianza.",
+    "riskSetup": "Carga la configuración normal de ese agente: archivos de instrucciones (CLAUDE.md, AGENTS.md, GEMINI.md), skills, hooks y servidores MCP.",
+    "maxTurnsInvalid": "El máximo de turnos debe ser un número positivo",
+    "budgetInvalid": "El presupuesto debe ser una cantidad en dólares, o vacío para ninguno",
+    "saved": "Guardado. Los nuevos chats Coder usan estos ajustes."
+  },
+  "errorBoundary": {
+    "title": "Algo salió mal",
+    "reload": "Recargar la vista",
+    "copyDetails": "Copiar detalles",
+    "copied": "Copiado"
+  },
+  "orgConfirm": {
+    "deleteRoleBody": "¿Eliminar el rol \"{{name}}\"?",
+    "deleteRoleTitle": "Eliminar rol",
+    "deleteRoleConfirm": "Eliminar",
+    "revokeGrantBody": "¿Revocar el permiso de {{role}} sobre {{alias}}?",
+    "revokeGrantTitle": "Revocar permiso",
+    "revokeGrantConfirm": "Revocar",
+    "stopGroupBody": "¿Detener {{holding}} y los hijos iniciados con él?",
+    "stopGroupTitle": "Detener grupo",
+    "stopGroupConfirm": "Detener"
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Panel",
@@ -30,7 +58,18 @@
       "SYSTEM": "SISTEMA"
     },
     "showInFinder": "Mostrar en Finder",
-    "changeProfileFolder": "Cambiar la ubicación de la carpeta del perfil"
+    "changeProfileFolder": "Cambiar la ubicación de la carpeta del perfil",
+    "moveFolderBody": "Esto mueve toda la carpeta del perfil; los flujos de trabajo en ejecución pueden fallar. ¿Continuar?",
+    "moveFolderTitle": "Mover la carpeta del perfil",
+    "moveFolderConfirm": "Mover",
+    "moveFolderDone": "Carpeta del perfil movida a {{path}}",
+    "moveFolderFailed": "No se pudo mover la carpeta del perfil",
+    "switchFailed": "No se pudo cambiar de perfil",
+    "openFolderFailed": "No se pudo abrir la carpeta",
+    "mainNav": "Navegación principal",
+    "itemsBadge": "{{count}} elementos",
+    "dbConnected": "BD conectada",
+    "dbOffline": "BD sin conexión"
   },
   "newProfileModal": {
     "title": "Nuevo perfil",

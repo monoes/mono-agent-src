@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { X } from 'lucide-react'
 import { api } from '../services/api.js'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 // Read-only chronological log of every status update ever posted for a
 // person — no edit/delete affordance, matching the append-only data model.
@@ -9,11 +10,7 @@ export default function StatusHistoryModal({ personId, onClose }) {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   useEffect(() => {
     api.getPersonStatusHistory(personId).then(data => setEntries(data || [])).finally(() => setLoading(false))

@@ -3,6 +3,7 @@ import { X, ExternalLink, AlertTriangle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import * as WailsApp from '../wailsjs/go/main/App'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico'])
 const PDF_EXTS = new Set(['pdf'])
@@ -88,11 +89,7 @@ export default function FileViewerModal({ doc, onClose }) {
   const [error, setError] = useState(null)
   const kind = fileViewerKind(doc?.filename)
 
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose, !!doc)
 
   useEffect(() => {
     if (!doc || !kind) return

@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { Clock, X, LogIn } from 'lucide-react'
 import LogInToMonoesButton from '../library/LogInToMonoesButton.jsx'
 import { account, onAccountLogin } from '../../services/account.js'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 const bar = {
   display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, padding: '7px 16px',
@@ -55,11 +56,7 @@ export function GraceBanner({ status, onSignedIn }) {
 
 export function SignInDialog({ onClose, onSignedIn }) {
   const { t } = useTranslation()
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
   return (
     <div className="modal-overlay" style={{ zIndex: 1100 }} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="account-signin-title"

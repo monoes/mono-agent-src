@@ -11,11 +11,11 @@ const MAX_INSPECTED = 8192
 const SESSION_CHANGING = new Set(['AccountLogout', 'LibraryLogout'])
 
 // loginRequiredIn: a result that is {login_required: true} (an object, or the
-// CLI's JSON text) or text that begins with the gate's message.
+// CLI's JSON text). Plain text that merely starts with the gate's message is
+// not enough: a binding can return user-controlled text verbatim.
 export function loginRequiredIn(value) {
   if (typeof value === 'string') {
     if (value.length > MAX_INSPECTED) return false
-    if (LOGIN_FIRST.test(value)) return true
     if (!value.includes('login_required')) return false
     try { return JSON.parse(value)?.login_required === true } catch { return false }
   }

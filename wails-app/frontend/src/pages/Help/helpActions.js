@@ -1,14 +1,12 @@
 // Pure helpers behind the Help page's buttons. No React, no globals: the
 // caller passes App's navigate and the coder bubble store's openNewChat.
 
+import { PAGE_IDS } from '../../lib/pageIds.js'
+
 // Page ids App.jsx can route to (its persistentPages keys, minus the
 // conditional controlroom; detail pages need an id so are not link targets).
 // helpActions.test.js fails if App.jsx drifts from this list.
-export const KNOWN_PAGES = Object.freeze([
-  'dashboard', 'noderunner', 'people', 'communications', 'publication',
-  'connections', 'vault', 'secretsVault', 'applications', 'documents',
-  'info', 'tasks', 'ai', 'orgs', 'logs', 'settings', 'help',
-])
+export const KNOWN_PAGES = PAGE_IDS
 
 export const MAX_PROMPT_LENGTH = 4000
 

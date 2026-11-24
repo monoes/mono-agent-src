@@ -10,6 +10,7 @@ import ConfirmHost from './components/ConfirmDialog.jsx'
 import CoderBubbles from './components/bubbles/CoderBubbles.jsx'
 import { PersonItemsProvider, usePersonItemsValue } from './components/bubbles/PersonItemsContext.jsx'
 import { useCoderBubbles } from './components/bubbles/useCoderBubbles.js'
+import { PAGE_IDS, isNavigablePage } from './lib/pageIds.js'
 import { CoderBubbleContext } from './components/bubbles/CoderBubbleContext.jsx'
 import HistoryPanel from './components/history/HistoryPanel.jsx'
 import { useOrgBubbleWatch } from './components/bubbles/useOrgBubbleWatch.js'
@@ -46,6 +47,8 @@ import { isAgentNotSetup } from './lib/agentSetup.js'
 const maxInlinePreviewBytes = 25 * 1024 * 1024
 
 // banners: the account notices AccountApp hands the app to wear (components/account).
+export { PAGE_IDS }
+
 export default function App({ banners = null }) {
   const [activePage, setActivePage] = useState('dashboard')
   const [navData, setNavData] = useState(null) // extra data passed to a page (e.g., executionId)
@@ -106,9 +109,11 @@ export default function App({ banners = null }) {
   }, [])
 
   const navigate = useCallback((page, data) => {
+    if (!isNavigablePage(page)) { console.warn(`navigate: unknown page "${String(page)}"`); return }
     if (page !== 'postDetail') setPostId(null)
     if (page !== 'profile' && page !== 'postDetail') setProfileId(null)
-    setNavData(data || null)
+    // A fresh object each time, so navigating twice with identical data still re-fires pages keyed on navData.
+    setNavData(data ? { ...data } : null)
     // A link to a person (an ask's recipient) opens their profile.
     if (page === 'people' && data?.person) { setProfileId(data.person); setActivePage('profile'); return }
     if (page === 'orgs' && data?.org) setPendingOrgSelect({ name: data.org, tab: data.tab || 'overview', run: data.run })

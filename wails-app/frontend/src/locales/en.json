@@ -1,4 +1,32 @@
 {
+  "coderMode": {
+    "riskTitle": "Turn on Coder mode?",
+    "confirmOn": "Turn on Coder mode",
+    "riskIntro": "In a Coder chat, the coding agent you pick (Claude Code, Codex, OpenCode, …) works on your computer with no approval prompts:",
+    "riskCommands": "It can run any command, read and change any file your user account can, and install software.",
+    "riskSteer": "Web pages and files in the chosen folder can contain instructions that steer it. Only point it at folders and repos you trust.",
+    "riskSetup": "It loads that agent's normal setup: instructions files (CLAUDE.md, AGENTS.md, GEMINI.md), skills, hooks and MCP servers.",
+    "maxTurnsInvalid": "Max turns must be a positive number",
+    "budgetInvalid": "Budget must be a number of dollars, or empty for none",
+    "saved": "Saved. New coder chats use these settings."
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "reload": "Reload view",
+    "copyDetails": "Copy details",
+    "copied": "Copied"
+  },
+  "orgConfirm": {
+    "deleteRoleBody": "Delete role \"{{name}}\"?",
+    "deleteRoleTitle": "Delete role",
+    "deleteRoleConfirm": "Delete",
+    "revokeGrantBody": "Revoke {{role}}'s grant to {{alias}}?",
+    "revokeGrantTitle": "Revoke grant",
+    "revokeGrantConfirm": "Revoke",
+    "stopGroupBody": "Stop {{holding}} and the children started with it?",
+    "stopGroupTitle": "Stop group",
+    "stopGroupConfirm": "Stop"
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Dashboard",
@@ -30,7 +58,18 @@
       "SYSTEM": "SYSTEM"
     },
     "showInFinder": "Show in Finder",
-    "changeProfileFolder": "Change profile folder location"
+    "changeProfileFolder": "Change profile folder location",
+    "moveFolderBody": "This moves the entire profile folder — workflows keep running may fail. Continue?",
+    "moveFolderTitle": "Move profile folder",
+    "moveFolderConfirm": "Move",
+    "moveFolderDone": "Profile folder moved to {{path}}",
+    "moveFolderFailed": "Failed to move profile folder",
+    "switchFailed": "Failed to switch profile",
+    "openFolderFailed": "Failed to open folder",
+    "mainNav": "Main navigation",
+    "itemsBadge": "{{count}} items",
+    "dbConnected": "DB connected",
+    "dbOffline": "DB offline"
   },
   "newProfileModal": {
     "title": "New profile",

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMountedTimers } from '../lib/useMountedTimers.js'
 import {
   X, RefreshCw, Building2, Circle, Network, Maximize2, Plus,
   Coins, GitBranch, ScrollText, ListTree, Play, Loader2, UserCheck, Gavel, Boxes,
@@ -167,6 +168,7 @@ function OpenAsBubbleButton({ orgName, compact = false }) {
 }
 
 export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pageActive = true, onNavigate, pendingSelectOrgName, onConsumePendingSelect }) {
+  const timers = useMountedTimers()
   // Effective openness: an embedded panel is open when its isOpen prop says
   // so; a page-mode panel (rendered by the Orgs page) stays mounted under
   // App.jsx's keep-alive navigation, so for it "open" additionally requires
@@ -483,18 +485,18 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
       if (payload.orgName === selected && tab === 'overview' && selectedRun === 'live') {
         if (payload.status === 'running') {
           let attempts = 0
-          const iv = setInterval(() => {
+          const iv = timers.interval(() => {
             attempts++
             loadTab(selected, 'overview')
             setStreamGeneration(g => g + 1)
-            if (attempts >= 6) clearInterval(iv)
+            if (attempts >= 6) timers.clear(iv)
           }, 600)
         } else {
           loadTab(selected, 'overview')
         }
       }
     })
-  }, [selected, tab, selectedRun, loadTab])
+  }, [selected, tab, selectedRun, loadTab, timers])
 
   const handleRunOrg = useCallback(async () => {
     if (!selected) return
@@ -575,10 +577,10 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
     const scroll = () => {
       const el = document.getElementById('settings-jev')
       if (el) el.scrollIntoView({ block: 'start' })
-      else if (++tries < 20) setTimeout(scroll, 50)
+      else if (++tries < 20) timers.timeout(scroll, 50)
     }
-    setTimeout(scroll, 0)
-  }, [onNavigate])
+    timers.timeout(scroll, 0)
+  }, [onNavigate, timers])
 
   // Covers the case the listener above can't: this panel didn't exist yet
   // when the org was created (App.jsx's own top-level listener caught it
@@ -953,7 +955,7 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                             {events.length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>Waiting for events…</div>}
                             {events.filter(e => !isToolActivity(e)).map((e, i) => (
-                              <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px', overflowWrap: 'anywhere' }}>
+                              <div key={e.id ?? `${e.ts ?? ''}-${i}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px', overflowWrap: 'anywhere' }}>
                                 <span style={{ color: 'var(--cyan)' }}>{e.type}</span>{e.from ? ` ${e.from}→${e.to || '?'}` : ''}{e.subject ? `: ${e.subject}` : ''}{e.msg ? ` ${e.msg}` : ''}
                               </div>
                             ))}
@@ -982,7 +984,7 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                               {itemsOf(runDetail.logs).length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>No events recorded.</div>}
                               {itemsOf(runDetail.logs).filter(e => !isToolActivity(e)).map((e, i) => (
-                                <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px', overflowWrap: 'anywhere' }}>
+                                <div key={e.id ?? `${e.ts ?? ''}-${i}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px', overflowWrap: 'anywhere' }}>
                                   <span style={{ color: 'var(--cyan)' }}>{e.type}</span>{e.from ? ` ${e.from}→${e.to || '?'}` : ''}{e.subject ? `: ${e.subject}` : ''}{e.msg ? ` ${e.msg}` : ''}
                                 </div>
                               ))}
@@ -1031,7 +1033,7 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
                     : <>
                       <OrgToolActivity events={itemsOf(data.logs)} isLive={selectedRun === 'live'} runKey={`logs-${selectedRun}`} />
                       {itemsOf(data.logs).filter(e => !isToolActivity(e)).map((e, i) => (
-                      <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px' }}>
+                      <div key={e.id ?? `${e.ts ?? ''}-${i}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px' }}>
                         <span style={{ color: 'var(--cyan)' }}>{e.type}</span>{e.from ? ` ${e.from}→${e.to || '?'}` : ''}{e.subject ? `: ${e.subject}` : ''}
                       </div>
                     ))}

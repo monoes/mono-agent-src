@@ -118,7 +118,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
       // Reload the page to re-fetch all profile-scoped data.
       window.location.reload()
     } catch (e) {
-      setProfileError(e?.message || 'Failed to switch profile')
+      setProfileError(e?.message || t('sidebar.switchFailed'))
     }
   }
 
@@ -137,16 +137,16 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
       // outcome on the app toast bus rather than the dropdown's inline
       // error line (which closes with the dropdown and is easy to miss).
       const ok = await confirm(
-        'This moves the entire profile folder — workflows keep running may fail. Continue?',
-        { title: 'Move profile folder', confirmLabel: 'Move', danger: true },
+        t('sidebar.moveFolderBody'),
+        { title: t('sidebar.moveFolderTitle'), confirmLabel: t('sidebar.moveFolderConfirm'), danger: true },
       )
       if (!ok) return
       setMovingProfileID(id)
       await MoveProfileFolder(id, path)
-      notify('profile move', `Profile folder moved to ${path}`)
+      notify('profile move', t('sidebar.moveFolderDone', { path }))
       await loadProfiles()
     } catch (e) {
-      notify('profile move', e?.message || 'Failed to move profile folder')
+      notify('profile move', e?.message || t('sidebar.moveFolderFailed'))
     } finally {
       setMovingProfileID(null)
     }
@@ -156,7 +156,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
     try {
       await RevealProfileFolder(id)
     } catch (e) {
-      setProfileError(e?.message || 'Failed to open folder')
+      setProfileError(e?.message || t('sidebar.openFolderFailed'))
     }
   }
 
@@ -338,7 +338,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
         onCreated={handleProfileCreated}
       />
 
-      <nav className="sidebar-nav" aria-label="Main navigation">
+      <nav className="sidebar-nav" aria-label={t('sidebar.mainNav')}>
         {sections.map(section => (
           <div key={section}>
             <div className="nav-section-label">{t(`sidebar.section.${section}`)}</div>
@@ -365,7 +365,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
                     <span className="nav-badge" data-testid="nav-run-active">{t('sidebar.runActive')}</span>
                   )}
                   {badge != null && (
-                    <span className="nav-badge" aria-label={`${badge} items`}>{badge > 999 ? '999+' : badge}</span>
+                    <span className="nav-badge" aria-label={t('sidebar.itemsBadge', { count: badge })}>{badge > 999 ? '999+' : badge}</span>
                   )}
                 </div>
               )
@@ -379,7 +379,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
         <div className="db-status">
           <span className={`status-dot ${dbConnected ? 'connected pulse' : 'disconnected'}`} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {dbConnected ? 'DB connected' : 'DB offline'}
+            {dbConnected ? t('sidebar.dbConnected') : t('sidebar.dbOffline')}
           </span>
         </div>
       </div>
