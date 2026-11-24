@@ -477,6 +477,7 @@ function resolveSchema(node, liveSchemas) {
 }
 
 export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchemas, automationIds }) {
+  const { t } = useTranslation()
   const schema = resolveSchema(node, liveSchemas)
   const [copied, setCopied] = useState(false)
   const [connections, setConnections] = useState([])
@@ -540,7 +541,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
       }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label}</span>
-        <button onClick={onClose} aria-label="Close inspector" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}
+        <button onClick={onClose} aria-label={t('nodeRunner.inspector.close')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}
           onMouseEnter={e => e.currentTarget.style.color = '#fff'}
           onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
         ><X size={12} /></button>
@@ -552,7 +553,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
         {/* Credential dropdown — shown for platforms that require auth */}
         {pickerMode && (
           <>
-            <Label>{isBrowserPlatform ? 'SESSION' : 'CREDENTIAL'}</Label>
+            <Label>{isBrowserPlatform ? t('nodeRunner.inspector.session') : t('nodeRunner.inspector.credential')}</Label>
             <div style={{ marginBottom: 10 }}>
               <select
                 value={node.config?.credential_id ?? ''}
@@ -561,7 +562,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 style={selectStyle}
                 disabled={loadingCreds}
               >
-                <option value="">— None —</option>
+                <option value="">{t('nodeRunner.inspector.none')}</option>
                 {pickerMode === 'any'
                   ? <AnyPlatformConnections connections={connections} />
                   : connections.map(c => {
@@ -571,12 +572,12 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
               </select>
               {pickerMode === 'any' && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
-                  Any saved connection, grouped by platform. Optional.
+                  {t('nodeRunner.inspector.anyConnection')}
                 </div>
               )}
               {loadingCreds && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
-                  Loading…
+                  {t('nodeRunner.inspector.loading')}
                 </div>
               )}
               <button
@@ -589,7 +590,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
                 onMouseLeave={e => e.currentTarget.style.opacity = '1'}
               >
-                Manage credentials →
+                {t('nodeRunner.inspector.manageCredentials')}
               </button>
             </div>
           </>
@@ -601,13 +602,13 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
           if (fields.length === 0) {
             return (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
-                No config fields — this node runs with defaults.
+                {t('nodeRunner.inspector.noFields')}
               </div>
             )
           }
           return (
             <>
-              <Label>CONFIG</Label>
+              <Label>{t('nodeRunner.inspector.config')}</Label>
               {node.subtype === 'http.request' && (
                 <CurlImport
                   inputStyle={inputStyle}
@@ -663,7 +664,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                         rows={f.rows || 10}
                         value={val}
                         onChange={e => onConfigChange(node.id, f.key, e.target.value)}
-                        placeholder={f.placeholder || `// Enter ${f.language || ''} code here`}
+                        placeholder={f.placeholder || t('nodeRunner.inspector.codePlaceholder', { language: f.language || '' })}
                         spellCheck={false}
                         autoComplete="off"
                         autoCorrect="off"
@@ -696,7 +697,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                       {/* A value the options don't list (no default yet, or
                           an imported one) shows as itself, not as option one. */}
                       {!(f.options || []).map(String).includes(String(val)) && (
-                        <option value={val}>{val === '' ? '— choose —' : val}</option>
+                        <option value={val}>{val === '' ? t('nodeRunner.inspector.choose') : val}</option>
                       )}
                       {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
@@ -733,7 +734,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                       <input
                         type="text"
                         className="array-tag-input"
-                        placeholder={f.placeholder || 'Type and press Enter...'}
+                        placeholder={f.placeholder || t('nodeRunner.inspector.tagPlaceholder')}
                         style={inputStyle}
                         onKeyDown={e => {
                           if (e.key === 'Enter' && e.target.value.trim()) {
@@ -763,13 +764,13 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                       )}
                       {f.examples?.length > 0 && (
                         <div className="field-examples">
-                          <span className="field-examples-label">Examples — click to add</span>
+                          <span className="field-examples-label">{t('nodeRunner.inspector.examplesAdd')}</span>
                           {f.examples.map((ex, i) => (
                             <button
                               key={i}
                               type="button"
                               className="field-example"
-                              title="Add this prompt"
+                              title={t('nodeRunner.inspector.addPrompt')}
                               onClick={() => onConfigChange(node.id, f.key, [...arrValue, ex])}
                             >{ex}</button>
                           ))}
@@ -812,7 +813,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                                 marginBottom: 3, wordBreak: 'break-all',
                                 cursor: 'pointer',
                               }}
-                                title="Click to copy"
+                                title={t('nodeRunner.inspector.clickCopy')}
                                 onClick={() => {
                                   navigator.clipboard.writeText(ex)
                                 }}
@@ -872,7 +873,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                           style={{ ...inputStyle, flex: 1 }}
                         />
                         {media && <button
-                          title="Pick from Media Vault"
+                          title={t('nodeRunner.inspector.pickVault')}
                           onClick={() => setPickerField(f.key)}
                           style={{
                             background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 4,
@@ -892,7 +893,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                           boxShadow: '0 4px 16px rgba(0,0,0,0.5)', overflow: 'hidden', marginTop: 2,
                         }}>
                           <div style={{ padding: '3px 8px', background: '#111827', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#334155', textTransform: 'uppercase', letterSpacing: 1 }}>
-                            Vault Images
+                            {t('nodeRunner.inspector.vaultImages')}
                           </div>
                           {acMatches.map(img => (
                             <div
@@ -933,13 +934,13 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                     {inputEl}
                     {f.examples?.length > 0 && (
                       <div className="field-examples">
-                        <span className="field-examples-label">Examples — click to use</span>
+                        <span className="field-examples-label">{t('nodeRunner.inspector.examplesUse')}</span>
                         {f.examples.map((ex, i) => (
                           <button
                             key={i}
                             type="button"
                             className="field-example"
-                            title="Use this as the value"
+                            title={t('nodeRunner.inspector.useValue')}
                             onClick={() => onConfigChange(node.id, f.key, ex)}
                           >{ex}</button>
                         ))}
@@ -994,7 +995,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
           <>
             <div style={{ height: 1, background: 'rgba(0,180,216,0.08)', margin: '12px 0' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <Label style={{ marginBottom: 0 }}>OUTPUT</Label>
+              <Label style={{ marginBottom: 0 }}>{t('nodeRunner.inspector.output')}</Label>
               <div style={{ flex: 1 }} />
               {node.runStatus === 'ok' && (
                 <button
@@ -1003,27 +1004,27 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                   onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
                   onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
                 >
-                  <Copy size={9} /> {copied ? 'COPIED' : 'COPY'}
+                  <Copy size={9} /> {copied ? t('nodeRunner.inspector.copied') : t('nodeRunner.inspector.copy')}
                 </button>
               )}
             </div>
 
             {node.runStatus === 'running' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                <Loader size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> Running…
+                <Loader size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> {t('nodeRunner.inspector.running')}
               </div>
             )}
             {node.runStatus === 'waiting' && (
               <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 6, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Clock size={11} color="#f59e0b" />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#f59e0b' }}>WAITING — paused for human review</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#f59e0b' }}>{t('nodeRunner.inspector.waitingReview')}</span>
               </div>
             )}
             {node.runStatus === 'error' && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, padding: '8px 10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                   <AlertCircle size={11} color="#ef4444" />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#ef4444' }}>ERROR</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#ef4444' }}>{t('nodeRunner.inspector.errorLabel')}</span>
                 </div>
                 <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {withoutAgentSetupMarker(node.runError)}
@@ -1032,17 +1033,17 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
               </div>
             )}
             {node.runStatus === 'skipped' && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#6b7280', fontStyle: 'italic' }}>skipped — no items received from upstream nodes</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#6b7280', fontStyle: 'italic' }}>{t('nodeRunner.inspector.skipped')}</div>
             )}
             {node.runStatus === 'ok' && !node.runOutputs && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>no output items</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>{t('nodeRunner.inspector.noOutput')}</div>
             )}
             {node.runStatus === 'ok' && node.runOutputs?.map((out, oi) => (
               <div key={oi} style={{ marginBottom: 8 }}>
                 {node.runOutputs.length > 1 && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#00b4d8', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00b4d8' }} />
-                    {out.handle} · {out.items.length} item{out.items.length !== 1 ? 's' : ''}
+                    {out.handle} · {t('nodeRunner.canvas.items', { count: out.items.length })}
                   </div>
                 )}
                 {out.items.slice(0, 5).map((item, ii) => (
@@ -1057,7 +1058,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 ))}
                 {out.items.length > 5 && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', padding: '4px 0' }}>
-                    + {out.items.length - 5} more items
+                    {t('nodeRunner.inspector.moreItems', { count: out.items.length - 5 })}
                   </div>
                 )}
               </div>
