@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -210,6 +211,16 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 					return err
 				}
 				changed = keys
+				if st, gerr := cs.GetSettings(profileID, args[0]); gerr == nil && (st.ChatMode == coderhost.ChatModeMission || st.ChatMode == coderhost.ChatModeOpen) {
+					switched, err := ensureDynamicOrgForMission(cfg, args[0])
+					if err != nil {
+						db.Close()
+						return err
+					}
+					if switched {
+						fmt.Fprintln(cmd.ErrOrStderr(), dynamicOrgNotice)
+					}
+				}
 			}
 			if role != "" {
 				if parent != "" {

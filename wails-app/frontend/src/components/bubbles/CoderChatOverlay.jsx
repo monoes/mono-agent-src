@@ -119,7 +119,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   // A conversation's level counts once the backend has said it; a cached one is a hint only.
   const verify = useVerifiedAccess(bubble, store)
   const access = bubble.conversationId ? (bubble.verified ? bubble.access : '') : (setup.access || '')
-  const chatMode = useChatMode(bubble.conversationId, isCoderAccess(access), access)
+  const chatMode = useChatMode(bubble.conversationId, isCoderAccess(access), access, () => store.patchBubble(bubble.key, { orgMode: 'dynamic' }))
   chatModeRef.current = chatMode
   // What is typed here is steering, never a plain turn: in the chat of a run that is going (mode open, its boss open) it goes to
   // the boss behind the chat; in a boss's own conversation (opened from the orbit) it goes to the chat that boss stands behind.

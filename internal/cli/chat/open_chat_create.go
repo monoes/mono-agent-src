@@ -18,5 +18,9 @@ func CreateOpenChat(cmd *cobra.Command, cfg *Deps, runtimeID, model, cwd string)
 	if err != nil {
 		return "", err
 	}
+	// the open-ended boss needs the spawn tools, which only a Dynamic org turn has
+	if _, err := setOrgMode(cfg, conv.ID, ai.OrgModeDynamic); err != nil {
+		return "", err
+	}
 	return conv.ID, nil
 }

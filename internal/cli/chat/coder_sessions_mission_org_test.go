@@ -7,30 +7,61 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 )
 
-// The mission tools are wired only for a Dynamic org turn: `send --mission` on a solo chat used to be accepted and
-// do nothing but cost a prose plan (#1750). It is refused, and the reason names Dynamic org.
-func TestSendMissionOnASoloChatIsRefusedAndNamesDynamicOrg(t *testing.T) {
-	dbPath, conv, cfg := sendCoderDeps(t)
-	if err := openTestChatStore(t, dbPath).SetConversationOrgMode(conv, "default", ai.OrgModeSolo); err != nil {
+func orgModeOf(t *testing.T, dbPath, conv string) string {
+	t.Helper()
+	c, err := openTestChatStore(t, dbPath).GetConversation(conv, "default")
+	if err != nil {
 		t.Fatal(err)
 	}
+	return c.OrgMode
+}
+
+// The mission tools are wired only for a Dynamic org turn. `send --mission` on a solo chat used to be accepted and
+// do nothing (#1750), then was refused; now it switches Dynamic org on (the operator confirmed the mission), says so,
+// and queues the mission turn.
+func TestSendMissionOnASoloChatSwitchesDynamicOrgOn(t *testing.T) {
+	dbPath, conv, cfg := sendCoderDeps(t)
+	if got := orgModeOf(t, dbPath, conv); got != ai.OrgModeSolo {
+		t.Fatalf("the fixture chat is %q, want solo", got)
+	}
 	out, code := runSessionsCLI(t, cfg, "send", "--no-host", "--turn", "t-solo", "--mission", conv, "plan it")
-	if code == 0 || !strings.Contains(out, "Dynamic org") || !strings.Contains(out, "--org dynamic") {
-		t.Fatalf("a solo chat confirmed a mission: exit %d %s", code, out)
+	if code != 0 || !strings.Contains(out, "Dynamic org was switched on for this chat because a mission needs it") {
+		t.Fatalf("a mission on a solo chat: exit %d %s", code, out)
+	}
+	if got := orgModeOf(t, dbPath, conv); got != ai.OrgModeDynamic {
+		t.Fatalf("org mode after the mission send: %q", got)
 	}
 	cs, closeCS := confirmStore(t, dbPath)
 	defer closeCS()
-	if n := cs.PendingFor("default", conv); n != 0 {
-		t.Fatalf("the refused send was queued: %d", n)
+	if n := cs.PendingFor("default", conv); n != 1 {
+		t.Fatalf("the mission turn was not queued: %d", n)
 	}
-	if err := openTestChatStore(t, dbPath).SetConversationOrgMode(conv, "default", ai.OrgModeDynamic); err != nil {
-		t.Fatal(err)
+	// Already dynamic: no switch, no notice.
+	out, code = runSessionsCLI(t, cfg, "send", "--no-host", "--turn", "t-dyn", "--mission", conv, "plan it again")
+	if code != 0 || strings.Contains(out, "switched on") {
+		t.Fatalf("a Dynamic org chat: exit %d %s", code, out)
 	}
-	if out, code := runSessionsCLI(t, cfg, "send", "--no-host", "--turn", "t-dyn", "--mission", conv, "plan it"); code != 0 {
-		t.Fatalf("a Dynamic org chat was refused: exit %d %s", code, out)
-	}
-	// A send without --mission is not affected by the org mode.
+}
+
+// A send without --mission leaves a solo chat solo.
+func TestPlainSendKeepsASoloChatSolo(t *testing.T) {
+	dbPath, conv, cfg := sendCoderDeps(t)
 	if out, code := runSessionsCLI(t, cfg, "send", "--no-host", "--turn", "t-plain", conv, "hello"); code != 0 {
 		t.Fatalf("plain send: exit %d %s", code, out)
+	}
+	if got := orgModeOf(t, dbPath, conv); got != ai.OrgModeSolo {
+		t.Fatalf("a plain send changed the org mode to %q", got)
+	}
+}
+
+// Choosing the Mission chat mode on a solo chat switches Dynamic org on too.
+func TestSettingsSetMissionChatModeSwitchesDynamicOrgOn(t *testing.T) {
+	dbPath, conv, cfg := sendCoderDeps(t)
+	out, code := runSessionsCLI(t, cfg, "settings", "set", conv, "--chat-mode", "mission")
+	if code != 0 {
+		t.Fatalf("settings set: exit %d %s", code, out)
+	}
+	if got := orgModeOf(t, dbPath, conv); got != ai.OrgModeDynamic {
+		t.Fatalf("org mode after choosing Mission: %q", got)
 	}
 }
