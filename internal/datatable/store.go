@@ -115,7 +115,7 @@ func (s *Store) CreateTable(ctx context.Context, name string, cols []Column) (Ta
 		cols = []Column{}
 	}
 	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM data_tables WHERE profile_id = ? AND name = ?`, s.profile, name).Scan(&n); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM data_tables WHERE profile_id = ? AND lower(name) = lower(?)`, s.profile, name).Scan(&n); err != nil {
 		return Table{}, err
 	}
 	if n > 0 {
@@ -126,6 +126,10 @@ func (s *Store) CreateTable(ctx context.Context, name string, cols []Column) (Ta
 	raw, _ := json.Marshal(cols)
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO data_tables (id, profile_id, name, columns, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		t.ID, s.profile, t.Name, string(raw), t.CreatedAt, t.UpdatedAt); err != nil {
+		// A concurrent create passed the check above; UNIQUE (profile_id, name) catches the exact-name race.
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return Table{}, fmt.Errorf("a data table named %q already exists", name)
+		}
 		return Table{}, fmt.Errorf("creating data table %q: %w", name, err)
 	}
 	return t, nil
@@ -223,7 +227,7 @@ func (s *Store) CountRows(ctx context.Context, t Table) (int, error) {
 		return 0, profiledir.ErrNoProfile
 	}
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM data_table_rows WHERE table_id = ?`, t.ID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM data_table_rows WHERE table_id = ? AND table_id IN (SELECT id FROM data_tables WHERE profile_id = ?)`, t.ID, s.profile).Scan(&n)
 	return n, err
 }
 
@@ -254,10 +258,15 @@ func (s *Store) DeleteTable(ctx context.Context, t Table) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM data_table_rows WHERE table_id = ?`, t.ID); err != nil {
+	// The table row goes first and decides: a Table of another profile's matches nothing, so its rows are left alone.
+	res, err := tx.ExecContext(ctx, `DELETE FROM data_tables WHERE id = ? AND profile_id = ?`, t.ID, s.profile)
+	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM data_tables WHERE id = ? AND profile_id = ?`, t.ID, s.profile); err != nil {
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: %q", ErrNotFound, t.Name)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM data_table_rows WHERE table_id = ?`, t.ID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -268,7 +277,7 @@ func (s *Store) ClearTable(ctx context.Context, t Table) (int64, error) {
 	if s.profile == "" {
 		return 0, profiledir.ErrNoProfile
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM data_table_rows WHERE table_id = ?`, t.ID)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM data_table_rows WHERE table_id = ? AND table_id IN (SELECT id FROM data_tables WHERE profile_id = ?)`, t.ID, s.profile)
 	if err != nil {
 		return 0, err
 	}
@@ -314,14 +323,10 @@ type querier interface {
 	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }
 
-func loadRows(ctx context.Context, q querier, t Table) ([]row, error) {
-	return loadRowsFor(ctx, q, t, Filter{})
-}
-
 // loadRowsFor loads the rows f can match. An equality on a text column narrows the read in SQL (json_extract), so a
 // workflow looping Upsert over N rows does not decode the whole table N times; the caller still applies f to what it gets.
-func loadRowsFor(ctx context.Context, q querier, t Table, f Filter) ([]row, error) {
-	query, args := `SELECT id, data, created_at, updated_at FROM data_table_rows WHERE table_id = ?`, []interface{}{t.ID}
+func loadRowsFor(ctx context.Context, q querier, profile string, t Table, f Filter) ([]row, error) {
+	query, args := `SELECT id, data, created_at, updated_at FROM data_table_rows WHERE table_id = ? AND table_id IN (SELECT id FROM data_tables WHERE profile_id = ?)`, []interface{}{t.ID, profile}
 	if col, val, ok := f.textEquality(t); ok {
 		query += ` AND json_extract(data, ?) = ?`
 		args = append(args, `$."`+col+`"`, val)
@@ -371,7 +376,7 @@ func (s *Store) Select(ctx context.Context, t Table, q Query) ([]map[string]inte
 			return nil, fmt.Errorf("column %q does not exist in data table %q", q.SortBy, t.Name)
 		}
 	}
-	rows, err := loadRowsFor(ctx, s.db, t, q.Filter)
+	rows, err := loadRowsFor(ctx, s.db, s.profile, t, q.Filter)
 	if err != nil {
 		return nil, err
 	}

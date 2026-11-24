@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -97,7 +96,24 @@ func (d *Database) UpsertPerson(person *Person) error {
 	return nil
 }
 
-// GetPerson retrieves a single person by ID. Returns nil when not found.
+// GetPersonInProfile is GetPerson for a person of the profile: nil when the id belongs to another profile.
+func (d *Database) GetPersonInProfile(profileID, id string) (*Person, error) {
+	if err := requireProfile(profileID); err != nil {
+		return nil, err
+	}
+	var one int
+	err := d.DB.QueryRow(`SELECT 1 FROM people WHERE id = ? AND profile_id = ?`, id, profileID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting person %s: %w", id, err)
+	}
+	return d.GetPerson(id)
+}
+
+// GetPerson retrieves a single person by ID, whatever profile it belongs to (GetPersonInProfile is the
+// scoped form). Returns nil when not found.
 func (d *Database) GetPerson(id string) (*Person, error) {
 	p := &Person{}
 	var fullName, imageURL, contactDetails, website, followerCount sql.NullString
@@ -184,87 +200,15 @@ func (d *Database) GetPersonByUsername(platformUsername, platform, profileID str
 	return p, nil
 }
 
-// ListPeople returns people optionally filtered by platform and a search term
-// (matched against platform_username and full_name). Pass empty strings to skip
-// filters. limit <= 0 defaults to 100.
-func (d *Database) ListPeople(platform, search string, limit, offset int) ([]*Person, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	var conditions []string
-	var args []interface{}
-
-	if platform != "" {
-		conditions = append(conditions, "platform = ?")
-		args = append(args, platform)
-	}
-	if search != "" {
-		conditions = append(conditions, "(platform_username LIKE ? OR full_name LIKE ?)")
-		like := "%" + search + "%"
-		args = append(args, like, like)
-	}
-
-	query := `
-		SELECT id, COALESCE(platform_username, ''), COALESCE(platform, ''), full_name, image_url,
-		       contact_details, website, COALESCE(content_count, 0), follower_count,
-		       COALESCE(following_count, 0), introduction, COALESCE(is_verified, 0), category, job_title,
-		       created_at, updated_at
-		FROM people`
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
-
-	rows, err := d.DB.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("listing people: %w", err)
-	}
-	defer rows.Close()
-
-	var people []*Person
-	for rows.Next() {
-		p := &Person{}
-		var fullName, imageURL, contactDetails, website, followerCount sql.NullString
-		var introduction, category, jobTitle sql.NullString
-		var isVerified, contentCount, followingCount sql.NullInt64
-
-		if err := rows.Scan(
-			&p.ID, &p.PlatformUsername, &p.Platform, &fullName, &imageURL,
-			&contactDetails, &website, &contentCount, &followerCount,
-			&followingCount, &introduction, &isVerified, &category, &jobTitle,
-			&p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scanning person row: %w", err)
-		}
-
-		p.FullName = fullName.String
-		p.ImageURL = imageURL.String
-		p.ContactDetails = contactDetails.String
-		p.Website = website.String
-		p.FollowerCount = followerCount.String
-		p.ContentCount = int(contentCount.Int64)
-		p.FollowingCount = int(followingCount.Int64)
-		p.Introduction = introduction.String
-		p.IsVerified = isVerified.Valid && isVerified.Int64 != 0
-		p.Category = category.String
-		p.JobTitle = jobTitle.String
-
-		people = append(people, p)
-	}
-	return people, rows.Err()
-}
-
-// DeletePerson removes a person by ID.
-// DeletePerson removes a person row. Knowledge-graph entries created for
+// DeletePerson removes a person row of the profile. Knowledge-graph entries created for
 // this person are intentionally left in place as a historical record —
 // there is no KG delete/rollback wired up here (out of scope).
-func (d *Database) DeletePerson(id string) error {
-	result, err := d.DB.Exec("DELETE FROM people WHERE id = ?", id)
+// A person of another profile is "not found".
+func (d *Database) DeletePerson(profileID, id string) error {
+	if err := requireProfile(profileID); err != nil {
+		return err
+	}
+	result, err := d.DB.Exec("DELETE FROM people WHERE id = ? AND profile_id = ?", id, profileID)
 	if err != nil {
 		return fmt.Errorf("deleting person %s: %w", id, err)
 	}
