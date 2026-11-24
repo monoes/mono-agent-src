@@ -73,6 +73,7 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	if err != nil {
 		return nil, err
 	}
+	r.copts.refuseInternal = workflow.AIAuthoredFrom(ctx)
 	var closeIdle func()
 	r.client, closeIdle = newHTTPClient(r.copts)
 	defer closeIdle()

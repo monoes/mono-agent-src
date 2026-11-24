@@ -127,10 +127,18 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 			return nil, fmt.Errorf("http.ssh: failed to parse known_hosts: %w", err)
 		}
 		hostKeyCallback = cb
-	} else {
-		log.Println("WARNING: http.ssh: host key verification is disabled (InsecureIgnoreHostKey). " +
-			"Set 'known_hosts' config field to a known_hosts file path to enable verification.")
+	} else if allow, _ := config["allow_unknown_host_key"].(bool); allow {
+		log.Println("WARNING: http.ssh: host key verification is disabled (allow_unknown_host_key). " +
+			"Leave it off, or set 'known_hosts', to have the host's key checked.")
 		hostKeyCallback = ssh.InsecureIgnoreHostKey() //nolint:gosec
+	} else {
+		// Trust on first use: the key a host shows the first time is remembered in
+		// ~/.monoagent/known_hosts, and a different key later is refused.
+		path, err := tofuKnownHostsPath()
+		if err != nil {
+			return nil, fmt.Errorf("http.ssh: %w (set 'known_hosts', or 'allow_unknown_host_key' to skip the check)", err)
+		}
+		hostKeyCallback = tofuHostKeyCallback(path)
 	}
 
 	sshConfig := &ssh.ClientConfig{

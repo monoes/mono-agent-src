@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/monoes/mono-agent/internal/dbconn"
+	"github.com/monoes/mono-agent/internal/fsconfine"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
@@ -109,6 +110,10 @@ func Register(ctx context.Context, db *sql.DB, src, source, workflowID, executio
 	vaultDir := VaultDir(db, profileID)
 	if strings.HasPrefix(absSrc, vaultDir+string(os.PathSeparator)) || absSrc == vaultDir {
 		return "", fmt.Errorf("vault.Register: src must not be inside the vault directory")
+	}
+
+	if fsconfine.SensitivePath(absSrc) {
+		return "", fmt.Errorf("vault.Register: %s is a credential or system-secret location and cannot be registered", src)
 	}
 
 	if inPlace, ok := profileFolderPath(db, profileID, absSrc); ok {

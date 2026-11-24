@@ -86,11 +86,14 @@ func runPython(ctx context.Context, input workflow.NodeInput, config map[string]
 	cmd.Env = workflow.RunEnvFor(ctx, nodemgr.UserEnv(os.Environ()), input.ExecutionID) // what a workflow runs is never the operator
 	nodemgr.Isolate(cmd)
 	cmd.Stdin = bytes.NewReader(stdin)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout, stderr := &cappedBuffer{max: maxPythonOutputBytes}, &cappedBuffer{max: maxPythonOutputBytes}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	runErr := cmd.Run()
 	if ctx.Err() != nil {
 		return nil, workflow.ErrExecutionCancelled
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return nil, fmt.Errorf("code node: Python printed more than %d MB on stdout or stderr", maxPythonOutputBytes>>20)
 	}
 	if runCtx.Err() != nil {
 		return nil, fmt.Errorf("code node: execution timeout (%ds)", int(timeout/time.Second))

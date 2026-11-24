@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/monoes/mono-agent/internal/dbconn"
+	"github.com/monoes/mono-agent/internal/fsconfine"
 )
 
 // DocumentEntry is one row from vault_documents.
@@ -89,6 +90,10 @@ func RegisterDocument(ctx context.Context, db *sql.DB, src, source string, appli
 	absSrc, err := filepath.Abs(src)
 	if err != nil {
 		return "", fmt.Errorf("vault.RegisterDocument: invalid src path: %w", err)
+	}
+
+	if fsconfine.SensitivePath(absSrc) {
+		return "", fmt.Errorf("vault.RegisterDocument: %s is a credential or system-secret location and cannot be registered", src)
 	}
 
 	profileID, err := ProfileIDFromContext(ctx)

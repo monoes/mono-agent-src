@@ -64,6 +64,7 @@ func (n *GraphQLNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	if r.copts, err = parseClientOptions(config, "http.graphql"); err != nil {
 		return nil, err
 	}
+	r.copts.refuseInternal = workflow.AIAuthoredFrom(ctx)
 	var closeIdle func()
 	r.client, closeIdle = newHTTPClient(r.copts)
 	defer closeIdle()
