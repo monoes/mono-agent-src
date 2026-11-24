@@ -158,7 +158,10 @@ func (d *Database) ApplyMigrations() error {
 	// once) would each see the same pending set and race to apply it. A
 	// cross-process lock serialises them; the applied set is read after the
 	// lock is held, so the losers find everything already recorded.
-	if d.dbPath != "" && !strings.Contains(d.dbPath, ":memory:") {
+	// Nothing pending (a plain read, so a write-locked database still answers "busy" below): nothing
+	// to serialise, and a state directory that cannot be written does not fail the open.
+	pending, pendingErr := d.PendingMigrations(context.Background())
+	if d.dbPath != "" && !strings.Contains(d.dbPath, ":memory:") && (pendingErr != nil || len(pending) > 0) {
 		lf, err := os.OpenFile(d.dbPath+".migrate.lock", os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return fmt.Errorf("opening migration lock: %w", err)
