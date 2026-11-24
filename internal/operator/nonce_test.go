@@ -7,11 +7,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 func TestNonceOneTimeBoundAndOperatorOnly(t *testing.T) {
 	asOperator(t)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	if _, err := IssueNonce("org-sign", "growth:abc", false); err == nil {
 		t.Fatal("a non-interactive run issued a nonce")
@@ -52,7 +54,7 @@ func TestNonceOneTimeBoundAndOperatorOnly(t *testing.T) {
 func TestNonceExpiresAndStoresOnlyAHash(t *testing.T) {
 	asOperator(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	n, err := IssueNonce("p", "s", true)
 	if err != nil {
 		t.Fatal(err)

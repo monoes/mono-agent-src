@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 func TestValidateRootDirRefusesDirsThatWidenTheRoot(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	bad := map[string]string{
 		"empty":            "",
 		"relative":         "rel/dir",
@@ -37,8 +38,7 @@ func TestValidateRootDirRefusesDirsThatWidenTheRoot(t *testing.T) {
 
 func TestRootFallsBackToTheDefaultForAnInvalidStoredRootDir(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)

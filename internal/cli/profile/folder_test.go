@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 // TestValidateFolderChoiceAllowsNonEmptyFolders is a regression test for
@@ -93,8 +95,7 @@ func TestValidateFolderChoiceAllowsNonEmptyFolders(t *testing.T) {
 
 func TestValidateFolderChoiceRefusesFoldersThatAreTooWide(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	for name, dir := range map[string]string{
 		"filesystem root": string(filepath.Separator),
 		"home":            home,

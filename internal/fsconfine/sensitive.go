@@ -102,8 +102,10 @@ func homeSecret(home, p string) bool {
 		return true
 	}
 	if strings.HasPrefix(rel, ".monoagent/") {
-		// The profile folders are the user's own files.
-		return !strings.HasPrefix(rel, ".monoagent/profiles/")
+		// The profile folders are the user's own files, and so is the private (0700) folder the app writes the
+		// documents it generates into before it registers them (internal/documents scratchDir). A link out of
+		// either to a secret is judged by what it resolves to, not by where it sits.
+		return !strings.HasPrefix(rel, ".monoagent/profiles/") && !strings.HasPrefix(rel, ".monoagent/scratch/documents/")
 	}
 	return false
 }
