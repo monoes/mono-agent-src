@@ -45,8 +45,8 @@ type Recipe struct {
 	// hashes differently is not run. Empty when monomind sent none.
 	ScriptSHA256 string `json:"script_sha256,omitempty"`
 	// IgnoreScripts runs npm with --ignore-scripts (monomind says the package installs without them).
-	IgnoreScripts bool `json:"ignore_scripts,omitempty"`
-	Hint      string   `json:"hint"`                 // the original text
+	IgnoreScripts bool   `json:"ignore_scripts,omitempty"`
+	Hint          string `json:"hint"` // the original text
 }
 
 var (
