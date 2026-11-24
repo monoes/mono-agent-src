@@ -47,3 +47,37 @@ func TestDownloadFileChecksAndRenames(t *testing.T) {
 		t.Errorf("leftover partial files: %v", left)
 	}
 }
+
+// The model pin is a real digest, and a download whose bytes differ from it is refused.
+func TestU2netModelPinRejectsWrongBytes(t *testing.T) {
+	if len(u2netModelSHA256) != 64 {
+		t.Fatalf("u2netModelSHA256 = %q, want 64 hex characters", u2netModelSHA256)
+	}
+	if _, err := hex.DecodeString(u2netModelSHA256); err != nil {
+		t.Fatalf("u2netModelSHA256 is not hex: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("not the model")) }))
+	defer srv.Close()
+	dst := filepath.Join(t.TempDir(), "u2net.onnx")
+	if err := downloadFile(srv.URL, dst, 1<<20, 0, u2netModelSHA256); err == nil {
+		t.Fatal("wrong bytes accepted against the pinned model digest")
+	}
+	if _, err := os.Stat(dst); err == nil {
+		t.Fatal("rejected download was left under its final name")
+	}
+}
+
+// Every platform ortLibURL can select is a known key; each pin that is set is a real digest.
+// The ONNX Runtime pins could not be obtained (see the comment on ortArchiveSHA256), so a
+// missing one is allowed here; a malformed or unknown one is not.
+func TestOrtArchivePinsWellFormed(t *testing.T) {
+	known := map[string]bool{"linux/amd64": true, "darwin/arm64": true, "darwin/amd64": true}
+	for k, v := range ortArchiveSHA256 {
+		if !known[k] {
+			t.Errorf("pin for unknown platform %q", k)
+		}
+		if _, err := hex.DecodeString(v); err != nil || len(v) != 64 {
+			t.Errorf("pin for %s is not a 64-character hex digest: %q", k, v)
+		}
+	}
+}
