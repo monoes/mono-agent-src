@@ -41,11 +41,18 @@
       "type": "password"
     },
     {
-      "help": "Path to a known_hosts file used to verify the server's host key. If left blank, host key verification is disabled (insecure) and a warning is logged.",
+      "help": "Path to a known_hosts file used to verify the server's host key. If left blank, the key a host shows the first time is remembered in ~/.monoagent/known_hosts and a different key later is refused.",
       "key": "known_hosts",
       "label": "Known Hosts File",
       "required": false,
       "type": "text"
+    },
+    {
+      "help": "Turns host key verification off when no Known Hosts File is set (insecure: credentials go to whichever host answers).",
+      "key": "allow_unknown_host_key",
+      "label": "Allow Unknown Host Key",
+      "required": false,
+      "type": "boolean"
     },
     {
       "default": "command",
