@@ -114,7 +114,7 @@ func (a *App) keepOrgSignature(root string, sig orgsign.Pre, name, sha string) {
 		slog.Warn("org was not re-signed after this change", "org", name, "err", err)
 		return
 	}
-	out := a.rawCLI(orgCLITimeout, orgSignArgs(root, name, "--yes", "--expect-hash", want)...)
+	out := a.rawCLI(orgCLITimeout, orgSignArgs(root, name, orgSignYesArgs(name, want)...)...)
 	var res struct {
 		Error string `json:"error"`
 		Code  string `json:"code"`

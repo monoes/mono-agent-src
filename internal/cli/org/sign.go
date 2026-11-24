@@ -330,7 +330,7 @@ func confirmOrgSign(w io.Writer, in io.Reader, name, review string) bool {
 }
 
 // signNoncePurpose is the purpose a sign nonce is issued and consumed for.
-const signNoncePurpose = "org-sign"
+const signNoncePurpose = operator.OrgSignNoncePurpose
 
 // enforceSignNonceInTest turns the nonce rule on inside a test binary (the
 // fixtures sign with --yes and no terminal; same seam style as

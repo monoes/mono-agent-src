@@ -28,6 +28,10 @@ import (
 // NonceTTL is how long an issued nonce stays valid.
 const NonceTTL = 10 * time.Minute
 
+// OrgSignNoncePurpose is the purpose of the one-time nonce that lets a terminal-less `org sign --yes` through:
+// the CLI consumes it and the desktop app (the operator's own act) issues it.
+const OrgSignNoncePurpose = "org-sign"
+
 type nonceRecord struct {
 	Purpose string `json:"purpose"`
 	Subject string `json:"subject"`
