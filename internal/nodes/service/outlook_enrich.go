@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/attachments"
+	"github.com/monoes/mono-agent/internal/vault"
 )
 
 // downloadAttachmentsEnabled reports whether fetched messages should have
@@ -100,7 +102,7 @@ func downloadOutlookAttachments(ctx context.Context, accessToken, messageID stri
 			out = append(out, entry)
 			continue
 		}
-		path, werr := attachments.SaveDistinct(messageID, name, decoded, seen)
+		path, werr := saveOutlookAttachment(ctx, messageID, name, decoded, seen)
 		if werr != nil {
 			entry["error"] = werr.Error()
 			out = append(out, entry)
@@ -111,4 +113,26 @@ func downloadOutlookAttachments(ctx context.Context, accessToken, messageID stri
 		out = append(out, entry)
 	}
 	return out, nil
+}
+
+// saveOutlookAttachment keeps the file in the run's profile folder, so that
+// one profile's mail files are separate from another's and can be removed
+// with the message or pruned by age (R11-09). A context with no profile (a
+// bare helper call) writes the flat layout older syncs used.
+func saveOutlookAttachment(ctx context.Context, messageID, name string, data []byte, seen map[string]bool) (string, error) {
+	if profileID, ok := vault.ProfileIDInContext(ctx); ok {
+		return attachments.SaveForProfile(profileID, messageID, name, data, seen)
+	}
+	return attachments.SaveDistinct(messageID, name, data, seen)
+}
+
+// removeOutlookAttachments deletes the files kept for a message that was
+// deleted from the mailbox, in the profile layout and the older flat one.
+func removeOutlookAttachments(ctx context.Context, messageID string) error {
+	var errs []error
+	if profileID, ok := vault.ProfileIDInContext(ctx); ok {
+		errs = append(errs, attachments.RemoveMessage(profileID, messageID))
+	}
+	errs = append(errs, attachments.RemoveLegacyMessage(messageID))
+	return errors.Join(errs...)
 }

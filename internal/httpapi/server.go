@@ -140,6 +140,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	if !s.rt.hosted {
 		fmt.Fprintln(s.warnOut, standaloneWebhookWarning)
 	}
+	if s.opts.AllowMutations {
+		fmt.Fprintf(s.warnOut, "httpapi: mutating endpoints are ENABLED on %s (workflow run, activate, ...); clear MONOAGENT_HTTPAPI_ALLOW_MUTATIONS to serve read-only\n", ln.Addr())
+	}
 	if s.throttle != nil {
 		s.throttle.on = !tlsserve.IsLoopbackAddr(ln.Addr().String())
 	}

@@ -39,12 +39,13 @@ func TestInChain(t *testing.T) {
 func TestDescendsFromFailsClosedOnAnUnreadableChain(t *testing.T) {
 	orig := Chain
 	t.Cleanup(func() { Chain = orig })
+	self := os.Getpid()
 	Chain = func() ([]int, bool) { return []int{10}, false }
-	if DescendsFrom(77, "") {
+	if DescendsFrom(self, Stamp(self)) {
 		t.Error("an unreadable chain that does not show the process counted")
 	}
-	Chain = func() ([]int, bool) { return []int{10, 77}, false }
-	if !DescendsFrom(77, "") {
+	Chain = func() ([]int, bool) { return []int{10, self}, false }
+	if !DescendsFrom(self, Stamp(self)) {
 		t.Error("a partial chain that shows the process was refused")
 	}
 }

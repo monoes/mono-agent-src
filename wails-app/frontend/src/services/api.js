@@ -148,7 +148,14 @@ export const api = {
   getPersonInteractions:(id) => GoApp.GetPersonInteractions(id),
   getPersonPosts:   (personId) => GoApp.GetPersonPosts(personId).catch(guard('person posts', [])),
   getPersonMessages:(personId) => GoApp.GetPersonMessages(personId).catch(guard('person messages', [])),
-  getAllPersonMessages:(limit) => GoApp.GetAllPersonMessages(limit ?? 200).catch(guard('all messages', [])),
+  // filters {source, status, unread} are applied by the CLI, before the limit.
+  getAllPersonMessages:(limit, filters) => {
+    const { source = '', status = '', unread = false } = filters || {}
+    return (source || status || unread
+      ? GoApp.GetAllPersonMessagesFiltered(limit ?? 200, source, status, unread)
+      : GoApp.GetAllPersonMessages(limit ?? 200)
+    ).catch(guard('all messages', []))
+  },
   markPersonMessagesRead: (personId, ids = []) => GoApp.MarkPersonMessagesRead(personId || '', ids).catch(guard('mark messages read', null)),
   markPersonMessageUnread: (id) => GoApp.MarkPersonMessageUnread(id).catch(guard('mark message unread', null)),
   composePersonMessage:(personId, connectionId, subject, body, asDraft) => GoApp.ComposePersonMessage(personId, connectionId, subject, body, asDraft),

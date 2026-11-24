@@ -11,33 +11,14 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/attachments"
-)
-
-const (
-	// keepBackups and keepBackupsFor bound the pre-delete snapshots: one is
-	// removed only when it is neither among the newest keepBackups nor
-	// younger than keepBackupsFor.
-	keepBackups    = 3
-	keepBackupsFor = 30 * 24 * time.Hour
+	"github.com/monoes/mono-agent/internal/storage"
 )
 
 // pruneBackups removes the old pre-delete snapshots (paths oldest first, as
 // ProfileDeleteBackups lists them) except current, and returns how many.
 func pruneBackups(paths []string, current string, now time.Time) int {
-	removed := 0
-	for i, p := range paths {
-		if p == current || i >= len(paths)-keepBackups {
-			continue
-		}
-		fi, err := os.Stat(p)
-		if err != nil || now.Sub(fi.ModTime()) < keepBackupsFor {
-			continue
-		}
-		if os.Remove(p) == nil {
-			removed++
-		}
-	}
-	return removed
+	n, _ := storage.PruneProfileDeleteBackupFiles(paths, current, now)
+	return n
 }
 
 // attachmentPaths reads the files the messages' metadata list as saved

@@ -534,6 +534,10 @@ export function GetAllPersonMessages(arg1) {
   return window['go']['main']['App']['GetAllPersonMessages'](arg1);
 }
 
+export function GetAllPersonMessagesFiltered(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetAllPersonMessagesFiltered'](arg1, arg2, arg3, arg4);
+}
+
 export function GetAllProfilesRecentExecutions(arg1) {
   return window['go']['main']['App']['GetAllProfilesRecentExecutions'](arg1);
 }

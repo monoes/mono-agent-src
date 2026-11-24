@@ -165,6 +165,9 @@ type Env struct {
 	// binary's newest embedded one, and whether the database is ahead.
 	SchemaAhead func(ctx context.Context) (dbVersion, binaryVersion int, ahead bool, err error)
 
+	// ProfileBackupsSize reports how many pre-delete-profile snapshots there are and their bytes.
+	ProfileBackupsSize func() (count int, bytes int64, err error)
+
 	// WorkflowPublications reads the unfinished workflow changes; RecoverWorkflowPublications
 	// resolves the abandoned ones (what any command that opens the workflows does anyway) and
 	// returns how many it looked at.

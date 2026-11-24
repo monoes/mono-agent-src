@@ -243,6 +243,9 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	if s.opts.Grant == "" && workflowToolsRequested(s.opts.WorkflowTools) && (s.opts.TasksOnly || s.opts.APIOnly) {
 		return ErrWorkflowToolsWithNarrowMode
 	}
+	if s.opts.AllowMutations {
+		fmt.Fprintln(os.Stderr, "mcp: mutating tools are ENABLED (MONOAGENT_MCP_ALLOW_MUTATIONS or --allow-mutations); a connected client can change workflows, orgs and data")
+	}
 
 	// serveCtx is cancelled as soon as the read loop ends (client closed
 	// stdin) — handlers below receive it, so waitForExecution-style waits

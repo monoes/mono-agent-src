@@ -43,12 +43,13 @@ function VaultThumb({ id }) {
 // (audio, video, or a PDF or text file the extension saved): an icon and its
 // kind, no <img>.
 function FileThumb({ item }) {
+  const { t } = useTranslation()
   const kind = vaultKind(item)
   const Icon = kind === 'audio' ? Music : kind === 'video' ? Film : FileText
   return (
     <div
       role="img"
-      aria-label={`${kind || 'file'} ${item.label || item.filename}`}
+      aria-label={`${kind || t('mediaVaultBody.fileKind')} ${item.label || item.filename}`}
       title={item.label || item.filename}
       style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
@@ -121,11 +122,11 @@ export default function MediaVault({ isActive = true }) {
       setStats(st)
       setLoadError(null)
     } catch (e) {
-      setLoadError('Failed to load vault: ' + e)
+      setLoadError(t('mediaVaultBody.loadFailed', { error: String(e) }))
     } finally {
       setLoaded(true)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     load()
@@ -160,7 +161,7 @@ export default function MediaVault({ isActive = true }) {
       await WailsApp.AddVaultImage(path, '')
       load()
     } catch (e) {
-      setError('Upload failed: ' + e)
+      setError(t('mediaVaultBody.uploadFailed', { error: String(e) }))
     }
   }
 
@@ -174,12 +175,12 @@ export default function MediaVault({ isActive = true }) {
     const promises = files.map(async (file) => {
       const path = file.path
       if (!path) {
-        setError('Drag-drop path unavailable — use the Add Media button instead')
+        setError(t('mediaVaultBody.dropPathUnavailable'))
         return
       }
       await WailsApp.AddVaultImage(path, '')
     })
-    Promise.all(promises).then(load).catch(e => setError('Upload failed: ' + e))
+    Promise.all(promises).then(load).catch(e => setError(t('mediaVaultBody.uploadFailed', { error: String(e) })))
   }
 
   const handleDelete = async (id) => {
@@ -208,9 +209,9 @@ export default function MediaVault({ isActive = true }) {
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
         <div>
-          <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>Media Vault</div>
+          <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>{t('mediaVaultBody.title')}</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569' }}>
-            {stats ? `${stats.count} items · ${fmtBytes(stats.total_bytes)}` : loadError ? t('mediaVaultPage.unavailable') : 'loading…'}
+            {stats ? t('mediaVaultBody.summary', { count: stats.count, size: fmtBytes(stats.total_bytes) }) : loadError ? t('mediaVaultPage.unavailable') : t('mediaVaultBody.loadingShort')}
           </div>
         </div>
         <div style={{ flex: 1 }} />
@@ -219,7 +220,7 @@ export default function MediaVault({ isActive = true }) {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="search…"
+            placeholder={t('mediaVaultBody.searchPlaceholder')}
             style={{
               background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 5,
               padding: '5px 8px 5px 26px', color: '#e2e8f0',
@@ -237,7 +238,7 @@ export default function MediaVault({ isActive = true }) {
             display: 'flex', alignItems: 'center', gap: 5,
           }}
         >
-          <Plus size={12} /> Add Media
+          <Plus size={12} /> {t('mediaVaultBody.addMedia')}
         </button>
       </div>
 
@@ -250,7 +251,7 @@ export default function MediaVault({ isActive = true }) {
         transition: 'all 0.15s',
       }}>
         {!dropHasPaths() ? t('mediaVaultPage.noDrop')
-          : dragging ? 'Drop to add to vault' : 'Drop images, audio or video anywhere to add them to the vault'}
+          : dragging ? t('mediaVaultBody.dropNow') : t('mediaVaultBody.dropHint')}
       </div>
 
       {/* Error */}
@@ -268,12 +269,12 @@ export default function MediaVault({ isActive = true }) {
         letterSpacing: '1px', textTransform: 'uppercase',
       }}>
         <div style={{ width: 44 }} />
-        <div style={{ width: 72 }}>ID</div>
-        <div style={{ flex: 1 }}>Label / Filename</div>
-        <div style={{ width: 80 }}>Source</div>
-        <div style={{ width: 120, overflow: 'hidden' }}>Workflow</div>
-        <div style={{ width: 56 }}>Size</div>
-        <div style={{ width: 56 }}>Date</div>
+        <div style={{ width: 72 }}>{t('mediaVaultBody.colId')}</div>
+        <div style={{ flex: 1 }}>{t('mediaVaultBody.colLabel')}</div>
+        <div style={{ width: 80 }}>{t('mediaVaultBody.colSource')}</div>
+        <div style={{ width: 120, overflow: 'hidden' }}>{t('mediaVaultBody.colWorkflow')}</div>
+        <div style={{ width: 56 }}>{t('mediaVaultBody.colSize')}</div>
+        <div style={{ width: 56 }}>{t('mediaVaultBody.colDate')}</div>
         <div style={{ width: 28 }} />
       </div>
 
@@ -289,7 +290,7 @@ export default function MediaVault({ isActive = true }) {
           }}>
             <ImageIcon size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              {search ? 'Nothing matches your search' : 'Nothing here yet — run a workflow or drop images, audio or video here'}
+              {search ? t('mediaVaultBody.noMatch') : t('mediaVaultBody.empty')}
             </div>
           </div>
         )}
@@ -341,7 +342,7 @@ export default function MediaVault({ isActive = true }) {
                       const st = await WailsApp.GetVaultStats()
                       setStats(st)
                     } catch (_) {}
-                  } catch (err) { setError('Delete failed: ' + (err?.message || err)) }
+                  } catch (err) { setError(t('mediaVaultBody.deleteFailed', { error: err?.message || String(err) })) }
                 }}
                 aria-label={t('mediaVaultPage.deleteItem', { name: img.label || img.filename || img.id })}
                 title={t('mediaVaultPage.delete')}

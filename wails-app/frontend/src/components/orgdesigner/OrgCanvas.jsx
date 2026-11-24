@@ -123,37 +123,21 @@ import {
   buildTree, validateStructure,
   reportPath, elbowPath,
   topHandlePos, bottomHandlePos,
-  fitCamera,
 } from './orgGraph'
 import RoleNode from './RoleNode'
-import { roleActivity, RECENT_EDGE_MS } from './orgActivity.js'
+import { roleActivity } from './orgActivity.js'
 import { declaresFull } from './fullAccess.jsx'
 import { sectionRects, documentEdges } from './sectionsGraph.js'
 import { roleBadge } from './budgetModel.js'
-import { SectionBoxes, SectionEdges, useSectionDrags } from './SectionLayer.jsx'
+import { SectionBoxes, useSectionDrags } from './SectionLayer.jsx'
+import { messageEdgePath, liveEdgesFor } from './canvasLive.js'
+import useCanvasControls from './useCanvasControls.js'
+import CanvasEdgeLayer from './CanvasEdgeLayer.jsx'
 
-/** Curved message edge between two card centres, bowed so A→B and B→A separate. */
-export function messageEdgePath(a, b) {
-  const ax = a.x + NODE_W / 2, ay = a.y + NODE_H / 2
-  const bx = b.x + NODE_W / 2, by = b.y + NODE_H / 2
-  const mx = (ax + bx) / 2, my = (ay + by) / 2
-  const cx = mx - (by - ay) * 0.2
-  const cy = my + (bx - ax) * 0.2
-  return `M${ax},${ay} Q${cx},${cy} ${bx},${by}`
-}
+export { messageEdgePath, liveEdgesFor }
 
-/** Message edges between roles on this canvas, marked recent within RECENT_EDGE_MS of now. */
-export function liveEdgesFor(liveState, nodes, now) {
-  if (!liveState) return []
-  const byId = new Map(nodes.map(n => [n.id, n]))
-  return Object.values(liveState.edges || {})
-    .filter(e => byId.has(e.from) && byId.has(e.to) && e.from !== e.to)
-    .map(e => ({ ...e, path: messageEdgePath(byId.get(e.from), byId.get(e.to)), recent: now - e.lastTs <= RECENT_EDGE_MS }))
-}
 
 const GRID_SIZE = 28
-const ZOOM_MIN = 0.15
-const ZOOM_MAX = 2.5
 
 function edgeColorFor(parentNode) {
   return parentNode?.color || 'rgba(148,163,184,0.45)'
@@ -196,7 +180,6 @@ export default function OrgCanvas({
   staleRates = '', // monomind's own "stale rates" line, verbatim
 }) {
   const wrapperRef = useRef(null)
-  const [measured, setMeasured] = useState({ width: 0, height: 0 })
   const dragRef = useRef(null) // { type: 'canvas'|'node'|'edge', ... }
   const nodesRef = useRef(nodes)
   const cameraRef = useRef(camera)
@@ -284,67 +267,7 @@ export default function OrgCanvas({
     }
   }, [toWorld, onCameraChange, onNodesChange, onPendingEdgeChange, onEdgeCommit, onEdgeCycleRejected, onNodeDragEnd, pendingEdge])
 
-  // ── Container resize → re-render (ResizeObserver, not window resize) ────
-  const onViewportResizeRef = useRef(onViewportResize)
-  onViewportResizeRef.current = onViewportResize
-  useEffect(() => {
-    const el = wrapperRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect || el.getBoundingClientRect()
-      const next = { width: Math.round(rect.width), height: Math.round(rect.height) }
-      setMeasured(prev => (prev.width === next.width && prev.height === next.height ? prev : next))
-      onViewportResizeRef.current?.(next)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  // ── Wheel zoom, cursor-anchored, clamped ────────────────────────────────
-  useEffect(() => {
-    const el = wrapperRef.current
-    if (!el) return
-    const onWheel = (e) => {
-      e.preventDefault()
-      const factor = e.deltaY < 0 ? 1.1 : 0.9
-      const cam = cameraRef.current
-      const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.zoom * factor))
-      const rect = el.getBoundingClientRect()
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top
-      onCameraChange?.({
-        x: mx - (mx - cam.x) * (z / cam.zoom),
-        y: my - (my - cam.y) * (z / cam.zoom),
-        zoom: z,
-      })
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [onCameraChange])
-
-  // ── Keyboard: Cmd/Ctrl+0 reset, F fit, Space pan-force ──────────────────
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
-      if ((e.metaKey || e.ctrlKey) && e.key === '0') {
-        e.preventDefault()
-        onCameraChange?.({ x: 0, y: 0, zoom: 1 })
-      } else if (e.key === 'f' || e.key === 'F') {
-        const { width, height } = getViewport()
-        onCameraChange?.(fitCamera(nodesRef.current, width, height))
-      } else if (e.code === 'Space') {
-        spaceHeldRef.current = true
-      }
-    }
-    const onKeyUp = (e) => {
-      if (e.code === 'Space') spaceHeldRef.current = false
-    }
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-    }
-  }, [onCameraChange, getViewport])
+  const measured = useCanvasControls({ wrapperRef, cameraRef, nodesRef, spaceHeldRef, onCameraChange, onViewportResize, getViewport })
 
   // ── Native HTML5 DnD target for RolePalette drops ───────────────────────
   const handleDragOver = (e) => { e.preventDefault() }
@@ -486,36 +409,7 @@ export default function OrgCanvas({
             )}
 
             {/* SVG edge layer */}
-            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', zIndex: 1, pointerEvents: 'none' }}>
-              <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
-                {edges.map(ep => (
-                  <g key={ep.id}>
-                    <path d={ep.path} stroke={ep.color} strokeWidth={ep.width} fill="none" strokeOpacity={0.65} />
-                    <path d={ep.path} stroke={ep.color} strokeWidth={4} fill="none" strokeOpacity={0} style={{ pointerEvents: 'stroke' }} />
-                  </g>
-                ))}
-                {sections.length > 0 && (
-                  <SectionEdges rects={rects} edges={docEdges} pending={secDrag.pending} readOnly={readOnly} onRemove={onRemoveDocEdge} />
-                )}
-                {pendingPath && (
-                  <path d={pendingPath} stroke={pendingColor} strokeWidth={1.8} fill="none" strokeDasharray="5 4" strokeOpacity={0.8} />
-                )}
-                {liveEdges.map(e => (
-                  <g key={`live:${e.from}->${e.to}`} data-testid="live-edge" data-from={e.from} data-to={e.to} data-recent={e.recent ? '1' : '0'}>
-                    <path
-                      d={e.path}
-                      stroke={e.recent ? 'var(--green-neon, #22c55e)' : 'rgba(148,163,184,0.5)'}
-                      strokeWidth={e.recent ? 2.2 : 1}
-                      strokeOpacity={e.recent ? 0.9 : 0.25}
-                      strokeDasharray={e.recent ? '8 6' : '3 5'}
-                      fill="none"
-                      className={e.recent ? 'od-live-edge' : undefined}
-                    />
-                    <title>{`${e.from} → ${e.to}: ${e.count} message${e.count === 1 ? '' : 's'}${e.subject ? ` (last: ${e.subject})` : ''}`}</title>
-                  </g>
-                ))}
-              </g>
-            </svg>
+            <CanvasEdgeLayer camera={camera} edges={edges} sections={sections} rects={rects} docEdges={docEdges} secDragPending={secDrag.pending} readOnly={readOnly} onRemoveDocEdge={onRemoveDocEdge} pendingPath={pendingPath} pendingColor={pendingColor} liveEdges={liveEdges} />
 
             {/* HTML node layer */}
             <div style={{

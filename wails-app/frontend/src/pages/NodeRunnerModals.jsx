@@ -86,6 +86,8 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
   const [execsError, setExecsError] = useState('')
+  const [execsLoading, setExecsLoading] = useState(false)
+  const execsSeq = useRef(0)
   const [templates, setTemplates] = useState([])
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [usingTemplate, setUsingTemplate] = useState(null) // template id being instantiated
@@ -120,7 +122,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
       onClose()
     } catch (e) {
       setUsingTemplate(null)
-      notify('create workflow from template', e.message || e)
+      notify(t('nodeRunnerMore.op_createFromTemplate'), e.message || e)
     }
   }
 
@@ -131,8 +133,16 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
   }
 
   const showExecs = async (id) => {
-    setExecsFor(id); setExecsError('')
-    try { setExecs(await GetWorkflowExecutions(id)) } catch (e) { setExecs([]); setExecsError(e?.message || String(e)) }
+    const seq = ++execsSeq.current // two quick clicks: only the last answer lands
+    setExecsFor(id); setExecsError(''); setExecs([]); setExecsLoading(true)
+    try {
+      const rows = await GetWorkflowExecutions(id)
+      if (seq === execsSeq.current) setExecs(rows)
+    } catch (e) {
+      if (seq === execsSeq.current) { setExecs([]); setExecsError(e?.message || String(e)) }
+    } finally {
+      if (seq === execsSeq.current) setExecsLoading(false)
+    }
   }
 
   const errorRow = (msg, onRetry) => (
@@ -187,6 +197,9 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {execsFor ? (
+            execsLoading ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.loading')}</div>
+            ) :
             execsError ? errorRow(t('nodeRunner.modals.loadExecsFailed', { error: execsError }), () => showExecs(execsFor)) :
             execs.length === 0 ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.noExecs')}</div>
@@ -274,7 +287,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
                   // drop the row from the list when it was actually deleted.
                   onDelete(wf.id)
                     .then(deleted => { if (deleted) setList(l => l.filter(w => w.id !== wf.id)) })
-                    .catch(err => notify('delete workflow', t('nodeRunner.modals.deleteFailed', { error: err?.message || err })))
+                    .catch(err => notify(t('nodeRunnerMore.op_deleteWorkflow'), t('nodeRunner.modals.deleteFailed', { error: err?.message || err })))
                 }}
                 title={t('nodeRunner.modals.delete')}
                 style={{ background:'transparent',border:'none',cursor:'pointer',color:'rgba(239,68,68,0.4)',padding:4,display:'flex',alignItems:'center' }}

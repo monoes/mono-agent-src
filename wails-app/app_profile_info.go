@@ -102,7 +102,7 @@ func (a *App) RevealProfileInfo(key string) (string, error) {
 		return "", err
 	}
 	var out ProfileInfoData
-	if err := a.runMonoCLI("", &out, "profile", "info", "get", "--reveal"); err != nil {
+	if err := a.runMonoCLI("", &out, "profile", "info", "get", key, "--reveal"); err != nil {
 		return "", err
 	}
 	for _, e := range out.Entries {

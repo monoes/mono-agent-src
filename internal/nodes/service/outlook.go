@@ -209,7 +209,12 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		if _, err := outlookGraphRequest(ctx, "DELETE", outlookMessageURL(messageID, ""), accessToken, nil); err != nil {
 			return nil, fmt.Errorf("outlook_mail delete_message: %w", err)
 		}
-		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"status": "deleted", "message_id": messageID})}
+		deleted := map[string]interface{}{"status": "deleted", "message_id": messageID}
+		// The files kept for the mail go with it.
+		if err := removeOutlookAttachments(ctx, messageID); err != nil {
+			deleted["attachment_cleanup_error"] = err.Error()
+		}
+		items = []workflow.Item{workflow.NewItem(deleted)}
 
 	case "list_messages":
 		mailbox := strVal(config, "mailbox")

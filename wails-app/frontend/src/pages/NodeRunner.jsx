@@ -1253,7 +1253,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           clearInterval(iv)
           if (pollRef.current === iv) pollRef.current = null
           setRunning(false)
-          notify('run status', t('nodeRunner.run.lostContact', { id: execId }))
+          notify(t('nodeRunnerMore.op_runStatus'), t('nodeRunner.run.lostContact', { id: execId }))
         }
         return
       }
@@ -1298,7 +1298,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
       } catch (e) {
         console.error('Failed to load workflow from navData', e)
-        notify('load workflow', t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
+        notify(t('nodeRunnerMore.op_loadWorkflow'), t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
       }
     })()
     return () => { cancelled = true }
@@ -1613,13 +1613,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const tNode = nodesRef.current.find(n => n.id === targetNodeId)
     const label = (tNode?.subInputs || []).find(x => x.handle === handle)?.label || handle
     if (d.type === 'edge') {
-      notify('connect nodes', t('nodeRunner.run.rejectedAiInput', { label }))
+      notify(t('nodeRunnerMore.op_connectNodes'), t('nodeRunner.run.rejectedAiInput', { label }))
       return
     }
     const sNode = nodesRef.current.find(n => n.id === d.sourceNodeId)
     const check = checkSubConnection(sNode, tNode, handle, edgesRef.current)
     if (!check.ok) {
-      if (check.reason !== 'duplicate') notify('connect nodes', check.message)
+      if (check.reason !== 'duplicate') notify(t('nodeRunnerMore.op_connectNodes'), check.message)
       return
     }
     setEdges(prev => [...prev, { id: uid(new Set(prev.map(e => e.id))), ...subEdge(sNode.id, tNode.id, handle) }])
@@ -1629,7 +1629,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const completeEdge = (targetNodeId, targetPortIdx) => {
     if (dragRef.current?.type === 'subEdge') {
       dragRef.current = null; setPendingEdge(null)
-      notify('connect nodes', t('nodeRunner.run.rejectedSubToMain'))
+      notify(t('nodeRunnerMore.op_connectNodes'), t('nodeRunner.run.rejectedSubToMain'))
       return
     }
     if (!dragRef.current || dragRef.current.type !== 'edge') return
@@ -1641,7 +1641,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     // A cycle is allowed only as a loop closing into a Split In Batches node.
     const candidate = { source: sourceNodeId, sourcePortIdx, sourcePortId: sNode.outputs[sourcePortIdx]?.id, target: targetNodeId }
     if (hasForbiddenCycle(nodesRef.current, [...edges, candidate])) {
-      notify('connect nodes', t('nodeRunner.run.rejectedCycle'))
+      notify(t('nodeRunnerMore.op_connectNodes'), t('nodeRunner.run.rejectedCycle'))
       dragRef.current = null; setPendingEdge(null)
       return
     }
@@ -1666,7 +1666,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       try { failed = cancelFailed(await api.cancelWorkflow(execId)) } catch { failed = true }
       if (failed) {
         // The run was not cancelled: keep polling and the running state.
-        notify('stop run', t('nodeRunner.run.couldNotStop', { id: execId }))
+        notify(t('nodeRunnerMore.op_stopRun'), t('nodeRunner.run.couldNotStop', { id: execId }))
         return
       }
     }
@@ -1721,7 +1721,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       if (!wfId || isDirty) {
         const saved = await handleSave()
         if (!saved?.id) {
-          notify('run workflow', t('nodeRunner.run.autoSaveFailed'))
+          notify(t('nodeRunnerMore.op_runWorkflow'), t('nodeRunner.run.autoSaveFailed'))
           setRunning(false)
           return
         }
@@ -1756,7 +1756,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         const started = await api.runWorkflowWithInput(currentWfId, inputJSON)
         if (!started?.ok) {
           if (runTokenRef.current === runToken) setRunning(false)
-          reportRunFailure(started?.error || 'Run failed', {
+          reportRunFailure(started?.error || t('nodeRunnerMore.runFailed'), {
             activateAndRun: () => activateAndRun(currentWfId, inputJSON),
           })
           return
@@ -1766,7 +1766,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         if (runTokenRef.current !== runToken) return // superseded by a newer run
         if (!execId) {
           setRunning(false)
-          notify('run workflow', t('nodeRunner.run.stoppedEarly'))
+          notify(t('nodeRunnerMore.op_runWorkflow'), t('nodeRunner.run.stoppedEarly'))
           return
         }
 
@@ -1780,7 +1780,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     } catch (err) {
       console.error('Run failed', err)
       setRunning(false)
-      notify('run workflow', err?.message || String(err))
+      notify(t('nodeRunnerMore.op_runWorkflow'), err?.message || String(err))
     }
   }
   const startRunRef = useRef(startRun)
@@ -1792,7 +1792,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     try {
       await SetWorkflowActive(id, true)
     } catch (e) {
-      notify('activate workflow', e?.message || e)
+      notify(t('nodeRunnerMore.op_activateWorkflow'), e?.message || e)
       return
     }
     setWfActive(true)
@@ -1878,7 +1878,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       return true
     } catch (e) {
       console.error('Load failed', e)
-      notify('load workflow', t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
+      notify(t('nodeRunnerMore.op_loadWorkflow'), t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
     }
   }, [isDirty]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2293,6 +2293,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           onDelete={async (id) => {
             if (!(await confirm(t('nodeRunner.dialogs.deleteConfirm'), { title: t('nodeRunner.dialogs.deleteTitle'), confirmLabel: t('nodeRunner.dialogs.deleteLabel') }))) return false
             await DeleteWorkflow(id)
+            rememberTriggerInput(id, '') // the remembered run input goes with the workflow
             onWorkflowsChanged?.()
             if (id === wfId) {
               stopPolling()
@@ -2311,7 +2312,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           executionId={execOverlay.id}
           onSelectNode={(id) => { setSelectedId(id); setInspectorOpen(true) }}
           onClose={() => setProblemHidden(true)}
-          onSendToCoder={() => ({ goal: 'Work out why this workflow run failed and fix the workflow.', origin: { page: 'noderunner', label: 'Workflows' } })}
+          onSendToCoder={() => ({ goal: t('nodeRunnerMore.coderGoal'), origin: { page: 'noderunner', label: t('nodeRunnerMore.coderOrigin') } })}
         />
       )}
 

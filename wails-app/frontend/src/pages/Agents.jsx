@@ -143,8 +143,14 @@ function writeScanCache(res) {
 export default function Agents() {
   // Chat on a runtime opens a new chat bubble with that runtime picked.
   const { openNewChat } = useSendToCoder()
-  const onOpenChat = useCallback(runtimeId => openNewChat?.({ setup: { runtime: runtimeId } }), [openNewChat])
   const { t } = useTranslation()
+  // Outside the app shell nothing can open a bubble: say so instead of doing nothing.
+  const [chatNote, setChatNote] = useState('')
+  const onOpenChat = useCallback(runtimeId => {
+    if (typeof openNewChat !== 'function') { setChatNote(t('agentsChatFallback.unavailable')); return }
+    setChatNote('')
+    openNewChat({ setup: { runtime: runtimeId } })
+  }, [openNewChat, t])
   const cached = readScanCache()
   const [agents, setAgents] = useState(() => (cached && !cached.res?.error) ? (cached.res.agents || []) : [])
   const [scanError, setScanError] = useState(() => cached?.res?.error || null)
@@ -292,6 +298,7 @@ export default function Agents() {
             </div>
           ) : (
             <>
+              {chatNote && <div role="status" style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{chatNote}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
                 {agents.map(a => (
                   <RuntimeTile key={a.id} agent={a} onChat={onOpenChat} onInstall={onInstall} job={jobs[a.id]} />

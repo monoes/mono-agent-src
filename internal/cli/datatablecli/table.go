@@ -26,6 +26,9 @@ type Deps struct {
 	ProfileID func() string
 	// OpenDB opens (and migrates) the database the command is pointed at.
 	OpenDB func() (*storage.Database, error)
+	// RequireOperator refuses an agent: only the operator may delete a table (the CLI's
+	// requireOperator). Nil asks nothing.
+	RequireOperator func(what string) error
 }
 
 // NewCommand returns `table` with its subcommands.
@@ -264,9 +267,13 @@ func (d Deps) deleteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "delete <name|id>",
 		Short:   "Delete a data table and all its rows",
+		Long:    "Removes the table and every row in it, with no confirmation, so an agent is refused: it is the user's to run.",
 		Example: `  monoagentcli table delete Leads`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clicore.RequireOperator(d.RequireOperator, "delete the data table "+args[0]+" and all its rows"); err != nil {
+				return err
+			}
 			return d.withStore(func(s *datatable.Store) error {
 				t, err := d.find(cmd.Context(), s, args[0])
 				if err != nil {
