@@ -93,7 +93,7 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 	}
 	afterFirstTurnCheck()
 	// nothing may be waiting: the insert holds that bound (a concurrent caller cannot queue a second one)
-	c, _, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
+	c, _, err := queueBossTurn(cfg, profileID, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
 		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, coderhost.SendBounds{MaxPending: 1, NoTurnYet: true})
 	if errors.Is(err, coderhost.ErrTooManyWaiting) || errors.Is(err, coderhost.ErrTurnExists) {
 		return c, clicore.InvalidInput("a message already waits for the boss, or it already had its first turn: nothing was queued")
