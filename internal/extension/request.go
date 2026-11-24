@@ -88,6 +88,7 @@ const (
 	CodeBusy          = "busy"
 	CodeInternal      = "internal"
 	CodeAccountLocked = "account_locked" // no valid monoes.me login: see account_door.go
+	CodeForbidden     = "forbidden"      // the browser's token may not act for the profile the request names: see allowed_profiles.go
 )
 
 // requestTimeout bounds a handler that does not set its own. Generous
@@ -288,6 +289,14 @@ func (s *Server) serveRequest(c *extConn, msg []byte) {
 
 	if req.Method != MethodPing && accountRefuses() { // before the lookup: see account_door.go
 		s.replyError(c, req.ID, CodeAccountLocked, errAccountLocked)
+		return
+	}
+
+	// A restricted browser may act only for its allowed profiles: a request
+	// that names another one, or none at all, is refused before any handler
+	// (chat.send, vault.save, task add... all name their profile in params).
+	if req.Method != MethodPing && !c.servesNow(req.String("profile")) {
+		s.replyError(c, req.ID, CodeForbidden, fmt.Errorf("this browser's token may not act for profile %q: change what it may run with `monoagentcli extension browsers allow`", req.String("profile")))
 		return
 	}
 

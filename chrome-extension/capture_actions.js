@@ -365,6 +365,8 @@
     deps = d;
     chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       if (!msg || !HANDLERS[msg.type]) return false;
+      // Only this extension's own pages (the side panel): a content script on a site must not start or commit a capture.
+      if (!sender || sender.id !== chrome.runtime.id || !String(sender.url || "").startsWith(chrome.runtime.getURL(""))) return false;
       handle(msg).then(respond);
       return true; // async response
     });

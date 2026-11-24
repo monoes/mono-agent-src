@@ -29,6 +29,30 @@
     return;
   }
 
+  // The manifest can only match "any port on 127.0.0.1", so the port is
+  // checked here: a pairing page on any other port could be whatever listener
+  // a website steered the user to. Only the bridge's own ports (9222, and 9323
+  // where it falls back) and the port the user configured are adopted.
+  const storage = chrome.storage.local;
+  const known = typeof storage.get === "function" ? await storage.get(["wsUrl", "pairedWsUrl", "pairingToken"]).catch(() => ({})) : {};
+  const portOf = (url) => (/^[a-z]+:\/\/[^/:]+:(\d+)(?:[/?#]|$)/i.exec(String(url)) || [])[1] || "";
+  const allowedPorts = ["9222", "9323"];
+  if (known.wsUrl && portOf(known.wsUrl)) allowedPorts.push(portOf(known.wsUrl));
+  const thisPort = portOf(location.origin);
+  if (!allowedPorts.includes(thisPort)) {
+    report(false, `port ${thisPort} is not a MonoAgent bridge port (9222, 9323 or the configured one)`);
+    return;
+  }
+
+  // An existing pairing is replaced by one for a different bridge only after
+  // the person confirms it (asked before the nonce is spent).
+  const newWsUrl = location.origin.replace(/^http/, "ws") + "/monoagent";
+  const current = known.pairingToken ? known.pairedWsUrl || known.wsUrl || "ws://127.0.0.1:9222/monoagent" : "";
+  if (current && current !== newWsUrl && !window.confirm(`Replace this browser's MonoAgent pairing (${current}) with ${newWsUrl}?`)) {
+    report(false, "pairing cancelled: this browser is already paired with " + current);
+    return;
+  }
+
   let token;
   try {
     const res = await fetch(`${location.origin}/monoagent/pair/exchange?n=${encodeURIComponent(nonce)}`);
