@@ -3420,5 +3420,8 @@
   },
   "getStartedReopen": {
     "showAgain": "Show the get-started steps"
+  },
+  "agentsChatFallback": {
+    "unavailable": "The chat could not open from here. Open the Coder chat from the bubble dock instead."
   }
 }

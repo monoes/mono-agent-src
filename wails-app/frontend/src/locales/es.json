@@ -3420,5 +3420,8 @@
   },
   "getStartedReopen": {
     "showAgain": "Mostrar los pasos para empezar"
+  },
+  "agentsChatFallback": {
+    "unavailable": "El chat no se pudo abrir desde aquí. Abre el chat del Coder desde el dock de burbujas."
   }
 }
