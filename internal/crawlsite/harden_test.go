@@ -129,6 +129,23 @@ func TestBlockedAddressCoversThePrivateRanges(t *testing.T) {
 	}
 }
 
+// IPv6 transition ranges embed an IPv4 address (NAT64, 6to4, Teredo): one that
+// carries a private address must be refused like the address itself.
+func TestBlockedAddressCoversIPv6TransitionRanges(t *testing.T) {
+	for _, ip := range []string{
+		"64:ff9b::7f00:1",                      // NAT64 of 127.0.0.1
+		"64:ff9b::a9fe:a9fe",                   // NAT64 of 169.254.169.254
+		"64:ff9b:1::1",                         // local-use NAT64
+		"2002:7f00:1::1",                       // 6to4 of 127.0.0.1
+		"2002:c0a8:101::1",                     // 6to4 of 192.168.1.1
+		"2001:0:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+	} {
+		if err := checkDialAddress(net.JoinHostPort(ip, "80")); err == nil {
+			t.Errorf("%s should be refused", ip)
+		}
+	}
+}
+
 // TestCrawlRechecksRobotsAfterRedirect: a seed that robots allows must not
 // become a page robots forbids by way of a 302.
 func TestCrawlRechecksRobotsAfterRedirect(t *testing.T) {

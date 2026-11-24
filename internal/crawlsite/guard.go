@@ -40,6 +40,10 @@ var reservedBlocks = func() []*net.IPNet {
 		"203.0.113.0/24",  // TEST-NET-3
 		"240.0.0.0/4",     // reserved
 		"2001:db8::/32",   // documentation
+		"64:ff9b::/96",    // RFC 6052 NAT64: embeds an IPv4 address
+		"64:ff9b:1::/48",  // RFC 8215 local-use NAT64
+		"2002::/16",       // 6to4: embeds an IPv4 address
+		"2001::/32",       // Teredo: embeds an IPv4 address
 	} {
 		if _, block, err := net.ParseCIDR(cidr); err == nil {
 			out = append(out, block)
