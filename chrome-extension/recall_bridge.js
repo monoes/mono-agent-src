@@ -331,11 +331,23 @@
     return msg.url || "";
   }
 
+  // Messages only this extension's own pages (the side panel) may send. The
+  // highlight_* ones a content script on a page legitimately sends, and
+  // saved_get / ask_brain / ask_related are still open to any sender here
+  // (their tests send with no sender): see the report on r04-04.
+  const PANEL_ONLY = new Set(["saved_open", "ask_ready", "highlight_pages"]);
+
+  /** fromExtensionPage: sent by one of this extension's own pages, not a content script on a site. */
+  function fromExtensionPage(sender) {
+    return !!sender && sender.id === chrome.runtime.id && String(sender.url || "").startsWith(chrome.runtime.getURL(""));
+  }
+
   function registerMessages() {
     chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       if (!msg || typeof msg.type !== "string") return false;
       const handler = handlers[msg.type];
       if (!handler) return false;
+      if (PANEL_ONLY.has(msg.type) && !fromExtensionPage(sender)) return false;
       handler(msg, sender)
         .then((result) => respond(result))
         .catch((err) => respond({ ok: false, error: err.message || String(err), code: err.code }));
