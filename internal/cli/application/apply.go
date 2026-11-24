@@ -24,6 +24,11 @@ func (d Deps) newApplyCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		Example: `  monoagentcli application apply 1c2e... --cv-data-file cv.json --cover-letter-data-file letter.json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// It opens the posting in the operator's real, logged-in browser, so it is the operator's alone,
+			// like `fill start`; an agent goes through the browser's own site-permission path instead.
+			if err := d.requireOperator("open an application's posting in your browser"); err != nil {
+				return err
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
