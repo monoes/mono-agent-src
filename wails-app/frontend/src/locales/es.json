@@ -8,12 +8,31 @@
   "connectionsPage": {
     "stale": "No se pudo actualizar la lista; puede estar desactualizada."
   },
+  "mediaVaultPage": {
+    "confirmDelete": "¿Eliminar {{name}} de la bóveda? No se puede deshacer.",
+    "delete": "Eliminar",
+    "deleteItem": "Eliminar {{name}}",
+    "loading": "Cargando la bóveda…",
+    "noDrop": "Soltar archivos no funciona en esta ventana: usa Añadir medio.",
+    "unavailable": "no disponible"
+  },
   "profilePage": {
     "confirmSend": "¿Enviar este correo ahora? Se enviará tal como está escrito.",
     "discard": "Descartar",
     "loadFailed": "No se pudo cargar: {{error}}",
     "send": "Enviar",
     "statusNotSaved": "La actualización de estado no se guardó."
+  },
+  "settingsPage": {
+    "activeConnections_one": "{{count}} conexión activa",
+    "activeConnections_other": "{{count}} conexiones activas",
+    "agentBrowserPermissions": "Permisos del navegador para agentes",
+    "aiTaskBudgets": "Presupuestos de tareas de IA",
+    "applicationInfo": "Información de la aplicación",
+    "assistantToolAccess": "Acceso a herramientas del asistente",
+    "browserExtension": "Extensión del navegador",
+    "coderMode": "Modo programador",
+    "dataExport": "Exportación de datos"
   },
   "sidebar": {
     "nav": {

@@ -8,12 +8,31 @@
   "connectionsPage": {
     "stale": "The list could not be refreshed and may be out of date."
   },
+  "mediaVaultPage": {
+    "confirmDelete": "Delete {{name}} from the vault? This cannot be undone.",
+    "delete": "Delete",
+    "deleteItem": "Delete {{name}}",
+    "loading": "Loading the vault…",
+    "noDrop": "Dropping files is not supported in this window: use Add Media.",
+    "unavailable": "unavailable"
+  },
   "profilePage": {
     "confirmSend": "Send this email now? It goes out as written.",
     "discard": "Discard",
     "loadFailed": "Could not load: {{error}}",
     "send": "Send",
     "statusNotSaved": "The status update was not saved."
+  },
+  "settingsPage": {
+    "activeConnections_one": "{{count}} active connection",
+    "activeConnections_other": "{{count}} active connections",
+    "agentBrowserPermissions": "Agent Browser Permissions",
+    "aiTaskBudgets": "AI Task Budgets",
+    "applicationInfo": "Application Info",
+    "assistantToolAccess": "Assistant Tool Access",
+    "browserExtension": "Browser Extension",
+    "coderMode": "Coder Mode",
+    "dataExport": "Data Export"
   },
   "sidebar": {
     "nav": {
