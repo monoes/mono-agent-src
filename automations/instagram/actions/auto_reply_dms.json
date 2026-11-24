@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "auto_reply_dms",
   "platform": "INSTAGRAM",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Reply to Instagram conversations: each item of selectedListItems is a conversation URL (/direct/t/<id>/) or a username (matched exactly in the inbox, else messaged directly). Each reply is verified. Without selectedListItems the action fails instead of doing nothing. If Instagram asks to turn on notifications or save your login, it answers \"Not Now\", which Instagram may remember for your account.",
   "sideEffects": "message",
   "visibility": ["account_preference_prompt"],
@@ -31,11 +31,6 @@
         "description": "End date for auto-replies (YYYY-MM-DD); informational, not read by the steps"
       },
       {
-        "name": "pollInterval",
-        "type": "number",
-        "description": "Seconds between polling for new messages; informational, not read by the steps"
-      },
-      {
         "name": "filterByKeyword",
         "type": "string",
         "default": "",
@@ -60,9 +55,10 @@
       {
         "name": "stopAfterReplies",
         "type": "number",
-        "default": 0,
-        "min": 0,
-        "description": "Stop after N total replies (0=unlimited)"
+        "default": 20,
+        "min": 1,
+        "max": 100,
+        "description": "Stop after N total replies in one run (default 20, hard max 100)"
       }
     ]
   },
@@ -143,6 +139,7 @@
     {
       "id": "process_conversations",
       "iterator": "selectedListItems",
+      "maxItems": "{{stopAfterReplies or 20}}",
       "indexVar": "reachedIndex",
       "maxItemsPerDay": "{{maxRepliesPerDay or 100}}",
       "steps": [
