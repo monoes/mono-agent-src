@@ -784,7 +784,6 @@ func TestQueueMovesOnFromNeedsYouAndFailures(t *testing.T) {
 	// With a cap of 1 ids[3] waits for ids[2]'s submit.
 	done := make(chan []Outcome, 1)
 	go func() { out, _ := q.Run(bg, ids); done <- out }()
-	time.Sleep(80 * time.Millisecond)
 	go person(r, ids[2:])
 	var out []Outcome
 	select {
@@ -834,7 +833,7 @@ func TestQueueStopsOnCancelAndReportsNotStarted(t *testing.T) {
 	ctx, cancel := context.WithCancel(bg)
 	done := make(chan []Outcome, 1)
 	go func() { out, _ := q.Run(ctx, ids); done <- out }()
-	time.Sleep(40 * time.Millisecond)
+	waitStarted(t, r, 1)
 	cancel()
 	var out []Outcome
 	select {
