@@ -28,7 +28,14 @@ type Database struct {
 	DB     *sql.DB
 	dbPath string
 	kg     kgSyncs
+	// migrationsApplied is how many migrations the last ApplyMigrations run applied itself, counted
+	// under the migration lock (see MigrationsApplied).
+	migrationsApplied int
 }
+
+// MigrationsApplied is how many schema migrations the last ApplyMigrations call on d applied: the
+// count of that run alone, so another process migrating at the same time is not counted in.
+func (d *Database) MigrationsApplied() int { return d.migrationsApplied }
 
 // kgSyncs tracks the knowledge-graph syncs a Database's upserts start in the
 // background. They read the database before their monomind process starts,
@@ -321,6 +328,7 @@ func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 	}
 
 	ranAny := false
+	d.migrationsApplied = 0
 	for _, m := range migrations {
 		if applied[m.version] {
 			continue
@@ -375,6 +383,7 @@ func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 
 		log.Printf("applied migration %03d (%s)", m.version, m.filename)
 		ranAny = true
+		d.migrationsApplied++
 	}
 	if ranAny {
 		logForeignKeyViolations(ctx, conn)

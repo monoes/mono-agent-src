@@ -5,7 +5,6 @@ package dbcli
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/profiledir"
@@ -56,7 +55,6 @@ func (d Deps) newMigrateCmd() *cobra.Command {
 		Short: "Apply pending database migrations and per-profile folder/vault migrations",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			before := countAppliedMigrations(clicore.ExpandPath(d.DBPath()))
 			db, err := d.OpenDB()
 			if err != nil {
 				return err
@@ -66,11 +64,8 @@ func (d Deps) newMigrateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			after := 0
-			_ = db.DB.QueryRow(`SELECT COUNT(*), COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&after, &res.SchemaVersion)
-			if after > before {
-				res.Applied = after - before
-			}
+			_ = db.DB.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&res.SchemaVersion)
+			res.Applied = db.MigrationsApplied()
 			if d.JSONOutput() {
 				return clicore.WriteJSONTo(cmd.OutOrStdout(), res)
 			}
@@ -82,22 +77,6 @@ func (d Deps) newMigrateCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// countAppliedMigrations is how many migrations the database at path has
-// recorded, 0 when it does not exist yet.
-func countAppliedMigrations(path string) int {
-	if _, err := os.Stat(path); err != nil {
-		return 0
-	}
-	db, err := storage.NewDatabase(path)
-	if err != nil {
-		return 0
-	}
-	defer db.Close()
-	var n int
-	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n)
-	return n
 }
 
 // migrateProfileFolders gives every profile its folder layout and moves its
