@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/hilsend"
 )
 
@@ -77,6 +78,11 @@ func (d Deps) newHILExpireCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if (len(args) == 0) == (olderDays <= 0) {
 				return d.InvalidInput("give card ids, or --older-than-days N, not both and not neither")
+			}
+			// The turn-aware gate, as the other converted verbs: a damaged turn record refuses as
+			// operator_only too, instead of surfacing the database error.
+			if why := clicore.OperatorRefusal(opgate.Refusal); why != "" {
+				return clicore.OperatorOnly("hil expire rejects pending sends so they can never be sent, which only the user decides: %s; run it yourself in your terminal or the app", why)
 			}
 			if err := clicore.RequireOperator(d.RequireOperator, "expire a send"); err != nil {
 				return err
