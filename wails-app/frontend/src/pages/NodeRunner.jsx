@@ -9,7 +9,7 @@ import {
 import * as WailsApp from '../wailsjs/go/main/App'
 import { api, notify, reportRunFailure, subscribeEvent } from '../services/api.js'
 import { LIVE_STATUSES } from '../lib/execStatus.js'
-import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed } from '../lib/runPoll.js'
+import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed, pollOutcome } from '../lib/runPoll.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { toggleActive, loadWorkflowChecked, openRunWorkflow } from '../lib/editorFailures.js'
 import ResourcePickerField from '../components/ResourcePickerField.jsx'
@@ -1237,29 +1237,28 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       // Tick gated on page visibility — a hidden window stops polling; the
       // next tick after returning visible picks the execution back up.
       if (!pageVisibleRef.current) return
-      try {
-        const detail = await api.getExecutionDetail(execId)
-        failures = nextPollFailures(failures, detail)
-        if (!detail) {
-          if (failures >= POLL_FAIL_LIMIT) {
-            clearInterval(iv)
-            if (pollRef.current === iv) pollRef.current = null
-            setRunning(false)
-            notify('run status', `Lost contact with run ${execId}. It may still be running: open it from Workflows > Executions to check.`)
-          }
-          return
-        }
-        applyExecDetail(detail)
-        const st = (detail.status || '').toUpperCase()
-        // WAITING (paused at a Human-in-Loop node) may resume after approval,
-        // so keep polling it alongside the active statuses.
-        if (st !== 'RUNNING' && st !== 'QUEUED' && st !== 'PENDING' && st !== 'WAITING') {
+      let detail = null
+      try { detail = await api.getExecutionDetail(execId) } catch (e) { console.error('Poll error', e) }
+      failures = nextPollFailures(failures, detail)
+      if (!detail) {
+        if (failures >= POLL_FAIL_LIMIT) {
           clearInterval(iv)
           if (pollRef.current === iv) pollRef.current = null
           setRunning(false)
-          setGlobalStatus(st === 'SUCCESS' || st === 'COMPLETED' ? 'ok' : st === 'SUCCESS_WITH_ERRORS' ? 'warning' : st === 'WAITING' ? 'waiting' : 'error')
+          notify('run status', `Lost contact with run ${execId}. It may still be running: open it from Workflows > Executions to check.`)
         }
-      } catch (e) { console.error('Poll error', e) }
+        return
+      }
+      applyExecDetail(detail)
+      // WAITING (paused at a Human-in-Loop node) may resume after approval,
+      // so pollOutcome keeps it live alongside the active statuses.
+      const outcome = pollOutcome(detail)
+      if (outcome.done) {
+        clearInterval(iv)
+        if (pollRef.current === iv) pollRef.current = null
+        setRunning(false)
+        setGlobalStatus(outcome.globalStatus)
+      }
     }, 2000)
     pollRef.current = iv
   }
@@ -1332,8 +1331,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         }
         if (cancelled) return
         applyExecDetail(detail)
-        const st = (detail.status || '').toUpperCase()
-        if (st === 'RUNNING' || st === 'QUEUED' || st === 'PENDING' || st === 'WAITING') {
+        if (!pollOutcome(detail).done) {
           setRunning(true)
           startExecPoll(detail.id)
         }
@@ -1351,7 +1349,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       try {
         const execs = await WailsApp.GetWorkflowExecutions(wfId, 3)
         if (cancelled || !execs?.length) return
-        const active = execs.find(e => { const s = (e.status||'').toUpperCase(); return s==='RUNNING'||s==='QUEUED'||s==='PENDING'||s==='WAITING' })
+        const active = execs.find(e => !pollOutcome(e).done)
         if (active && !cancelled) {
           setRunning(true)
           startExecPoll(active.id)

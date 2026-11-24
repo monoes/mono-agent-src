@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   notify: vi.fn(),
   save: vi.fn(),
   runWithInput: vi.fn(),
+  detail: vi.fn(),
+  handlers: {},
 }))
 const WF = { id: 'w1', name: 'Flow', is_active: true, nodes: [{ id: 'n1', node_type: 'core.noop', name: 'Noop', position_x: 10, position_y: 10, config: {} }], connections: [] }
 vi.mock('../wailsjs/go/main/App', () => new Proxy({
@@ -19,11 +21,11 @@ vi.mock('../wailsjs/go/main/App', () => new Proxy({
 }, { get: (t, k) => (k in t ? t[k] : k === '__esModule' ? false : k === 'then' ? undefined : () => Promise.resolve(null)), has: (t, k) => k in t || true }))
 vi.mock('../services/api.js', () => ({
   api: new Proxy({ runWorkflowWithInput: (...a) => h.runWithInput(...a) }, {
-    get: (t, k) => (k in t ? t[k] : () => Promise.resolve(k === 'getExecutionDetail' ? null : [])),
+    get: (t, k) => (k in t ? t[k] : k === 'getExecutionDetail' ? (...a) => h.detail(...a) : () => Promise.resolve([])),
   }),
   notify: (...a) => h.notify(...a),
   reportRunFailure: vi.fn(),
-  subscribeEvent: () => () => {},
+  subscribeEvent: (name, fn) => { h.handlers[name] = fn; return () => {} },
 }))
 
 import NodeRunner from './NodeRunner.jsx'
@@ -60,5 +62,22 @@ describe('NodeRunner run and save', () => {
     expect(screen.getByText('Saved')).toBeInTheDocument()
     await act(async () => { vi.advanceTimersByTime(2000) })
     expect(screen.queryByText('Saved')).toBeNull()
+  })
+
+  it('a poll whose reads keep throwing gives up and says so (D-07)', async () => {
+    h.runWithInput.mockResolvedValue({ ok: true })
+    h.detail.mockRejectedValue(new Error('cli gone'))
+    render(<NodeRunner onNavigate={() => {}} navData={null} />)
+    const run = await screen.findByTitle('Run all nodes')
+    await waitFor(() => expect(run).toBeEnabled())
+    vi.useFakeTimers()
+    fireEvent.click(run)
+    await act(async () => {})
+    await act(async () => { h.handlers['workflow:exec-started']({ execution_id: 'x1' }) })
+    for (let i = 0; i < 6; i++) await act(async () => { vi.advanceTimersByTime(2000) })
+    expect(h.notify).toHaveBeenCalledWith('run status', expect.stringContaining('Lost contact with run x1'))
+    const calls = h.detail.mock.calls.length
+    await act(async () => { vi.advanceTimersByTime(10000) })
+    expect(h.detail.mock.calls.length).toBe(calls)
   })
 })
