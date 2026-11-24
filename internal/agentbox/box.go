@@ -15,7 +15,8 @@ const (
 	// best effort, not a boundary.
 	Compat Mode = "compat"
 	// Strict makes the home directory, /tmp and /run empty and binds back only what
-	// the turn needs.
+	// the turn needs. It is strict, not isolation: the rest of the host filesystem stays
+	// readable (the root is mounted read-only) and the network is shared.
 	Strict Mode = "strict"
 )
 
