@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import '../i18n.js'
 import * as WailsApp from '../wailsjs/go/main/App'
 
 vi.mock('../wailsjs/go/main/App', () => ({
