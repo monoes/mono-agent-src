@@ -11,6 +11,8 @@ import { limiter } from '../lib/limiter.js'
 // must not start hundreds of processes at once.
 const loadThumb = limiter(4)
 import { onImagesChanged } from '../services/api.js'
+import { useTranslation } from 'react-i18next'
+import { confirm } from '../components/ConfirmDialog.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 
 function VaultThumb({ id }) {
@@ -92,7 +94,14 @@ const sourceBadge = (source) => {
   )
 }
 
+// Wails' WebKit sets File.path on a dropped file; a webview that does not
+// cannot hand the vault a path, so the hint says to use the button.
+const dropHasPaths = () => typeof File === 'undefined' || 'path' in File.prototype
+
 export default function MediaVault({ isActive = true }) {
+  const { t } = useTranslation()
+  const [loadError, setLoadError] = useState(null)
+  const [loaded, setLoaded] = useState(false)
   const [images, setImages] = useState([])
   const [stats, setStats] = useState(null)
   const [search, setSearch] = useState('')
@@ -110,8 +119,11 @@ export default function MediaVault({ isActive = true }) {
       ])
       setImages(imgs || [])
       setStats(st)
+      setLoadError(null)
     } catch (e) {
-      setError('Failed to load vault: ' + e)
+      setLoadError('Failed to load vault: ' + e)
+    } finally {
+      setLoaded(true)
     }
   }, [])
 
@@ -133,10 +145,10 @@ export default function MediaVault({ isActive = true }) {
 
   const filtered = search
     ? images.filter(img =>
-        img.id.includes(search) ||
+        String(img.id ?? '').toLowerCase().includes(search.toLowerCase()) ||
         (img.label || '').toLowerCase().includes(search.toLowerCase()) ||
-        img.filename.toLowerCase().includes(search.toLowerCase()) ||
-        img.source.includes(search)
+        (img.filename || '').toLowerCase().includes(search.toLowerCase()) ||
+        (img.source || '').toLowerCase().includes(search.toLowerCase())
       )
     : images
 
@@ -198,7 +210,7 @@ export default function MediaVault({ isActive = true }) {
         <div>
           <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>Media Vault</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569' }}>
-            {stats ? `${stats.count} items · ${fmtBytes(stats.total_bytes)}` : 'loading…'}
+            {stats ? `${stats.count} items · ${fmtBytes(stats.total_bytes)}` : loadError ? t('mediaVaultPage.unavailable') : 'loading…'}
           </div>
         </div>
         <div style={{ flex: 1 }} />
@@ -237,13 +249,14 @@ export default function MediaVault({ isActive = true }) {
         color: dragging ? '#00b4d8' : '#1e3a4f', textAlign: 'center',
         transition: 'all 0.15s',
       }}>
-        {dragging ? 'Drop to add to vault' : 'Drop images, audio or video anywhere to add them to the vault'}
+        {!dropHasPaths() ? t('mediaVaultPage.noDrop')
+          : dragging ? 'Drop to add to vault' : 'Drop images, audio or video anywhere to add them to the vault'}
       </div>
 
       {/* Error */}
-      {error && (
-        <div style={{ margin: '8px 20px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
-          {error}
+      {(error || loadError) && (
+        <div role="alert" style={{ margin: '8px 20px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
+          {error || loadError}
         </div>
       )}
 
@@ -266,7 +279,10 @@ export default function MediaVault({ isActive = true }) {
 
       {/* Rows */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !loaded && (
+          <div role="status" style={{ padding: 20, fontFamily: 'var(--font-mono)', fontSize: 12, color: '#334155' }}>{t('mediaVaultPage.loading')}</div>
+        )}
+        {filtered.length === 0 && loaded && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             height: 200, gap: 12, color: '#334155',
@@ -317,6 +333,7 @@ export default function MediaVault({ isActive = true }) {
               <button
                 onClick={async (e) => {
                   e.stopPropagation()
+                  if (!(await confirm(t('mediaVaultPage.confirmDelete', { name: img.label || img.filename || img.id }), { confirmLabel: t('mediaVaultPage.delete') }))) return
                   try {
                     await WailsApp.DeleteVaultImage(img.id)
                     setImages(prev => prev.filter(i => i.id !== img.id))
@@ -324,8 +341,10 @@ export default function MediaVault({ isActive = true }) {
                       const st = await WailsApp.GetVaultStats()
                       setStats(st)
                     } catch (_) {}
-                  } catch (err) { setError('Delete failed: ' + err) }
+                  } catch (err) { setError('Delete failed: ' + (err?.message || err)) }
                 }}
+                aria-label={t('mediaVaultPage.deleteItem', { name: img.label || img.filename || img.id })}
+                title={t('mediaVaultPage.delete')}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   color: '#4b5563', padding: 4, borderRadius: 3,

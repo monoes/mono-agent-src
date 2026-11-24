@@ -3372,5 +3372,50 @@
     "removeBody": "Remove the cap for {{name}}? Spend is no longer limited by it.",
     "removeLabel": "Remove cap",
     "keep": "Keep cap"
+  },
+  "agentsPage": {
+    "refreshFailed": "Could not refresh the list; showing the last known state. {{error}}"
+  },
+  "commsPage": {
+    "capped": "Showing the latest {{n}} messages. Counts and filters cover only these."
+  },
+  "connectionsPage": {
+    "stale": "The list could not be refreshed and may be out of date."
+  },
+  "infoPage": {
+    "filledReloadFailed": "The fill finished ({{count}} filled) but the list could not be reloaded. Refresh the page before filling again."
+  },
+  "logsPage": {
+    "live": "LIVE",
+    "log": "Log output"
+  },
+  "mediaVaultPage": {
+    "confirmDelete": "Delete {{name}} from the vault? This cannot be undone.",
+    "delete": "Delete",
+    "deleteItem": "Delete {{name}}",
+    "loading": "Loading the vault…",
+    "noDrop": "Dropping files is not supported in this window: use Add Media.",
+    "unavailable": "unavailable"
+  },
+  "profilePage": {
+    "confirmSend": "Send this email now? It goes out as written.",
+    "discard": "Discard",
+    "loadFailed": "Could not load: {{error}}",
+    "send": "Send",
+    "statusNotSaved": "The status update was not saved."
+  },
+  "settingsPage": {
+    "activeConnections_one": "{{count}} active connection",
+    "activeConnections_other": "{{count}} active connections",
+    "agentBrowserPermissions": "Agent Browser Permissions",
+    "aiTaskBudgets": "AI Task Budgets",
+    "applicationInfo": "Application Info",
+    "assistantToolAccess": "Assistant Tool Access",
+    "browserExtension": "Browser Extension",
+    "coderMode": "Coder Mode",
+    "dataExport": "Data Export"
+  },
+  "tasksPage": {
+    "shellCheckFailed": "Read-only: could not check whether an agent started this app ({{error}}). Restart the app to edit the board."
   }
 }

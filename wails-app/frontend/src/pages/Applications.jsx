@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Plus, ExternalLink } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
@@ -137,13 +137,18 @@ export default function Applications({ isActive = true, navData = null, onNaviga
     return next
   })
 
+  // Only the latest click may write the detail: a slow answer for an
+  // earlier row must not replace it.
+  const detailSeq = useRef(0)
   const openDetail = async (id) => {
+    const seq = ++detailSeq.current
     setSelectedId(id)
+    setDetail(null)
     try {
       const d = await WailsApp.GetApplication(id)
-      setDetail(d)
+      if (seq === detailSeq.current) setDetail(d)
     } catch (e) {
-      setError('Failed to load detail: ' + e)
+      if (seq === detailSeq.current) setError('Failed to load detail: ' + e)
     }
   }
 

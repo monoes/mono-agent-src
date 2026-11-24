@@ -1,7 +1,7 @@
 // The at-a-glance home. Every number comes from the CLI — `summary`,
 // `org summary`, `workflow list` and `workflow executions --all` (see
 // dashboard/useDashboardData.js); this page only lays the cards out.
-import { useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, GitBranch } from 'lucide-react'
 import { api, reportRunFailure } from '../services/api.js'
@@ -56,10 +56,17 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
     [summary, orgs, health],
   )
 
+  // Timers started here must not outlive the page (it can be hidden mid-run).
+  const timers = useRef(new Set())
+  useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear() }, [])
+  const later = (fn, ms) => {
+    const id = setTimeout(() => { timers.current.delete(id); fn() }, ms)
+    timers.current.add(id)
+  }
   const handleRefresh = async () => {
     setRefreshing(true)
     await Promise.all([onRefresh?.(), refresh()])
-    setTimeout(() => setRefreshing(false), 400)
+    later(() => setRefreshing(false), 400)
   }
   // Optimistic status flips so the row reacts at once; the next poll corrects it.
   const handleRun = async (id) => {
@@ -72,12 +79,12 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
       })
       return
     }
-    setTimeout(reloadLists, 1500)
+    later(reloadLists, 1500)
   }
   const handleStop = async (executionId) => {
     setExecutions(prev => prev.map(e => (e.id === executionId ? { ...e, status: 'CANCELLED' } : e)))
     await api.cancelWorkflow(executionId)
-    setTimeout(reloadLists, 500)
+    later(reloadLists, 500)
   }
   const handleToggle = async (id, active) => {
     await api.setWorkflowActive(id, active)

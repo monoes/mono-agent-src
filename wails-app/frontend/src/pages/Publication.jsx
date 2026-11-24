@@ -117,7 +117,7 @@ export default function Publication({ isActive = true, profileId, onNavigate }) 
             </div>
           </button>)}
         </div>}
-      {!loading && !error && <div className="pub-pager">
+      {!loading && (!error || offset > 0) && <div className="pub-pager">
         <button className="btn btn-ghost btn-sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>{t('publication.previous')}</button>
         <span>{t('publication.page', { page: Math.floor(offset / pageSize) + 1 })}</span>
         <button className="btn btn-ghost btn-sm" disabled={!hasNext} onClick={() => setOffset(offset + pageSize)}>{t('publication.next')}</button>

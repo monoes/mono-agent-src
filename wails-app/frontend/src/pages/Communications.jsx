@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, Mail } from 'lucide-react'
 import { api } from '../services/api.js'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
@@ -7,6 +7,8 @@ import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '../components/CommsLinks.jsx'
 import { STATUS_FILTERS, messageStatus, isPending, hilRefOf, matchesStatusFilter, onCommsChanged } from '../lib/commsStatus.js'
+
+const FETCH_LIMIT = 200
 
 export default function Communications({ onProfile, isActive = true, onOpenHil, navData }) {
   const { t } = useTranslation()
@@ -23,23 +25,23 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
   const [personFilter, setPersonFilter] = useState('')
   useEffect(() => { setPersonFilter(navData?.person || '') }, [navData])
 
-  const load = async (opts) => {
+  const load = useCallback(async (opts) => {
     if (opts?.silent !== true) setLoading(true)
     try {
       setError(null)
-      const data = await api.getAllPersonMessages(200)
+      const data = await api.getAllPersonMessages(FETCH_LIMIT)
       setMessages(data || [])
     } catch (e) {
       setError(e?.message || 'Failed to load messages')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [load])
   useReloadOnActivate(isActive, () => load({ silent: true }))
   // Approving or rejecting a HIL item elsewhere changes a row here.
-  useEffect(() => onCommsChanged(() => load({ silent: true })), [])
+  useEffect(() => onCommsChanged(() => load({ silent: true })), [load])
   useEffect(() => { if (focusRef) setStatusFilter('all') }, [focusRef])
 
   const sources = [...new Set(messages.map(m => m.source).filter(Boolean))]
@@ -58,7 +60,10 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
     if (!isUnread(msg)) return
     const now = new Date().toISOString()
     setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, read_at: now } : m)))
-    api.markPersonMessagesRead('', [msg.id])
+    // The CLI owns the state: when it refuses, put the dot back.
+    Promise.resolve(api.markPersonMessagesRead('', [msg.id])).catch(() => {
+      setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, read_at: msg.read_at } : m)))
+    })
   }
 
   return (
@@ -76,6 +81,11 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
       </div>
 
       <div className="page-body">
+        {messages.length >= FETCH_LIMIT && (
+          <div role="status" data-testid="comms-capped" style={{ marginBottom: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+            {t('commsPage.capped', { n: FETCH_LIMIT })}
+          </div>
+        )}
         {personFilter && (
           <div className="profile-summary-chips" style={{ marginBottom: 12 }}>
             <button type="button" className="summary-chip active" data-testid="clear-person-filter" onClick={() => setPersonFilter('')}>

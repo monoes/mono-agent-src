@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft, ExternalLink, CheckCircle, Globe, Mail, MapPin,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { isUnread, UnreadDot } from '../lib/unread.jsx'
 import { api, PLATFORM_COLORS, STATE_COLORS } from '../services/api.js'
+import { confirm } from '../components/ConfirmDialog.jsx'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
 import StatusHistoryModal from '../components/StatusHistoryModal.jsx'
 import { ExperienceSection, EducationSection, ProfileDetailsSection } from '../components/ProfileDetails.jsx'
@@ -135,13 +136,15 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
   const [posts, setPosts]       = useState([])
   const [open, setOpen]         = useState(false)
   const [loading, setLoading]   = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const { t } = useTranslation()
 
   useEffect(() => {
     api.getPersonPosts(personId).then(data => {
       const rows = data || []
       setPosts(rows)
       if (rows.length > 0) setOpen(true)
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch(e => setLoadError(e?.message || String(e))).finally(() => setLoading(false))
   }, [personId])
 
   return (
@@ -173,6 +176,10 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
           {loading ? (
             <div style={{ padding: '12px 0', textAlign: 'center' }}>
               <div className="spinner" style={{ width: 14, height: 14, margin: '0 auto' }} />
+            </div>
+          ) : loadError ? (
+            <div role="alert" style={{ padding: '12px 0', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)' }}>
+              {t('profilePage.loadFailed', { error: loadError })}
             </div>
           ) : posts.length === 0 ? (
             <div style={{
@@ -278,6 +285,9 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(null) // 'send' | 'draft'
   const [composeError, setComposeError] = useState(null)
+  const [draftError, setDraftError] = useState(null) // Send/Discard fail with the compose panel closed
+  const [loadError, setLoadError] = useState('')
+  const { t } = useTranslation()
   const [draftActionId, setDraftActionId] = useState(null) // message id being sent/rejected
   const [directionFilter, setDirectionFilter] = useState('all') // 'all' | 'inbound' | 'outbound'
 
@@ -292,7 +302,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   useEffect(() => {
     reload()
       .then(list => { if (list.some(isUnread)) api.markPersonMessagesRead(personId) })
-      .catch(() => {})
+      .catch(e => setLoadError(e?.message || String(e)))
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId])
@@ -308,6 +318,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
 
   const handleCompose = async (asDraft) => {
     if (!connectionId || !body.trim()) return
+    if (!asDraft && !(await confirm(t('profilePage.confirmSend'), { confirmLabel: t('profilePage.send') }))) return
     setSending(asDraft ? 'draft' : 'send')
     setComposeError(null)
     try {
@@ -325,12 +336,15 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   }
 
   const handleSendDraft = async (id) => {
+    // Sending is a real email: the drafted text goes out as it stands.
+    if (!(await confirm(t('profilePage.confirmSend'), { confirmLabel: t('profilePage.send') }))) return
     setDraftActionId(id)
+    setDraftError(null)
     try {
       await api.sendDraftPersonMessage(id)
       await reload()
     } catch (e) {
-      setComposeError(e?.message || String(e))
+      setDraftError(e?.message || String(e))
     } finally {
       setDraftActionId(null)
     }
@@ -338,11 +352,12 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
 
   const handleRejectDraft = async (id) => {
     setDraftActionId(id)
+    setDraftError(null)
     try {
       await api.rejectDraftPersonMessage(id)
       await reload()
     } catch (e) {
-      setComposeError(e?.message || String(e))
+      setDraftError(e?.message || String(e))
     } finally {
       setDraftActionId(null)
     }
@@ -469,6 +484,10 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
             <div style={{ padding: '12px 0', textAlign: 'center' }}>
               <div className="spinner" style={{ width: 14, height: 14, margin: '0 auto' }} />
             </div>
+          ) : loadError ? (
+            <div role="alert" style={{ padding: '12px 0', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)' }}>
+              {t('profilePage.loadFailed', { error: loadError })}
+            </div>
           ) : visibleMessages.length === 0 ? (
             <div style={{
               padding: '16px 0', textAlign: 'center',
@@ -548,18 +567,19 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                         onClick={e => { e.stopPropagation(); handleRejectDraft(msg.id) }}
                         disabled={draftActionId === msg.id}
                         style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}
-                      >{draftActionId === msg.id ? '…' : 'Discard'}</button>
+                      >{draftActionId === msg.id ? '…' : t('profilePage.discard')}</button>
                       <button
                         onClick={e => { e.stopPropagation(); handleSendDraft(msg.id) }}
                         disabled={draftActionId === msg.id}
                         style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}
-                      >{draftActionId === msg.id ? '…' : 'Send'}</button>
+                      >{draftActionId === msg.id ? '…' : t('profilePage.send')}</button>
                     </div>
                   )}
                 </div>
               ))}
             </div>
           )}
+          {draftError && <div role="alert" data-testid="draft-error" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#ef4444', marginTop: 6 }}>{draftError}</div>}
         </div>
       )}
 
@@ -582,6 +602,8 @@ function StatusSection({ personId, platformColor }) {
   const [loading, setLoading] = useState(true)
   const [text, setText]       = useState('')
   const [posting, setPosting] = useState(false)
+  const [postError, setPostError] = useState('')
+  const { t } = useTranslation()
   const [historyOpen, setHistoryOpen] = useState(false)
 
   const reload = () => api.getLatestPersonStatus(personId).then(setLatest)
@@ -596,12 +618,17 @@ function StatusSection({ personId, platformColor }) {
     const value = text.trim()
     if (!value || posting) return
     setPosting(true)
+    setPostError('')
     try {
       const created = await api.addPersonStatus(personId, value)
       if (created) {
         setLatest(created)
         setText('')
+      } else {
+        setPostError(t('profilePage.statusNotSaved'))
       }
+    } catch (e) {
+      setPostError(e?.message || String(e))
     } finally {
       setPosting(false)
     }
@@ -635,6 +662,7 @@ function StatusSection({ personId, platformColor }) {
           Post
         </button>
       </div>
+      {postError && <div role="alert" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#ef4444', marginTop: 6 }}>{postError}</div>}
 
       {historyOpen && (
         <StatusHistoryModal personId={personId} onClose={() => setHistoryOpen(false)} />
@@ -657,21 +685,25 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
   const [error, setError] = useState(null)
   const [filterType, setFilterType] = useState('')
 
+  const loadSeq = useRef(0)
   const load = async () => {
     if (!id) return
-    setLoading(true)
+    const seq = ++loadSeq.current
+    // Refresh keeps the page (and its open sections and drafts) on screen.
+    if (!person || person.id !== id) setLoading(true)
     try {
       setError(null)
       const [p, i] = await Promise.all([
         api.getPersonDetail(id),
         api.getPersonInteractions(id),
       ])
+      if (seq !== loadSeq.current) return
       setPerson(p)
       setInteractions(i || [])
     } catch (e) {
-      setError(e?.message || 'Failed to load profile')
+      if (seq === loadSeq.current) setError(e?.message || 'Failed to load profile')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }
 
@@ -737,7 +769,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
           )}
         </div>
         <div className="page-header-right">
-          <button className="btn btn-ghost btn-sm" onClick={load} style={{ gap: 5 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => load()} style={{ gap: 5 }}>
             <RefreshCw size={12} /> Refresh
           </button>
           {profileUrl && (

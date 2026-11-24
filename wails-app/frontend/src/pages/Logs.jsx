@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Terminal, Trash2, ArrowDown } from 'lucide-react'
 import RefreshButton from '../components/RefreshButton.jsx'
 import SendToCoderButton from '../components/SendToCoderButton.jsx'
@@ -13,6 +14,7 @@ const LEVEL_COLORS = {
 }
 
 export default function Logs({ logs, onClear, onRefresh }) {
+  const { t } = useTranslation()
   const endRef = useRef(null)
   const containerRef = useRef(null)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -108,7 +110,7 @@ export default function Logs({ logs, onClear, onRefresh }) {
           {autoScroll && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
               <span className="live-dot" />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--teal)' }}>LIVE</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--teal)' }}>{t('logsPage.live')}</span>
             </div>
           )}
         </div>
@@ -125,6 +127,8 @@ export default function Logs({ logs, onClear, onRefresh }) {
           <div
             ref={containerRef}
             onScroll={handleScroll}
+            role="log"
+            aria-label={t('logsPage.log')}
             className="log-terminal"
             style={{ flex: 1, minHeight: 0 }}
           >

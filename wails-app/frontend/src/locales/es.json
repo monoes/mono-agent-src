@@ -3372,5 +3372,50 @@
     "removeBody": "¿Quitar el límite de {{name}}? El gasto ya no estará limitado por él.",
     "removeLabel": "Quitar límite",
     "keep": "Mantener límite"
+  },
+  "agentsPage": {
+    "refreshFailed": "No se pudo actualizar la lista; se muestra el último estado conocido. {{error}}"
+  },
+  "commsPage": {
+    "capped": "Se muestran los últimos {{n}} mensajes. Los recuentos y filtros solo cubren estos."
+  },
+  "connectionsPage": {
+    "stale": "No se pudo actualizar la lista; puede estar desactualizada."
+  },
+  "infoPage": {
+    "filledReloadFailed": "El relleno terminó ({{count}} rellenados) pero no se pudo recargar la lista. Actualiza la página antes de volver a rellenar."
+  },
+  "logsPage": {
+    "live": "EN VIVO",
+    "log": "Salida del registro"
+  },
+  "mediaVaultPage": {
+    "confirmDelete": "¿Eliminar {{name}} de la bóveda? No se puede deshacer.",
+    "delete": "Eliminar",
+    "deleteItem": "Eliminar {{name}}",
+    "loading": "Cargando la bóveda…",
+    "noDrop": "Soltar archivos no funciona en esta ventana: usa Añadir medio.",
+    "unavailable": "no disponible"
+  },
+  "profilePage": {
+    "confirmSend": "¿Enviar este correo ahora? Se enviará tal como está escrito.",
+    "discard": "Descartar",
+    "loadFailed": "No se pudo cargar: {{error}}",
+    "send": "Enviar",
+    "statusNotSaved": "La actualización de estado no se guardó."
+  },
+  "settingsPage": {
+    "activeConnections_one": "{{count}} conexión activa",
+    "activeConnections_other": "{{count}} conexiones activas",
+    "agentBrowserPermissions": "Permisos del navegador para agentes",
+    "aiTaskBudgets": "Presupuestos de tareas de IA",
+    "applicationInfo": "Información de la aplicación",
+    "assistantToolAccess": "Acceso a herramientas del asistente",
+    "browserExtension": "Extensión del navegador",
+    "coderMode": "Modo programador",
+    "dataExport": "Exportación de datos"
+  },
+  "tasksPage": {
+    "shellCheckFailed": "Solo lectura: no se pudo comprobar si un agente inició esta app ({{error}}). Reinicia la app para editar el tablero."
   }
 }
