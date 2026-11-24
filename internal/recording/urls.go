@@ -64,7 +64,12 @@ func SanitizeURL(raw string) string {
 		frag := u.Fragment
 		if !(strings.HasPrefix(frag, "/") || strings.HasPrefix(frag, "!/")) || strings.ContainsAny(frag, "=?&") {
 			u.Fragment, u.RawFragment = "", ""
+		} else {
+			u.Fragment, u.RawFragment = redactPathTokens(frag), ""
 		}
+	}
+	if p := redactPathTokens(u.Path); p != u.Path {
+		u.Path, u.RawPath = p, ""
 	}
 	if u.RawQuery != "" {
 		u.RawQuery = redactQuery(u.RawQuery)
