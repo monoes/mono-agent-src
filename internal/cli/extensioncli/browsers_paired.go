@@ -72,7 +72,11 @@ func printPaired(out io.Writer, asJSON bool, rows []pairedRow, waiting int) erro
 		tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tLABEL\tBROWSER\tPAIRED\tMAY RUN")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%q\t%q\t%s\t%s\n", r.ID, r.Label, r.Agent, r.PairedAt, mayRun(r))
+			may := mayRun(r)
+			if !r.Restricted {
+				may += " [UNRESTRICTED: can claim any profile; limit it with `extension browsers allow`]"
+			}
+			fmt.Fprintf(tw, "%s\t%q\t%q\t%s\t%s\n", r.ID, r.Label, r.Agent, r.PairedAt, may)
 		}
 		if err := tw.Flush(); err != nil {
 			return err
