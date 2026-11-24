@@ -70,7 +70,16 @@ type KeyringStatusInfo struct {
 	FileKeyringAllowed bool                 `json:"file_keyring_allowed"`
 	FileKeyrings       []string             `json:"file_keyrings"` // ids with a file keyring: profile ids, and the account key's (monoes..account)
 	PassphraseFile     PassphraseFileStatus `json:"passphrase_file"`
+	// Notice is set when the file keyring's wrap protects nothing: its passphrase file sits in the
+	// same folder (and the same backups) as the wrapped key.
+	Notice string `json:"notice,omitempty"`
 }
+
+// passphraseBesideKeyNotice is KeyringStatusInfo.Notice for a passphrase file kept in the folder of
+// the keyrings it unlocks.
+const passphraseBesideKeyNotice = "the passphrase file is stored next to the wrapped key (same folder, same backups), " +
+	"so the passphrase wrap is cosmetic: anyone who can read ~/.monoagent can unlock the vault. " +
+	"Remove the passphrase file and type the passphrase at each prompt to make the wrap count."
 
 // KeyringStatus reports which key store the vault uses on this host and
 // whether a passphrase file is set up for the file keyring. It never
@@ -80,6 +89,9 @@ func KeyringStatus() KeyringStatusInfo {
 		FileKeyringAllowed: fileKeyringEnabled(),
 		FileKeyrings:       existingFileKeyrings(),
 		PassphraseFile:     passphraseFileStatus(),
+	}
+	if st.PassphraseFile.Exists && len(st.FileKeyrings) > 0 && filepath.Dir(st.PassphraseFile.Path) == filepath.Dir(defaultVaultDir()) {
+		st.Notice = passphraseBesideKeyNotice
 	}
 	keyringIOMu.Lock()
 	_, err := keyringGet(keyringService, keyringProbeAccount)
