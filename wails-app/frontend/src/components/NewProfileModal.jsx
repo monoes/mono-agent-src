@@ -42,7 +42,8 @@ export default function NewProfileModal({ open, onClose, onCreated }) {
     setError('')
     setBusy(false)
     ListMonomindProjects().then(list => setProjects(Array.isArray(list) ? list : [])).catch(() => setProjects([]))
-    setTimeout(() => nameRef.current?.focus(), 30)
+    const focusTimer = setTimeout(() => nameRef.current?.focus(), 30)
+    return () => clearTimeout(focusTimer)
   }, [open])
 
   useEffect(() => {

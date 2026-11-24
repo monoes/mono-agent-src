@@ -27,7 +27,8 @@ export default function ImagePickerModal({ onSelect, onClose }) {
     // The vault also holds files (PDFs, text the extension saved): only
     // images can be picked here.
     WailsApp.GetVaultImages(100).then(items => setImages((items || []).filter(isVaultImage))).catch(() => {})
-    setTimeout(() => searchRef.current?.focus(), 50)
+    const focusTimer = setTimeout(() => searchRef.current?.focus(), 50)
+    return () => clearTimeout(focusTimer)
   }, [])
 
   useEffect(() => {
