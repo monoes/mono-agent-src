@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
+import '../i18n.js'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { AnyPlatformConnections, CurlImport, resetPlatformNamesCache } from './NodeInspectorWidgets.jsx'
 import { api } from '../services/api.js'

@@ -4,6 +4,7 @@
 // nodeInspectorRules.js. The form builder for formFields lives in
 // FormFieldsEditor.jsx and is re-exported here with the other widgets.
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../services/api.js'
 import { collectionText, commitCollection, connectionLabel, groupConnectionsByPlatform } from './nodeInspectorRules.js'
 export { default as FormFieldsEditor } from './FormFieldsEditor.jsx'
@@ -87,6 +88,7 @@ export function AnyPlatformConnections({ connections }) {
 // CurlImport turns a pasted curl command into the node's config through
 // `monoagentcli node curl`; onImport gets the imported config.
 export function CurlImport({ onImport, inputStyle }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
@@ -112,12 +114,12 @@ export function CurlImport({ onImport, inputStyle }) {
   }
 
   if (!open) {
-    return <button type="button" onClick={() => { setOpen(true); setResult(null) }} style={{ ...linkButton, marginBottom: 8 }}>Import cURL…</button>
+    return <button type="button" onClick={() => { setOpen(true); setResult(null) }} style={{ ...linkButton, marginBottom: 8 }}>{t('nodeRunnerMore.curlImportOpen')}</button>
   }
   return (
     <div style={{ marginBottom: 10 }}>
       <textarea
-        aria-label="curl command"
+        aria-label={t('nodeRunnerMore.curlLabel')}
         rows={4}
         value={command}
         onChange={e => setCommand(e.target.value)}
@@ -127,9 +129,9 @@ export function CurlImport({ onImport, inputStyle }) {
       />
       <div style={{ display: 'flex', gap: 10 }}>
         <button type="button" disabled={busy || !command.trim()} onClick={run} style={linkButton}>
-          {busy ? 'Importing…' : 'Import (replaces the request settings)'}
+          {busy ? t('nodeRunnerMore.curlImporting') : t('nodeRunnerMore.curlImport')}
         </button>
-        <button type="button" onClick={() => setOpen(false)} style={{ ...linkButton, color: 'var(--text-muted)' }}>Cancel</button>
+        <button type="button" onClick={() => setOpen(false)} style={{ ...linkButton, color: 'var(--text-muted)' }}>{t('nodeRunnerMore.curlCancel')}</button>
       </div>
       {result?.error && <div role="alert" style={errorStyle}>{result.error}</div>}
       {result?.notes?.length > 0 && (
