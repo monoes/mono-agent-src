@@ -6,6 +6,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"image"
 	"image/png"
@@ -35,6 +37,16 @@ const (
 	// Model download URLs — same files rembg uses
 	u2netModelURL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx"
 
+	// u2net.onnx is exactly this long (the size of the release asset); a file of any other
+	// length is a truncated or substituted download.
+	u2netModelSize = 175997641
+
+	// Upper bound for the ONNX Runtime archive (the real ones are about 8-15 MB).
+	ortArchiveMaxBytes = 200 << 20
+
+	// Upper bound for the shared library extracted from it.
+	ortLibMaxBytes = 500 << 20
+
 	// ImageNet normalization (rembg base.py)
 	meanR, meanG, meanB = 0.485, 0.456, 0.406
 	stdR, stdG, stdB    = 0.229, 0.224, 0.225
@@ -60,6 +72,14 @@ func ortLibURL() (archiveURL, libGlob string, err error) {
 		return "", "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 }
+
+// Pinned SHA-256 digests (lower-case hex) of the downloads. They could not be obtained when this
+// check was written (the model's release asset carries no digest, and the ONNX Runtime archives
+// were not reachable), so an empty entry is not verified by hash: the size checks above still
+// apply. Fill these in from a download that was checked by hand.
+const u2netModelSHA256 = ""
+
+var ortArchiveSHA256 = map[string]string{} // "linux/amd64", "darwin/arm64", "darwin/amd64"
 
 // ── ORT & model singletons ─────────────────────────────────────────────────────
 
@@ -100,7 +120,7 @@ func ensureORT() error {
 	// Check if library already present
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".dylib") || strings.HasSuffix(e.Name(), ".so") ||
+		if !e.IsDir() && !strings.Contains(e.Name(), ".part-") && (strings.HasSuffix(e.Name(), ".dylib") || strings.HasSuffix(e.Name(), ".so") ||
 			strings.Contains(e.Name(), "libonnxruntime")) {
 			ort.SetSharedLibraryPath(filepath.Join(dir, e.Name()))
 			return nil
@@ -114,7 +134,7 @@ func ensureORT() error {
 
 	fmt.Fprintf(os.Stderr, "[image.remove_background] Downloading ONNX Runtime %s...\n", ortVersion)
 	tgzPath := filepath.Join(dir, "ort.tgz")
-	if err := downloadFile(archURL, tgzPath); err != nil {
+	if err := downloadFile(archURL, tgzPath, ortArchiveMaxBytes, 0, ortArchiveSHA256[runtime.GOOS+"/"+runtime.GOARCH]); err != nil {
 		return fmt.Errorf("download ORT: %w", err)
 	}
 	defer os.Remove(tgzPath)
@@ -136,13 +156,15 @@ func ensureModel() (string, error) {
 	}
 
 	dst := filepath.Join(dir, "u2net.onnx")
-	if _, err := os.Stat(dst); err == nil {
-		return dst, nil
+	if fi, err := os.Stat(dst); err == nil {
+		if fi.Size() == u2netModelSize {
+			return dst, nil
+		}
+		os.Remove(dst) // truncated or substituted: fetch it again
 	}
 
 	fmt.Fprintf(os.Stderr, "[image.remove_background] Downloading u2net.onnx (~176 MB)...\n")
-	if err := downloadFile(u2netModelURL, dst); err != nil {
-		os.Remove(dst)
+	if err := downloadFile(u2netModelURL, dst, u2netModelSize, u2netModelSize, u2netModelSHA256); err != nil {
 		return "", fmt.Errorf("download u2net.onnx: %w", err)
 	}
 	return dst, nil
@@ -199,7 +221,11 @@ func initORT(modelPath string) error {
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-func downloadFile(url, dst string) error {
+// downloadFile fetches url into dst. The bytes go to a temporary file beside dst and are renamed
+// into place only once complete, so an interrupted download never leaves a truncated library or
+// model under its final name. At most maxBytes are accepted; wantSize (when > 0) is the exact size
+// and wantSHA256 (when not empty) the hex digest the file must have.
+func downloadFile(url, dst string, maxBytes, wantSize int64, wantSHA256 string) error {
 	client := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := client.Get(url) //nolint:noctx
 	if err != nil {
@@ -209,13 +235,31 @@ func downloadFile(url, dst string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
-	f, err := os.Create(dst)
+	tmp, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".part-*")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	defer os.Remove(tmp.Name()) // a no-op once renamed
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, maxBytes+1))
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if n > maxBytes {
+		return fmt.Errorf("download of %s is larger than the %d byte limit", url, maxBytes)
+	}
+	if wantSize > 0 && n != wantSize {
+		return fmt.Errorf("download of %s is %d bytes, expected %d", url, n, wantSize)
+	}
+	if wantSHA256 != "" {
+		if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, wantSHA256) {
+			return fmt.Errorf("download of %s has SHA-256 %s, expected %s", url, got, wantSHA256)
+		}
+	}
+	return os.Rename(tmp.Name(), dst)
 }
 
 // extractGlobFromTGZ extracts the first file matching globPat from a .tgz
@@ -251,13 +295,20 @@ func extractGlobFromTGZ(tgzPath, globPat, destDir string) (string, error) {
 			continue
 		}
 		outPath := filepath.Join(destDir, base)
-		out, err := os.Create(outPath)
+		out, err := os.CreateTemp(destDir, base+".part-*")
 		if err != nil {
 			return "", err
 		}
-		_, err = io.Copy(out, tr)
+		n, err := io.Copy(out, io.LimitReader(tr, ortLibMaxBytes+1))
 		out.Close()
+		if err == nil && n > ortLibMaxBytes {
+			err = fmt.Errorf("%s in the archive is larger than %d bytes", base, int64(ortLibMaxBytes))
+		}
+		if err == nil {
+			err = os.Rename(out.Name(), outPath)
+		}
 		if err != nil {
+			os.Remove(out.Name())
 			return "", err
 		}
 		return outPath, nil
