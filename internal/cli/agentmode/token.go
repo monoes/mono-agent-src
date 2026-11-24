@@ -98,7 +98,7 @@ func (d Deps) tokenErr(err error) error {
 // parseExpiry reads --expires: a Go duration (24h), days (7d) or "never".
 func parseExpiry(v string) (time.Duration, error) {
 	if v == "never" {
-		return 0, nil
+		return agenttokens.NoExpiry, nil
 	}
 	if n, ok := strings.CutSuffix(v, "d"); ok {
 		days, err := strconv.Atoi(n)
