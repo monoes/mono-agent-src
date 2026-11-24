@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { descendantsOf, buildTree } from './orgGraph.js'
 import { confirm } from '../ConfirmDialog.jsx'
 import i18n from '../../i18n.js'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 /**
  * DeleteRoleModal — subordinate-handling UI for deleting a role, matching
@@ -22,6 +23,7 @@ import i18n from '../../i18n.js'
  * @param {() => void} onClose Always called once the flow concludes (confirm or cancel).
  */
 export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClose }) {
+  useEscapeClose(onClose, !!open)
   const descendants = useMemo(() => (node ? descendantsOf(allNodes, node.id) : []), [node, allNodes])
   const hasDescendants = descendants.length > 0
   const firedSimpleConfirm = useRef(false)
