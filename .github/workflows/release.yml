@@ -630,7 +630,9 @@ jobs:
           bash scripts/release-flatten.sh artifacts bundle
           # NOTICE ships with every release as a loose file; the manifest checksums it but does not classify it.
           cp NOTICE bundle/NOTICE
-          go run ./cmd/release-manifest manifest -dir bundle -version "${TAG}" -repo "${RELEASES_REPO}"
+          # expires_at (45 days) is signed into the manifest, so a stale one that a mirror replays stops being accepted.
+          # TODO (owner decision r05-D2): a scheduled re-sign so `latest` never lapses in a 45-day gap without a release.
+          go run ./cmd/release-manifest manifest -dir bundle -version "${TAG}" -repo "${RELEASES_REPO}" -expires-days 45
           cp bundle/manifest.json bundle/SHA256SUMS out/
           {
             echo "### Unsigned update manifest for ${TAG}"
@@ -897,6 +899,23 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
       TOKEN_SET: ${{ secrets.RELEASES_REPO_TOKEN != '' }}
     steps:
+      # The `release` environment is what makes this job wait for a reviewer and run only for master; the workflow
+      # cannot enforce that itself. This step only warns (it never fails the release, and a token that may not read
+      # environments just gets a warning): confirm in the repository settings that the environment has required
+      # reviewers and deployment branches = master. It has no secrets.
+      - name: Check the release environment has required reviewers
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          if ! count=$(gh api "repos/${GITHUB_REPOSITORY}/environments/release" --jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' 2>&1); then
+            echo "::warning::Could not read the 'release' environment protection (${count}). Check by hand that it has required reviewers and deployment branches = master."
+          elif [ "${count}" = "0" ]; then
+            echo "::warning::The 'release' environment has no required reviewers, so this signing job runs without an approval. Add required reviewers and limit deployment branches to master."
+          fi
+          exit 0
+
       - name: Is the releases repository configured
         id: gate
         run: |
