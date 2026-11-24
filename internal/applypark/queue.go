@@ -27,6 +27,15 @@ type Runner interface {
 	Sweep(ctx context.Context) error
 }
 
+// Canceller is what a Runner may add to stop a fill's task when the queue gives up waiting for it.
+type Canceller interface {
+	Cancel(ctx context.Context, taskID string) error
+}
+
+// DefaultFillTimeout is how long the queue waits for one fill's task before it cancels it and
+// leaves the application needs_you: a hung agent must not hold a slot for ever.
+const DefaultFillTimeout = 20 * time.Minute
+
 // Outcome of one application in the queue.
 type Outcome struct {
 	ApplicationID string `json:"applicationId"`
@@ -55,6 +64,8 @@ type Queue struct {
 	Slots  Slots
 	Max    int
 	Runner Runner
+	// FillTimeout is the ceiling on one fill's task (0: DefaultFillTimeout).
+	FillTimeout time.Duration
 	// Tick is how often a full queue looks again for a freed slot.
 	Tick time.Duration
 	// Log, when set, hears one line per step.
@@ -127,7 +138,26 @@ func (q Queue) Run(ctx context.Context, ids []string) ([]Outcome, error) {
 			return
 		}
 		o.TaskID = taskID
-		status, err := q.Runner.Wait(ctx, taskID)
+		timeout := q.FillTimeout
+		if timeout <= 0 {
+			timeout = DefaultFillTimeout
+		}
+		wctx, stop := context.WithTimeout(ctx, timeout)
+		status, err := q.Runner.Wait(wctx, taskID)
+		stop()
+		if err != nil && ctx.Err() == nil && wctx.Err() != nil {
+			// The ceiling, not the operator's Ctrl-C: stop the task and hand the application back.
+			o.Result = ResultNeedsYou
+			o.Error = fmt.Sprintf("the fill ran longer than %s", timeout)
+			if c, ok := q.Runner.(Canceller); ok {
+				if cerr := c.Cancel(context.WithoutCancel(ctx), taskID); cerr != nil {
+					o.Error += " (cancelling its task: " + cerr.Error() + ")"
+				}
+			}
+			q.needsYou(ctx, &write, &o, "The fill ran longer than "+timeout.String()+" and was stopped: open its chat to continue.")
+			finish(o)
+			return
+		}
 		if err != nil {
 			o.Error = err.Error()
 			finish(o)
