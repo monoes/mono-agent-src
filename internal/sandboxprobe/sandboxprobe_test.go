@@ -37,6 +37,21 @@ func TestEachMarkIsASignal(t *testing.T) {
 	}
 }
 
+func TestAFalsyEnvMarkerIsNoSignal(t *testing.T) {
+	for _, v := range []string{"0", "false", "No", "off"} {
+		r := Detect(in(map[string]string{EnvMarker: v}, "/h/.monoagent", func(string) ([]os.DirEntry, error) { return nil, fs.ErrNotExist }, ""))
+		if r.Sandboxed {
+			t.Errorf("%s=%q reported a sandbox: %+v", EnvMarker, v, r)
+		}
+	}
+}
+
+func TestATmpfsAtADirWithEscapedCharactersIsASignal(t *testing.T) {
+	if !tmpfsAt(`40 30 0:41 / /h/my\040state rw - tmpfs tmpfs rw`, "/h/my state") {
+		t.Error(`\040 in the mount point was not decoded`)
+	}
+}
+
 func TestATmpfsElsewhereOrOtherFsIsNoSignal(t *testing.T) {
 	const dir = "/h/.monoagent"
 	for _, m := range []string{

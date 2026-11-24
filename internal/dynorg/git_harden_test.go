@@ -1,6 +1,7 @@
 package dynorg
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,4 +86,19 @@ func TestGitRunIgnoresProgramsNamedByRepositoryConfiguration(t *testing.T) {
 	notRan(t, hookMarker, "merge hooks")
 	notRan(t, sigMarker, "merge")
 	notRan(t, monMarker, "merge")
+}
+
+// A ref whose name starts with "-" (git branch refuses it, update-ref does not) must be deleted as
+// a ref, not parsed as an option of `git branch -D`.
+func TestRemoveTreeDeletesADashNamedBranchAsARef(t *testing.T) {
+	repo := newRepo(t)
+	base := filepath.Join(realPath(t, repo), WorktreeDirName)
+	gitT(t, repo, "update-ref", "refs/heads/-x", "HEAD")
+	r := removeTree(context.Background(), repo, base, filepath.Join(base, "m", "w"), "-x")
+	if r.BranchKept {
+		t.Fatalf("the dash-named branch was kept: %+v", r)
+	}
+	if out := gitT(t, repo, "for-each-ref", "refs/heads/-x"); strings.TrimSpace(out) != "" {
+		t.Fatalf("refs/heads/-x still exists: %q", out)
+	}
 }

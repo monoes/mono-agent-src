@@ -217,6 +217,45 @@ func TestBuildWithoutStates(t *testing.T) {
 	}
 }
 
+// A planted link (the folder itself, or a file in it) must not carry the page-derived
+// data to wherever it points.
+func TestWriteDirRefusesLinks(t *testing.T) {
+	stubClock(t)
+	b, err := Build(loadReplay(t, replayFile), "#card", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("folder is a link", func(t *testing.T) {
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skip("no symlinks here:", err)
+		}
+		if _, err := b.WriteDir(link); err == nil {
+			t.Error("wrote through a linked folder")
+		}
+		if _, err := os.Stat(filepath.Join(outside, FileBundle)); err == nil {
+			t.Error("bundle.json reached the link's target")
+		}
+	})
+	t.Run("file is a link", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Symlink(victim, filepath.Join(dir, FileBundle)); err != nil {
+			t.Skip("no symlinks here:", err)
+		}
+		if _, err := b.WriteDir(dir); err == nil {
+			t.Error("wrote through a linked file")
+		}
+		if got, _ := os.ReadFile(victim); string(got) != "keep" {
+			t.Errorf("the link's target was overwritten: %q", got)
+		}
+	})
+}
+
 func TestWriteDir(t *testing.T) {
 	stubClock(t)
 	b, err := Build(loadReplay(t, replayFile), "#card", Options{})

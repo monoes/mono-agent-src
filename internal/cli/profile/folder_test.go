@@ -90,3 +90,18 @@ func TestValidateFolderChoiceAllowsNonEmptyFolders(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateFolderChoiceRefusesFoldersThatAreTooWide(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for name, dir := range map[string]string{
+		"filesystem root": string(filepath.Separator),
+		"home":            home,
+		"hidden":          filepath.Join(home, ".ssh"),
+	} {
+		if err := validateFolderChoice(dir); err == nil {
+			t.Errorf("%s: %q was accepted", name, dir)
+		}
+	}
+}
