@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Mail } from 'lucide-react'
 import { api } from '../services/api.js'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
@@ -10,6 +10,14 @@ import { STATUS_FILTERS, messageStatus, isPending, hilRefOf, matchesStatusFilter
 
 const FETCH_LIMIT = 200
 
+// The status filters the CLI can apply itself: exactly one stored status.
+// The grouped ones (approved+sending, failed+expired) and 'sent' (which also
+// covers rows from before the field existed) stay a view of the loaded rows.
+const serverStatusOf = (key) => {
+  const f = STATUS_FILTERS.find(x => x.key === key)
+  return f && f.statuses && f.statuses.length === 1 && f.statuses[0] !== 'sent' ? f.statuses[0] : ''
+}
+
 export default function Communications({ onProfile, isActive = true, onOpenHil, navData }) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState([])
@@ -19,6 +27,9 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
   const [openMessage, setOpenMessage] = useState(null)
+  // Every source seen so far, so narrowing to one keeps the others to pick.
+  const [knownSources, setKnownSources] = useState([])
+  const firstLoad = useRef(true)
   // "See in Communications" (HIL page, bubbles) names the row to show.
   const focusRef = navData?.hil_ref || ''
   // "N communications" on a People row narrows the list to that person.
@@ -29,29 +40,38 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
     if (opts?.silent !== true) setLoading(true)
     try {
       setError(null)
-      const data = await api.getAllPersonMessages(FETCH_LIMIT)
+      // The CLI applies the source, status and unread filters, so the
+      // limit counts matching messages rather than the latest 200 of all.
+      const data = await api.getAllPersonMessages(FETCH_LIMIT, {
+        source: sourceFilter, status: serverStatusOf(statusFilter), unread: unreadOnly,
+      })
       setMessages(data || [])
+      setKnownSources(prev => [...new Set([...prev, ...(data || []).map(m => m.source).filter(Boolean)])])
     } catch (e) {
       setError(e?.message || 'Failed to load messages')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [sourceFilter, statusFilter, unreadOnly])
 
-  useEffect(() => { load() }, [load])
+  // A changed filter reloads without the spinner, so the list stays in place.
+  useEffect(() => {
+    load({ silent: !firstLoad.current })
+    firstLoad.current = false
+  }, [load])
   useReloadOnActivate(isActive, () => load({ silent: true }))
   // Approving or rejecting a HIL item elsewhere changes a row here.
   useEffect(() => onCommsChanged(() => load({ silent: true })), [load])
   useEffect(() => { if (focusRef) setStatusFilter('all') }, [focusRef])
 
-  const sources = [...new Set(messages.map(m => m.source).filter(Boolean))]
+  const sources = knownSources
   const unreadCount = messages.filter(isUnread).length
   const filtered = messages
     .filter(m => !sourceFilter || m.source === sourceFilter)
     .filter(m => !unreadOnly || isUnread(m))
     .filter(m => !personFilter || m.person_id === personFilter)
     .filter(m => matchesStatusFilter(m, statusFilter))
-  const hasOutbound = messages.some(m => messageStatus(m))
+  const hasOutbound = messages.some(m => messageStatus(m)) || statusFilter !== 'all'
 
   // Opening a message marks it read (the CLI owns the state; this only
   // mirrors it locally so the dot goes away at once).
@@ -105,7 +125,9 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
                 onClick={() => setStatusFilter(f.key)}
               >
                 {f.key === 'all' ? t('comms.filterAll') : t(`comms.status.${f.key}`)}{' '}
-                <span>{messages.filter(m => matchesStatusFilter(m, f.key) && (f.key === 'all' || messageStatus(m))).length}</span>
+                {(!serverStatusOf(statusFilter) || f.key === statusFilter) && (
+                  <span>{messages.filter(m => matchesStatusFilter(m, f.key) && (f.key === 'all' || messageStatus(m))).length}</span>
+                )}
               </button>
             ))}
           </div>
@@ -122,7 +144,7 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
               className={`summary-chip ${!sourceFilter ? 'active' : ''}`}
               onClick={() => setSourceFilter('')}
             >
-              All <span>{messages.length}</span>
+              All{!sourceFilter && <> <span>{messages.length}</span></>}
             </button>
             {sources.map(src => (
               <button
@@ -130,7 +152,7 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
                 className={`summary-chip ${sourceFilter === src ? 'active' : ''}`}
                 onClick={() => setSourceFilter(sourceFilter === src ? '' : src)}
               >
-                {src} <span>{messages.filter(m => m.source === src).length}</span>
+                {src}{(!sourceFilter || sourceFilter === src) && <> <span>{messages.filter(m => m.source === src).length}</span></>}
               </button>
             ))}
           </div>

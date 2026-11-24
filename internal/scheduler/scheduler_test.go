@@ -90,3 +90,39 @@ func TestScheduler_PanickingJobDoesNotKillTheScheduler(t *testing.T) {
 		t.Fatalf("ticks=%d panics=%d, want both >= 2 (scheduler survived the panic)", ticks.Load(), panics.Load())
 	}
 }
+
+// R11-09: starting the scheduler applies the attachment retention.
+func TestScheduler_PrunesAttachmentsOnStart(t *testing.T) {
+	var n atomic.Int32
+	old := prune
+	prune = func() (int, error) { n.Add(1); return 0, nil }
+	defer func() { prune = old }()
+	s := NewScheduler(zerolog.Nop())
+	s.Start()
+	defer s.Stop()
+	deadline := time.Now().Add(3 * time.Second)
+	for n.Load() < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n.Load() < 1 {
+		t.Fatal("the scheduler never applied the attachment retention")
+	}
+}
+
+// R16-D8: a running scheduler reports its ticks to the daemon heartbeat.
+func TestScheduler_ReportsTicks(t *testing.T) {
+	var n atomic.Int32
+	oldSpec, oldNote := tickSpec, noteTick
+	tickSpec, noteTick = "@every 1s", func() { n.Add(1) }
+	defer func() { tickSpec, noteTick = oldSpec, oldNote }()
+	s := NewScheduler(zerolog.Nop())
+	s.Start()
+	defer s.Stop()
+	deadline := time.Now().Add(4 * time.Second)
+	for n.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n.Load() < 2 {
+		t.Fatalf("scheduler reported %d ticks, want at least 2 (one at start, one from the loop)", n.Load())
+	}
+}

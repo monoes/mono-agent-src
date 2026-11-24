@@ -274,6 +274,8 @@ export function GetAgentRuntimeModels(arg1:string,arg2:string):Promise<string>;
 
 export function GetAllPersonMessages(arg1:number):Promise<Array<main.PersonMessageWithPerson>>;
 
+export function GetAllPersonMessagesFiltered(arg1:number,arg2:string,arg3:string,arg4:boolean):Promise<Array<main.PersonMessageWithPerson>>;
+
 export function GetAllProfilesRecentExecutions(arg1:number):Promise<Array<main.WorkflowExecutionSummary>>;
 
 export function GetAllTags():Promise<Array<main.TagInfo>>;
