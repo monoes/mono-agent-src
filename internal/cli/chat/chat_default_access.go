@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/ai"
@@ -30,6 +32,8 @@ func withDefaultAccess(cfg *Deps, cmd *cobra.Command) *cobra.Command {
 		if err := f.Set("access", level); err != nil {
 			return err
 		}
+		// Say it: a bare create from a terminal is not scoped (stderr, so a JSON result on stdout stays parseable).
+		fmt.Fprintf(c.ErrOrStderr(), "note: no --access given; creating this conversation at the coder default access %q (pass --access to choose)\n", level)
 		// The app's default folder, unless the caller named one.
 		if !(f.Changed("cwd") || f.Changed("profile-folder") || f.Changed("coder-root") || f.Changed("new-workspace")) {
 			return f.Set("profile-folder", "true")
