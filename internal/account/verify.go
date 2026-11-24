@@ -158,6 +158,10 @@ func decodeSegment(s string) ([]byte, bool) {
 }
 
 // receiptFromClaims checks the claims of a token whose signature verified.
+//
+// Accepted limit (r05-D6): the access token is a bearer with no machine binding, so a copied session.json passes the
+// gate for the token's life (24h at most, plus the grace to iat+24h). The refresh token is folder/inode bound and does
+// not travel. The gate is soft by design (the user owns the binary), so no device claim is added.
 func receiptFromClaims(claims map[string]json.RawMessage) (*Receipt, *VerifyError) {
 	var iss, sub string
 	if _, ok := field(claims, "iss", &iss); !ok || iss != Issuer {
