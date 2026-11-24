@@ -8,6 +8,13 @@
   "connectionsPage": {
     "stale": "The list could not be refreshed and may be out of date."
   },
+  "infoPage": {
+    "filledReloadFailed": "The fill finished ({{count}} filled) but the list could not be reloaded. Refresh the page before filling again."
+  },
+  "logsPage": {
+    "live": "LIVE",
+    "log": "Log output"
+  },
   "mediaVaultPage": {
     "confirmDelete": "Delete {{name}} from the vault? This cannot be undone.",
     "delete": "Delete",

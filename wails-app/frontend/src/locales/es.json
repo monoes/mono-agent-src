@@ -8,6 +8,13 @@
   "connectionsPage": {
     "stale": "No se pudo actualizar la lista; puede estar desactualizada."
   },
+  "infoPage": {
+    "filledReloadFailed": "El relleno terminó ({{count}} rellenados) pero no se pudo recargar la lista. Actualiza la página antes de volver a rellenar."
+  },
+  "logsPage": {
+    "live": "EN VIVO",
+    "log": "Salida del registro"
+  },
   "mediaVaultPage": {
     "confirmDelete": "¿Eliminar {{name}} de la bóveda? No se puede deshacer.",
     "delete": "Eliminar",
