@@ -60,6 +60,9 @@ func ReadUploadFiles(paths []string) ([]UploadFile, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := checkUploadAllowed(abs); err != nil {
+			return nil, err
+		}
 		fi, err := os.Stat(abs)
 		if err != nil {
 			return nil, fmt.Errorf("upload: %w", err)
