@@ -25,9 +25,19 @@ func (b *Bundle) WriteDir(dir string) ([]string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	if fi, err := os.Lstat(dir); err != nil {
+		return nil, err
+	} else if !fi.IsDir() {
+		return nil, fmt.Errorf("%s is not a plain folder (a link?); refusing to write the bundle into it", dir)
+	}
 	var written []string
 	write := func(name string, data []byte) error {
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+		target := filepath.Join(dir, name)
+		// Page-derived data must not follow a planted link out of the folder.
+		if fi, err := os.Lstat(target); err == nil && !fi.Mode().IsRegular() {
+			return fmt.Errorf("%s exists and is not a regular file; refusing to overwrite it", target)
+		}
+		if err := os.WriteFile(target, data, 0o644); err != nil {
 			return err
 		}
 		written = append(written, name)
