@@ -61,8 +61,11 @@ var (
 // startAttachmentPrune applies the attachment retention once now (off the
 // start path) and then daily (R11-09).
 func (s *Scheduler) startAttachmentPrune() {
+	// Read the package variable here, on the caller's goroutine: the goroutine below and the daily job
+	// then use the captured func and never touch the variable a test swaps.
+	pruneFn := prune
 	run := func() {
-		if n, err := prune(); err != nil {
+		if n, err := pruneFn(); err != nil {
 			s.logger.Error().Err(err).Msg("attachment prune failed")
 		} else if n > 0 {
 			s.logger.Info().Int("folders", n).Msg("pruned old message attachments")
