@@ -198,6 +198,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	if !hostID.MatchString(conversationID) || !hostID.MatchString(turnID) {
 		return nil, fmt.Errorf("conversation and turn ids must be letters, digits, '.', '_' and '-'")
 	}
+	if missionToken != "" && !hostID.MatchString(missionToken) {
+		return nil, fmt.Errorf("the mission confirmation is not a valid token")
+	}
 	if err := os.MkdirAll(l.logDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -239,9 +242,6 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	if capUSD > 0 {
 		rest = append(rest, "--budget-usd="+strconv.FormatFloat(capUSD, 'f', 6, 64))
-	}
-	if missionToken != "" && !hostID.MatchString(missionToken) {
-		return nil, fmt.Errorf("the mission confirmation is not a valid token")
 	}
 	// A mission child's turn gets the task token of its one task, minted here from the host's own child store.
 	var ct *childToken
