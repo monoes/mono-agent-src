@@ -3417,5 +3417,8 @@
   },
   "tasksPage": {
     "shellCheckFailed": "Read-only: could not check whether an agent started this app ({{error}}). Restart the app to edit the board."
+  },
+  "getStartedReopen": {
+    "showAgain": "Show the get-started steps"
   }
 }

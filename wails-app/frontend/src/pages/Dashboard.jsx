@@ -21,7 +21,7 @@ import AccountsCard from './dashboard/AccountsCard.jsx'
 import { loadScope, saveScope, currentProfileId } from './dashboard/scope.js'
 import ProfilesCard from './dashboard/ProfilesCard.jsx'
 import GetStartedCard from './dashboard/GetStartedCard.jsx'
-import { bridgeState, getStartedSteps, getStartedComplete, loadDismissed, okRunCount, saveDismissed } from './dashboard/getStarted.js'
+import { bridgeState, getStartedSteps, getStartedComplete, clearDismissed, loadDismissed, okRunCount, saveDismissed } from './dashboard/getStarted.js'
 import { AccountContext } from '../lib/accountContext.js'
 import NewProfileModal from '../components/NewProfileModal.jsx'
 import { switchToProfile } from './dashboard/profileSwitch.js'
@@ -43,7 +43,10 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
     bridge,
     daemonRunning: summary?.services?.daemon?.running,
   })
-  const showGetStarted = scope === 'profile' && !loading && !getStartedHidden && !getStartedComplete(steps)
+  // Help can un-hide the checklist while this page is in the background.
+  useEffect(() => { if (isActive) setGetStartedHidden(loadDismissed()) }, [isActive])
+  const canReopenGetStarted = getStartedHidden && !loading && !getStartedComplete(steps)
+  const showGetStarted = !loading && !getStartedHidden && !getStartedComplete(steps)
   const currentId = currentProfileId(summary)
   const [ver, setVer] = useState(null)
   const [newProfileOpen, setNewProfileOpen] = useState(false)
@@ -109,6 +112,11 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
               {t('dashboard.scope.global')}
             </button>
           </div>
+          {canReopenGetStarted && (
+            <button className="btn btn-ghost btn-sm" onClick={() => { clearDismissed(); setGetStartedHidden(false) }}>
+              {t('getStartedReopen.showAgain')}
+            </button>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={handleRefresh} style={{ gap: 5 }}>
             <RefreshCw size={13} style={{ animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }} />
             {t('dashboard.refresh')}
@@ -120,6 +128,11 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
       </div>
 
       <div className="page-body dash-page">
+        {showGetStarted && (
+          <GetStartedCard steps={steps} bridge={bridge} onNavigate={onNavigate}
+            onSignedIn={() => gate.check?.('manual')}
+            onDismiss={() => { saveDismissed(); setGetStartedHidden(true) }} />
+        )}
         {noProfile && scope === 'profile' ? (
           <div className="card dash-empty-state" data-testid="dash-no-profile">
             <div className="section-title">{t('dashboard.noProfile.title')}</div>
@@ -131,11 +144,6 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
               onCreated={(p) => p?.id && switchToProfile(p.id)} />
           </div>
         ) : (<>
-        {showGetStarted && (
-          <GetStartedCard steps={steps} bridge={bridge} onNavigate={onNavigate}
-            onSignedIn={() => gate.check?.('manual')}
-            onDismiss={() => { saveDismissed(); setGetStartedHidden(true) }} />
-        )}
         <AttentionStrip items={items} loading={loading} failed={summaryFailed} unread={unreadSections(summary)}
           onNavigate={onNavigate} onOpenHil={onOpenHil} />
         <StatRow summary={summary} orgs={orgs} loading={loading} onNavigate={onNavigate} />

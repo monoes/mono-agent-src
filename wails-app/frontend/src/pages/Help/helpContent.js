@@ -27,6 +27,7 @@ export const TOPICS = [
       step('Sign in to monoes.me first: MonoAgent needs an account before anything runs. In a terminal, run monoagentcli account login.', go('settings')),
       step('Create a profile: the dashboard shows what happens inside one. Run monoagentcli profile create <name>, or use the dashboard.', go('dashboard')),
       step('Start from a template and press Run. The hello template needs no credentials: monoagentcli workflow templates run hello --profile <name>.', go('noderunner', { openTemplates: true })),
+      step('Hid the get-started checklist and want it back? This brings it back on the dashboard.', go('dashboard', { showGetStarted: true })),
     ],
   },
   {
