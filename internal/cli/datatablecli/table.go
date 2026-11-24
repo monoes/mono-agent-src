@@ -271,10 +271,8 @@ func (d Deps) deleteCmd() *cobra.Command {
 		Example: `  monoagentcli table delete Leads`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if d.RequireOperator != nil {
-				if err := d.RequireOperator("delete the data table " + args[0] + " and all its rows"); err != nil {
-					return err
-				}
+			if err := clicore.RequireOperator(d.RequireOperator, "delete the data table "+args[0]+" and all its rows"); err != nil {
+				return err
 			}
 			return d.withStore(func(s *datatable.Store) error {
 				t, err := d.find(cmd.Context(), s, args[0])

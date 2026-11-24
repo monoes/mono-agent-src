@@ -16,6 +16,8 @@ func run(t *testing.T, path string, jsonOut bool, args ...string) (string, error
 		JSONOutput: func() bool { return jsonOut },
 		ProfileID:  func() string { return "p1" },
 		OpenDB:     func() (*storage.Database, error) { return storage.NewDatabase(path) },
+		// The person at the keyboard: delete_operator_test.go covers the refusals.
+		RequireOperator: func(string) error { return nil },
 	})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
