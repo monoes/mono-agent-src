@@ -597,3 +597,31 @@ func TestLoweringRevokesTheSessionTokenAndLowersChildren(t *testing.T) {
 		t.Errorf("a child kept %q under a lead lowered to coding", got.Access)
 	}
 }
+
+// R09-12: lowering while a turn runs says so; the running turn keeps the old level until it ends.
+func TestLoweringReportsTheTurnThatIsStillRunning(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	run := func(id string) accessChange {
+		out, err := r.setAccess(t, nil, id, "workspace")
+		if err != nil {
+			t.Fatalf("lowering: %v\n%s", err, out)
+		}
+		var ch accessChange
+		decodeChatJSON(t, out, &ch)
+		if ch.Lowered == nil {
+			t.Fatalf("no lowered effects: %s", out)
+		}
+		return ch
+	}
+	if _, _, err := r.store.CreateTurn(c.ID, "default", "turn-live", "inst", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if ch := run(c.ID); !ch.Lowered.TurnStillRunning {
+		t.Fatalf("an active turn was not reported: %+v", ch.Lowered)
+	}
+	idle := r.conv(t, ai.AccessFull)
+	if ch := run(idle.ID); ch.Lowered.TurnStillRunning {
+		t.Fatalf("a conversation with no turn reported one running: %+v", ch.Lowered)
+	}
+}

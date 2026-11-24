@@ -248,3 +248,28 @@ func TestEnforceableAndRefusalMessage(t *testing.T) {
 		t.Fatalf("a qa-ceiling kind was told to raise: %v", err)
 	}
 }
+
+// R09-14: cancelling a task settles the ledger: what it spent counts and its reservation is released.
+func TestCancelSettlesTheLedger(t *testing.T) {
+	fakeSelf(t, "exit 0")
+	d := deps(t, nil)
+	svc, closeDB, task := runningTask(t, d)
+	defer closeDB()
+	db := svc.Store.DB
+	if _, err := db.Exec(`INSERT INTO ai_budget_reservations (task_id, conversation_id, kind, reserved_usd, released, created_at) VALUES (?, 'conv-7', 'generic', 5, 0, 'x')`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO ai_budget_spend (task_id, agent_id, role, spent_usd, updated_at) VALUES (?, '', '', 1, 'x')`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	cmd := New(*d)
+	cmd.SetArgs([]string{"cancel", task.ID})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var released int
+	if err := db.QueryRow(`SELECT released FROM ai_budget_reservations WHERE task_id = ?`, task.ID).Scan(&released); err != nil || released != 1 {
+		t.Fatalf("released = %d, %v: the cancelled task still holds its reservation", released, err)
+	}
+}

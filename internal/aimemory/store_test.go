@@ -3,6 +3,7 @@ package aimemory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -210,5 +211,29 @@ func TestNoProfileIsRefused(t *testing.T) {
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM chat_memory_messages`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("rows = %d (%v), want none", n, err)
+	}
+}
+
+// R09-16: what memory holds is bounded: one message's size and a session's count.
+func TestMemoryIsBoundedPerMessageAndPerSession(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.Open(t).DB
+	if err := Append(ctx, db, "p1", "big", "ai", strings.Repeat("x", MaxMessageBytes*3)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := Recent(ctx, db, "p1", "big", 0)
+	if len(got) != 1 || len(got[0].Content) > MaxMessageBytes+64 {
+		t.Fatalf("an oversized message was stored whole: %d bytes", len(got[0].Content))
+	}
+	var batch []NewMessage
+	for i := 0; i < MaxSessionMessages+50; i++ {
+		batch = append(batch, NewMessage{Role: "human", Content: fmt.Sprint(i)})
+	}
+	if err := AppendMany(ctx, db, "p1", "many", batch); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := Recent(ctx, db, "p1", "many", 0)
+	if len(all) != MaxSessionMessages || all[len(all)-1].Content != fmt.Sprint(MaxSessionMessages+49) || all[0].Content != "50" {
+		t.Fatalf("session holds %d messages, first %q", len(all), all[0].Content)
 	}
 }

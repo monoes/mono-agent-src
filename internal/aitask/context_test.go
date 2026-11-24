@@ -219,3 +219,21 @@ func TestAttachmentsAreFoundByResolvedPathNotByName(t *testing.T) {
 		}
 	}
 }
+
+// R09-15: redaction is text only, so while secrets are in scope an image or PDF comes only from a registered document.
+func TestBinaryContextNeedsARegisteredDocumentWhileSecretsAreRedacted(t *testing.T) {
+	src, redact := t.TempDir(), RedactValues([]string{"supersecret"})
+	png := filepath.Join(src, "a.png")
+	if err := os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n0000000000000000"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteContext(t.TempDir(), NewID(), []ContextSource{{SourceSelection, png}}, redact); code(err) != CodeContextInvalid {
+		t.Fatalf("an image under a redacted kind: %v", err)
+	}
+	if _, err := WriteContext(t.TempDir(), NewID(), []ContextSource{{SourceDocument, png}}, redact); err != nil {
+		t.Fatalf("a registered document's image: %v", err)
+	}
+	if _, err := WriteContext(t.TempDir(), NewID(), []ContextSource{{SourceSelection, png}}, nil); err != nil {
+		t.Fatalf("an image with no redaction in scope: %v", err)
+	}
+}

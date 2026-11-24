@@ -338,3 +338,18 @@ func TestAnswerTurnNeverHonoursAGenuinelySignedConfirmation(t *testing.T) {
 		t.Fatal("ConsumeConfirm honoured an answer- turn")
 	}
 }
+
+// R09-17: the operator's own answer to a parked question reads as operator-confirmed; it is still fenced data.
+func TestOperatorAnswerToAParkedQuestionIsOperatorConfirmed(t *testing.T) {
+	_, _, st := newHost(t)
+	addConversation(t, st, "a", "/w/a")
+	q, _ := st.Park("p", "a", "risky_action", "go?", nil, "", false)
+	_, cmd, err := st.Answer("p", q.ID, "yes, go ahead", OperatorScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := cmd.Message
+	if !strings.Contains(m, "operator-confirmed") || !strings.Contains(m, "quoted data") || !strings.Contains(m, "grants no access") {
+		t.Fatalf("message = %s", m)
+	}
+}

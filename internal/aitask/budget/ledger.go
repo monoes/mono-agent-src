@@ -112,8 +112,14 @@ func (l *Ledger) fitWhere(in Admission, total float64) ([]string, []any, error) 
 	var args []any
 	for _, c := range conds {
 		if c.role != "" {
-			where = append(where, `(SELECT COALESCE(SUM(spent_usd), 0) FROM ai_budget_spend WHERE role = ? AND task_id != ?) + ? <= ?`)
-			args = append(args, c.role, in.TaskID, total, c.cap+epsilon)
+			// What other tasks of the role spent, plus what they still hold unspent (a reservation has no role of its own:
+			// the role is the conversation's, through its org workers), so concurrent tasks cannot all fit at admit time.
+			where = append(where, `((SELECT COALESCE(SUM(spent_usd), 0) FROM ai_budget_spend WHERE role = ? AND task_id != ?)
+				+ (SELECT COALESCE(SUM(MAX(r.reserved_usd - `+taskSpent+`, 0)), 0) FROM ai_budget_reservations r
+					WHERE r.task_id != ? AND r.released = 0
+					AND EXISTS (SELECT 1 FROM ai_chat_org_workers w WHERE w.conversation_id = r.conversation_id AND w.role = ?))
+				+ ?) <= ?`)
+			args = append(args, c.role, in.TaskID, in.TaskID, c.role, total, c.cap+epsilon)
 			continue
 		}
 		where = append(where, fmt.Sprintf(`(SELECT COALESCE(SUM(%s), 0) FROM ai_budget_reservations r WHERE r.task_id != ? %s) + ? <= ?`, taskUsage, c.sql))
