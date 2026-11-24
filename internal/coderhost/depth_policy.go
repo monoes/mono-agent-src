@@ -54,6 +54,41 @@ func (s *Store) readCeiling() int {
 
 // writeCeiling is depthCeiling, except that a session may keep the max_depth it already has: a write that leaves it alone (or
 // lowers it) is not refused because the policy that allowed it has lapsed.
+//
+// A master's max_depth caps its whole subtree: the operator may raise a single child's max_depth only up to the lowest
+// max_depth of its ancestors (ancestorDepthCap), though a value the child already stores above that stays as it is.
 func (s *Store) writeCeiling(profileID, conversationID string, stored int) int {
+	return min(s.policyCeiling(profileID, conversationID, stored), max(s.ancestorDepthCap(profileID, conversationID), stored))
+}
+
+// policyCeiling is writeCeiling without the ancestors' cap: the limit of the design and of a charter's policy.
+func (s *Store) policyCeiling(profileID, conversationID string, stored int) int {
 	return max(s.depthCeiling(profileID, conversationID), min(stored, s.readCeiling()))
+}
+
+// ancestorDepthCap is the lowest max_depth among the sessions above conversationID (a very large number when it has
+// none), so a master that lowers its max_depth after its children exist still bounds them: a child copied the master's
+// value when it was created and does not follow later changes.
+func (s *Store) ancestorDepthCap(profileID, conversationID string) int {
+	lowest := 1 << 30
+	seen := map[string]bool{conversationID: true}
+	cur := conversationID
+	for i := 0; i < maxTreeWalk; i++ {
+		x, ok, err := s.GetSession(profileID, cur)
+		if err != nil || !ok || x.Parent == "" || seen[x.Parent] {
+			break
+		}
+		cur = x.Parent
+		seen[cur] = true
+		if ps, err := s.GetSettings(profileID, cur); err == nil {
+			lowest = min(lowest, ps.MaxDepth)
+		}
+	}
+	return lowest
+}
+
+// effectiveMaxDepth is the working depth of a session whose own max_depth is own: the minimum of own and the max_depth
+// of every ancestor (the operator's limit on a master holds for its whole subtree).
+func (s *Store) effectiveMaxDepth(profileID, conversationID string, own int) int {
+	return min(own, s.ancestorDepthCap(profileID, conversationID))
 }

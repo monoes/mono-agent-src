@@ -279,8 +279,9 @@ func (s *Store) mayHaveChildren(c Caller) (Settings, error) {
 	}
 	lvl, ok := s.level(c.ProfileID, c.ConversationID)
 	ceiling := s.depthCeiling(c.ProfileID, c.ConversationID)
-	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > ceiling {
-		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(ps.MaxDepth, ceiling))
+	limit := s.effectiveMaxDepth(c.ProfileID, c.ConversationID, ps.MaxDepth) // the lowest max_depth up the chain bounds the subtree
+	if !ok || lvl+1 > limit || lvl+1 > ceiling {
+		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(limit, ceiling))
 	}
 	return ps, nil
 }
@@ -413,6 +414,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		undo()
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left (%w)", ErrLimit, err)
 	}
+	ps.MaxDepth = s.effectiveMaxDepth(c.ProfileID, c.ConversationID, ps.MaxDepth) // the child starts at the chain's minimum
 	cs := childSettings(ps, childLevel, s.depthCeiling(c.ProfileID, c.ConversationID))
 	// The child's starting settings replace its document, but not the operator's Mission toggle, which a
 	// writer that got to the child since SetRole (the child is already in its master's tree) may have set.
