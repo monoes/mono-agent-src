@@ -61,6 +61,25 @@ func TestProfileInfoFieldsSetGetRm(t *testing.T) {
 	}
 }
 
+// `info get <key> --reveal` returns only that key, in full.
+func TestProfileInfoGetOneKey(t *testing.T) {
+	keyring.MockInit()
+	dbPath := newProfileDocsCLITestDB(t)
+	for _, kv := range [][2]string{{"first_name", "Ada"}, {"passport_number", "X1234567"}} {
+		if _, err := runProfileJSON(t, dbPath, "info", "set", kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got infoDoc
+	mustProfileJSON(t, dbPath, &got, "info", "get", "passport_number", "--reveal")
+	if len(got.Entries) != 1 || got.Entries[0].Key != "passport_number" || got.Entries[0].Value != "X1234567" {
+		t.Errorf("one key: %+v", got.Entries)
+	}
+	if _, err := runProfileJSON(t, dbPath, "info", "get", "nope"); err == nil {
+		t.Error("an unknown key was accepted")
+	}
+}
+
 func TestProfileInfoPhoto(t *testing.T) {
 	keyring.MockInit()
 	dbPath := newProfileDocsCLITestDB(t)

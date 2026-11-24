@@ -45,7 +45,7 @@ func NewCommand(d Deps) *cobra.Command {
 		Use:   "db",
 		Short: "Database maintenance",
 	}
-	cmd.AddCommand(d.newMigrateCmd())
+	cmd.AddCommand(d.newMigrateCmd(), d.newPruneBackupsCmd())
 	return cmd
 }
 
