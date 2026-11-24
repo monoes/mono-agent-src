@@ -43,6 +43,51 @@ func TestSaveRefusesAFileChangedSinceLoad(t *testing.T) {
 	}
 }
 
+// A writer that overwrote the file itself undoes its own write by expecting the sha it wrote, not the sha
+// of the bytes it first loaded; an edit made by someone else in between still refuses the undo.
+func TestExpectSHAUndoesOwnWriteButNotSomeoneElses(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Save(dir, NewOrg("undo-org", "original", NewOrgOptions{})); err != nil {
+		t.Fatal(err)
+	}
+	pre, err := Load(dir, "undo-org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, err := Load(dir, "undo-org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur.Goal = "rejected change"
+	written, err := Save(dir, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without the expectation the undo is refused: the file is not the bytes the pre-image was loaded from.
+	if _, err := Save(dir, pre); !errors.Is(err, ErrConcurrentEdit) {
+		t.Fatalf("undo without ExpectSHA: %v, want ErrConcurrentEdit", err)
+	}
+	pre.ExpectSHA(written)
+	if _, err := Save(dir, pre); err != nil {
+		t.Fatalf("undo of our own write: %v", err)
+	}
+	if got, _ := Load(dir, "undo-org"); got.Goal != "original" {
+		t.Fatalf("goal = %q, want the original restored", got.Goal)
+	}
+
+	// Someone else edits after our write: the undo must not clobber that edit.
+	other, _ := Load(dir, "undo-org")
+	other.Goal = "someone else"
+	if _, err := Save(dir, other); err != nil {
+		t.Fatal(err)
+	}
+	pre.ExpectSHA(written)
+	if _, err := Save(dir, pre); !errors.Is(err, ErrConcurrentEdit) {
+		t.Fatalf("undo over another writer's edit: %v, want ErrConcurrentEdit", err)
+	}
+}
+
 // Concurrent writers never share a temp file: every Save either lands or is
 // refused whole, the file stays one valid document and no temp file is left.
 func TestSaveConcurrentWritersLeaveNoTornFile(t *testing.T) {
