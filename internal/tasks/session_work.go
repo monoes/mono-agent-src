@@ -42,6 +42,8 @@ func (s *Store) pickSessionNext(ctx context.Context, x dbx, session int64, now t
 	}
 	err = x.QueryRowContext(ctx,
 		`SELECT id FROM tasks WHERE session_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
+		   AND kind <> 'epic' AND blocked = 0
+		   AND NOT EXISTS (SELECT 1 FROM task_deps d JOIN tasks p ON p.id = d.depends_on_task_id WHERE d.task_id = tasks.id AND NOT `+depSettledSQL+`)
 		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
 		 ORDER BY claim_until, id LIMIT 1`, session, now.Format(timeFmt), MaxEventsToClaim).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
