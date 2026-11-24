@@ -125,3 +125,14 @@ func TestNoPinnedKeyFallsBackOnlyWhileLegacyAllowed(t *testing.T) {
 		t.Fatal("installed without verification")
 	}
 }
+
+// F4: the legacy path takes only https on GitHub's hosts (loopback http for tests).
+func TestLegacyPathRefusesForeignHosts(t *testing.T) {
+	u := Updater{APIURL: "https://evil.example/latest"}
+	if _, err := u.fetchRelease(); err == nil || !strings.Contains(err.Error(), "allowed host") {
+		t.Fatalf("fetchRelease err = %v", err)
+	}
+	if _, err := u.getAll("http://example.com/x", 10); err == nil {
+		t.Fatal("plain http to a foreign host must be refused")
+	}
+}

@@ -191,6 +191,9 @@ func (u Updater) Run() (Result, error) {
 }
 
 func (u Updater) fetchRelease() (*releaseInfo, error) {
+	if err := release.CheckLegacyURL(u.APIURL); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(u.Context, "GET", u.APIURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %v", err)
@@ -274,6 +277,9 @@ func (u Updater) downloadVerified(rel *releaseInfo, names []string) (map[string]
 // getAll fetches url; any status but 200 is an error (an HTML error page
 // must never be installed as the binary).
 func (u Updater) getAll(url string, max int64) ([]byte, error) {
+	if err := release.CheckLegacyURL(url); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(u.Context, "GET", url, nil)
 	if err != nil {
 		return nil, err

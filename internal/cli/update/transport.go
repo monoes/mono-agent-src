@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/release"
 )
 
 // Transport bounds for the legacy (unsigned-manifest) download path. They
@@ -46,6 +48,9 @@ func (s *stallReader) Read(p []byte) (int, error) {
 // getCapped fetches url and returns at most max body bytes; a longer body,
 // a stall, or exceeding totalTimeout is an error. Non-200 is an error.
 func getCapped(url string, max int64) ([]byte, error) {
+	if err := release.CheckLegacyURL(url); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), totalTimeout)
 	defer cancel()
 	stall := time.AfterFunc(stallTimeout, cancel)
