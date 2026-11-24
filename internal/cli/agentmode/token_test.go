@@ -345,3 +345,10 @@ func TestCreateBindsATokenToAnExistingTaskOfTheConversation(t *testing.T) {
 		t.Fatalf("%+v %v", tok, err)
 	}
 }
+
+func TestParseExpiryNeverIsExplicitNoExpiry(t *testing.T) {
+	got, err := parseExpiry("never")
+	if err != nil || got != agenttokens.NoExpiry {
+		t.Fatalf("parseExpiry(never) = %v, %v; want agenttokens.NoExpiry", got, err)
+	}
+}

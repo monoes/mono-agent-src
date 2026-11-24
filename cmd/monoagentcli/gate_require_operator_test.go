@@ -47,6 +47,7 @@ func requireOperatorRows() []reqOpRow {
 		{name: "image scan on", file: "image.go", build: newImageCmd, args: []string{"scan", "on"}},
 		{name: "workflow apply-fix", file: "workflow_aitask.go", build: underRoot("workflow", newWorkflowAitaskCmds), args: []string{"apply-fix", "no-such-task"}},
 		{name: "publication delete", file: "publication.go", build: newPublicationCmd, args: []string{"delete", "no-such-publication"}},
+		{name: "table delete", file: "table_adapter.go", build: newTableCmd, args: []string{"delete", "no-such-table"}},
 		{name: "sandbox fallback --set", file: "sandbox.go", build: newSandboxCmd, args: []string{"fallback", "--set", "strictest"}},
 	}
 }
