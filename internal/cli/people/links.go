@@ -162,7 +162,7 @@ func (d Deps) newPeopleLinksListCmd() *cobra.Command {
 					return l
 				}
 				l := id
-				if p, err := db.GetPerson(id); err == nil && p != nil {
+				if p := ownPerson(db, d.ProfileID(), id); p != nil {
 					name := p.FullName
 					if name == "" {
 						name = p.PlatformUsername
@@ -235,7 +235,7 @@ func confirmedLinks(db *storage.Database, profileID, personID string) []confirme
 		}
 		other := l.Other(personID)
 		c := confirmedLink{LinkID: l.ID, PersonID: other}
-		if p, err := db.GetPerson(other); err == nil && p != nil {
+		if p := ownPerson(db, profileID, other); p != nil {
 			c.Platform, c.PlatformUsername, c.FullName = p.Platform, p.PlatformUsername, p.FullName
 		}
 		out = append(out, c)
@@ -261,4 +261,19 @@ func (c confirmedLink) String() string {
 		return c.PersonID
 	}
 	return fmt.Sprintf("%s (%s @%s) %s", name, strings.ToLower(c.Platform), c.PlatformUsername, c.PersonID)
+}
+
+// ownPerson is the person of this profile with that id, or nil: a link row that
+// names a person of another profile must not put that person's name or handle
+// into this profile's output (R12-09). GetPerson takes no profile.
+func ownPerson(db *storage.Database, profileID, id string) *storage.Person {
+	var n int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE id = ? AND profile_id = ?`, id, profileID).Scan(&n); err != nil || n == 0 {
+		return nil
+	}
+	p, err := db.GetPerson(id)
+	if err != nil {
+		return nil
+	}
+	return p
 }
