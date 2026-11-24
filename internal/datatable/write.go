@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -149,6 +150,13 @@ func insertRow(ctx context.Context, x execQuerier, t Table, data map[string]inte
 func (s *Store) write(ctx context.Context, t *Table, save bool, fn func(tx dbconn.ConnTx) error) error {
 	return dbconn.WithWriteTx(ctx, s.db, func(conn *sql.Conn) error {
 		tx := dbconn.ConnTx{Ctx: ctx, Conn: conn}
+		var one int
+		if err := conn.QueryRowContext(ctx, `SELECT 1 FROM data_tables WHERE id = ? AND profile_id = ?`, t.ID, s.profile).Scan(&one); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: %q", ErrNotFound, t.Name)
+			}
+			return err
+		}
 		cols := len(t.Columns)
 		if err := fn(tx); err != nil {
 			return err
@@ -222,7 +230,7 @@ func (s *Store) update(ctx context.Context, t *Table, f Filter, data map[string]
 		if err != nil {
 			return err
 		}
-		rows, err := loadRowsFor(ctx, tx, work, f)
+		rows, err := loadRowsFor(ctx, tx, s.profile, work, f)
 		if err != nil {
 			return err
 		}
@@ -295,7 +303,7 @@ func (s *Store) Delete(ctx context.Context, t Table, f Filter, dryRun bool) ([]m
 	}
 	out := []map[string]interface{}{}
 	err = s.write(ctx, &t, false, func(tx dbconn.ConnTx) error {
-		rows, err := loadRowsFor(ctx, tx, t, f)
+		rows, err := loadRowsFor(ctx, tx, s.profile, t, f)
 		if err != nil {
 			return err
 		}

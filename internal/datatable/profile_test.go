@@ -53,3 +53,44 @@ func TestTablesAreIsolatedPerProfile(t *testing.T) {
 		t.Errorf("profile B lists %v, %v", list, err)
 	}
 }
+
+// A Table value that names another profile's table (stale or forged) reaches none of that table's rows.
+func TestRowOpsRefuseAnotherProfilesTable(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.Open(t).DB
+	a, b := datatable.New(db, "A"), datatable.New(db, "B")
+	tbl, err := a.CreateTable(ctx, "Leads", []datatable.Column{{Name: "name"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Insert(ctx, &tbl, []map[string]interface{}{{"name": "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := b.CountRows(ctx, tbl); n != 0 {
+		t.Errorf("B counted %d rows of A's table", n)
+	}
+	if n, _ := b.ClearTable(ctx, tbl); n != 0 {
+		t.Errorf("B cleared %d rows of A's table", n)
+	}
+	if err := b.DeleteTable(ctx, tbl); err == nil {
+		t.Error("B deleted A's table without an error")
+	}
+	if got, _ := b.Select(ctx, tbl, datatable.Query{}); len(got) != 0 {
+		t.Errorf("B selected %d rows of A's table", len(got))
+	}
+	if n, err := a.CountRows(ctx, tbl); err != nil || n != 1 {
+		t.Errorf("A's rows after B's attempts: %d, %v; want 1", n, err)
+	}
+}
+
+// Names are unique ignoring case, as lookups are.
+func TestCreateTableRefusesCaseVariant(t *testing.T) {
+	ctx := context.Background()
+	s := datatable.New(testdb.Open(t).DB, "A")
+	if _, err := s.CreateTable(ctx, "Leads", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTable(ctx, "leads", nil); err == nil {
+		t.Error("created \"leads\" next to \"Leads\"")
+	}
+}
