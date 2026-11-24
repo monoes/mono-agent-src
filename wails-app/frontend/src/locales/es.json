@@ -8,6 +8,13 @@
   "connectionsPage": {
     "stale": "No se pudo actualizar la lista; puede estar desactualizada."
   },
+  "profilePage": {
+    "confirmSend": "¿Enviar este correo ahora? Se enviará tal como está escrito.",
+    "discard": "Descartar",
+    "loadFailed": "No se pudo cargar: {{error}}",
+    "send": "Enviar",
+    "statusNotSaved": "La actualización de estado no se guardó."
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Panel",

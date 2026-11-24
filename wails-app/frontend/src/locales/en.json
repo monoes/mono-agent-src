@@ -8,6 +8,13 @@
   "connectionsPage": {
     "stale": "The list could not be refreshed and may be out of date."
   },
+  "profilePage": {
+    "confirmSend": "Send this email now? It goes out as written.",
+    "discard": "Discard",
+    "loadFailed": "Could not load: {{error}}",
+    "send": "Send",
+    "statusNotSaved": "The status update was not saved."
+  },
   "sidebar": {
     "nav": {
       "dashboard": "Dashboard",
