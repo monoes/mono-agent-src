@@ -120,6 +120,7 @@ func retireProfileAIProviders(ctx context.Context, db *sql.DB, profileID, backup
 	notes := fmt.Sprintf("Passphrase for %s, a backup of the %d AI provider key(s) removed on %s "+
 		"(mono-agent no longer has AI providers; AI runs through local agents via monomind). "+
 		"Restore them as plain secrets with: monoagentcli secret import %s. "+
+		"This passphrase and the file together are the keys: anyone who gets both can read them. "+
 		"Delete this entry and the file once you no longer need them.",
 		path, len(ids), now.Format("2006-01-02"), path)
 	passID, err := addEntry(ctx, db, profileID, "secret", name, map[string]string{"passphrase": passphrase}, "", "", notes)
