@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Play, Square, RotateCcw, ZoomIn, ZoomOut, Trash2, Search,
   ChevronDown, ChevronRight, X, Settings2, Copy, RefreshCw,
@@ -1115,6 +1116,7 @@ function schemaDefaults(fields) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) {
+  const { t } = useTranslation()
   const [categories, setCategories] = useState([])
   // type -> schema, from the node catalog. The workflow file carries the
   // schema each node had when it was saved; the catalog is what the running
@@ -1826,10 +1828,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setWfId(saved.id)
         setIsDirty(false)
         onWorkflowsChanged?.() // status bar / dashboard workflow count
-        setSaveMsg({ ok: true, text: 'Saved' })
+        setSaveMsg({ ok: true, text: t('nodeRunner.toolbar.saved') })
         return saved
       } else {
-        setSaveMsg({ ok: false, text: 'Save returned no ID' })
+        setSaveMsg({ ok: false, text: t('nodeRunner.toolbar.saveNoId') })
         return null
       }
     } catch (e) {
@@ -1840,7 +1842,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       clearTimeout(saveMsgTimerRef.current)
       saveMsgTimerRef.current = setTimeout(() => setSaveMsg(null), 3000)
     }
-  }, [saving, wfId, wfName, nodes, edges, setShowSaveModal])
+  }, [saving, wfId, wfName, nodes, edges, setShowSaveModal, t])
 
   // ── Load workflow ─────────────────────────────────────────────────────────
   // keepModal: the mount-time restore must not close a Templates dialog the
@@ -1997,11 +1999,11 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         {/* Active toggle */}
         <button
           onClick={handleToggleActive}
-          title={wfActive ? 'Deactivate' : 'Activate'}
+          title={wfActive ? t('nodeRunner.toolbar.deactivate') : t('nodeRunner.toolbar.activate')}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: wfActive ? '#10b981' : 'var(--text-muted)', padding: '2px 4px' }}
         >
           {wfActive ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1 }}>{wfActive ? 'ACTIVE' : 'OFF'}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1 }}>{wfActive ? t('nodeRunner.toolbar.active') : t('nodeRunner.toolbar.off')}</span>
         </button>
 
         <div style={{ width: 1, height: 16, background: 'rgba(0,180,216,0.15)' }} />
@@ -2023,12 +2025,12 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
         {globalStatus && !saveMsg && !execOverlay && (() => {
           const g = globalStatus === 'ok'
-            ? { color: '#10b981', label: 'done', Icon: CheckCircle }
+            ? { color: '#10b981', label: t('nodeRunner.toolbar.statusDone'), Icon: CheckCircle }
             : globalStatus === 'warning'
-              ? { color: '#fbbf24', label: 'done with errors', Icon: AlertCircle }
+              ? { color: '#fbbf24', label: t('nodeRunner.toolbar.statusDoneErrors'), Icon: AlertCircle }
               : globalStatus === 'waiting'
-                ? { color: '#f59e0b', label: 'waiting for review', Icon: Clock }
-                : { color: '#ef4444', label: 'failed', Icon: AlertCircle }
+                ? { color: '#f59e0b', label: t('nodeRunner.toolbar.statusWaiting'), Icon: Clock }
+                : { color: '#ef4444', label: t('nodeRunner.toolbar.statusFailed'), Icon: AlertCircle }
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <g.Icon size={11} color={g.color} />
@@ -2064,7 +2066,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               tabIndex={execOverlay.problem ? 0 : undefined}
               onClick={execOverlay.problem ? () => setProblemHidden(h => !h) : undefined}
               onKeyDown={execOverlay.problem ? (e) => { if (e.key === 'Enter' || e.key === ' ') setProblemHidden(h => !h) } : undefined}
-              title={execOverlay.problem ? (problemHidden ? 'Show why' : 'Hide the error') : undefined}
+              title={execOverlay.problem ? (problemHidden ? t('nodeRunner.toolbar.showWhy') : t('nodeRunner.toolbar.hideError')) : undefined}
               style={{
                 fontFamily: 'var(--font-mono)', fontSize: 9,
                 color: execOverlay.status === 'RUNNING' ? 'var(--cyan)' :
@@ -2076,7 +2078,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                 cursor: execOverlay.problem ? 'pointer' : 'default',
                 textDecoration: execOverlay.problem && problemHidden ? 'underline' : 'none',
               }}>
-              Execution: {execOverlay.status}
+              {t('nodeRunner.toolbar.execution', { status: execOverlay.status })}
             </span>
             {execOverlay.status === 'FAILED' && isAgentNotSetup(execOverlay.error) && <AgentSetupLink onNavigate={onNavigate} compact />}
             <button
@@ -2089,7 +2091,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                 setExecOverlay(null)
                 setNodes(prev => prev.map(n => ({ ...n, runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null })))
               }}
-              title="Close execution view"
+              title={t('nodeRunner.toolbar.closeExecution')}
             >
               <X size={10} />
             </button>
@@ -2099,13 +2101,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         {/* HIL pause hint — WAITING runs wait for a human, they did not fail */}
         {execOverlay?.status === 'WAITING' && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-            {execOverlay.hint || 'Paused for human review'}
+            {execOverlay.hint || t('nodeRunner.toolbar.pausedForReview')}
             <button
               onClick={() => onNavigate?.('hil')}
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--font-mono)', fontSize: 9, color: '#00b4d8', textDecoration: 'underline' }}
-              title="Open Human in Loop page"
+              title={t('nodeRunner.toolbar.openHil')}
             >
-              Human in Loop →
+              {t('nodeRunner.toolbar.hilLink')}
             </button>
           </span>
         )}
@@ -2113,31 +2115,31 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <div style={{ flex: 1 }} />
 
         {/* New */}
-        <button style={tbBtn} onClick={handleNew} title="New workflow"><Plus size={13} /></button>
+        <button style={tbBtn} onClick={handleNew} title={t('nodeRunner.toolbar.new')}><Plus size={13} /></button>
 
         {/* Load */}
-        <button style={tbBtn} onClick={() => setShowWfModal('saved')} title="Open saved workflow"><FolderOpen size={13} /></button>
+        <button style={tbBtn} onClick={() => setShowWfModal('saved')} title={t('nodeRunner.toolbar.openSaved')}><FolderOpen size={13} /></button>
 
         {/* Templates: labelled, so starting from one needs no hunting */}
-        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowWfModal('templates')} title="Start from a template">
-          <LayoutTemplate size={13} /> Templates
+        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowWfModal('templates')} title={t('nodeRunner.toolbar.templateTitle')}>
+          <LayoutTemplate size={13} /> {t('nodeRunner.toolbar.templates')}
         </button>
 
         {/* Generate a workflow from a brief (coder task `workflow-generate`) */}
-        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowGenerate(true)} title="Generate a workflow with coder">
-          <Bot size={13} /> Generate
+        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowGenerate(true)} title={t('nodeRunner.toolbar.generateTitle')}>
+          <Bot size={13} /> {t('nodeRunner.toolbar.generate')}
         </button>
 
         {/* Import a workflow file (CLI `workflow import`) */}
-        <button style={tbBtn} onClick={() => setShowImport(true)} title="Import workflow" aria-label="Import workflow"><Upload size={13} /></button>
+        <button style={tbBtn} onClick={() => setShowImport(true)} title={t('nodeRunner.toolbar.import')} aria-label={t('nodeRunner.toolbar.import')}><Upload size={13} /></button>
 
         {/* Publish the saved workflow to monoes.me (CLI `library publish`) */}
         <button
           style={{ ...tbBtn, opacity: wfId ? 1 : 0.4 }}
           onClick={() => setShowPublish(true)}
           disabled={!wfId}
-          title={wfId ? 'Publish to monoes' : 'Save the workflow first'}
-          aria-label="Publish to monoes"
+          title={wfId ? t('nodeRunner.toolbar.publish') : t('nodeRunner.toolbar.saveFirst')}
+          aria-label={t('nodeRunner.toolbar.publish')}
         ><UploadCloud size={13} /></button>
 
         {/* Refresh: reload the open workflow fresh from the backend, discarding unsaved canvas edits */}
@@ -2145,7 +2147,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           style={{ ...tbBtn, opacity: wfId ? 1 : 0.4 }}
           onClick={handleRefresh}
           disabled={!wfId || refreshing}
-          title={wfId ? 'Reload workflow from disk' : 'No workflow open'}
+          title={wfId ? t('nodeRunner.toolbar.reload') : t('nodeRunner.toolbar.noWorkflow')}
         >
           <RefreshCw size={13} style={{ animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }} />
         </button>
@@ -2154,7 +2156,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <button
           style={{ ...tbBtn, color: saving ? 'var(--text-muted)' : '#00b4d8', borderColor: 'rgba(0,180,216,0.3)' }}
           onClick={() => { if (!saving) setShowSaveModal(true) }}
-          title="Save workflow"
+          title={t('nodeRunner.toolbar.save')}
         >
           {saving ? <Loader size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Save size={13} />}
         </button>
@@ -2162,20 +2164,20 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <div style={{ width: 1, height: 16, background: 'rgba(0,180,216,0.15)' }} />
 
         {/* Zoom */}
-        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.max(0.25, c.zoom / 1.2) }))} title="Zoom out"><ZoomOut size={13} /></button>
+        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.max(0.25, c.zoom / 1.2) }))} title={t('nodeRunner.toolbar.zoomOut')}><ZoomOut size={13} /></button>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', minWidth: 32, textAlign: 'center' }}>
           {Math.round(camera.zoom * 100)}%
         </span>
-        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.min(2.5, c.zoom * 1.2) }))} title="Zoom in"><ZoomIn size={13} /></button>
-        <button style={tbBtn} onClick={() => setCamera({ x: 60, y: 60, zoom: 1 })} title="Reset view"><RotateCcw size={13} /></button>
-        <button style={tbBtn} onClick={handleAutoLayout} title="Auto-layout nodes"><LayoutDashboard size={13} /></button>
+        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.min(2.5, c.zoom * 1.2) }))} title={t('nodeRunner.toolbar.zoomIn')}><ZoomIn size={13} /></button>
+        <button style={tbBtn} onClick={() => setCamera({ x: 60, y: 60, zoom: 1 })} title={t('nodeRunner.toolbar.resetView')}><RotateCcw size={13} /></button>
+        <button style={tbBtn} onClick={handleAutoLayout} title={t('nodeRunner.toolbar.autoLayout')}><LayoutDashboard size={13} /></button>
 
         {/* Clear */}
         <button
           style={{ ...tbBtn, color: nodes.length ? 'rgba(239,68,68,0.6)' : 'var(--text-muted)' }}
-          onClick={async () => { if (nodes.length > 0 && !(await confirm('Clear the entire canvas?', { title: 'Clear Canvas', confirmLabel: 'Clear' }))) return; setNodes([]); setEdges([]); setSelectedId(null); setGlobalStatus(null) }}
-          title="Clear canvas"
-          aria-label="Clear canvas"
+          onClick={async () => { if (nodes.length > 0 && !(await confirm(t('nodeRunner.toolbar.clearConfirm'), { title: t('nodeRunner.toolbar.clearTitle'), confirmLabel: t('nodeRunner.toolbar.clearLabel') }))) return; setNodes([]); setEdges([]); setSelectedId(null); setGlobalStatus(null) }}
+          title={t('nodeRunner.toolbar.clearCanvas')}
+          aria-label={t('nodeRunner.toolbar.clearCanvas')}
         >
           <Trash2 size={13} />
         </button>
@@ -2184,7 +2186,9 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <button
           style={{ ...tbBtn, color: jsonView ? '#00b4d8' : 'var(--text-muted)', borderColor: jsonView ? 'rgba(0,180,216,0.3)' : 'rgba(0,180,216,0.15)', background: jsonView ? 'rgba(0,180,216,0.08)' : 'transparent' }}
           onClick={() => setJsonView(v => !v)}
-          title={jsonView ? 'Switch to visual canvas' : 'Switch to JSON view'}
+          title={jsonView ? t('nodeRunner.toolbar.toCanvas') : t('nodeRunner.toolbar.toJson')}
+          aria-label={jsonView ? t('nodeRunner.toolbar.toCanvas') : t('nodeRunner.toolbar.toJson')}
+          aria-pressed={jsonView}
         >
           <Braces size={13} />
         </button>
@@ -2202,10 +2206,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             }}
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.22)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.12)' }}
-            title="Stop execution"
+            title={t('nodeRunner.toolbar.stopTitle')}
           >
             <Square size={12} />
-            STOP
+            {t('nodeRunner.toolbar.stop')}
           </button>
         ) : (
           <button
@@ -2221,10 +2225,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             }}
             onMouseEnter={e => { if (nodes.length > 0) e.currentTarget.style.background = 'rgba(16,185,129,0.2)' }}
             onMouseLeave={e => { if (nodes.length > 0) e.currentTarget.style.background = 'rgba(16,185,129,0.12)' }}
-            title="Run all nodes"
+            title={t('nodeRunner.toolbar.runTitle')}
           >
             <Play size={12} />
-            RUN
+            {t('nodeRunner.toolbar.run')}
           </button>
         )}
       </div>

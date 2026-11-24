@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
+import '../i18n.js'
 import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 
 // The page's run and save paths (R21-06: a thrown run says why; R21-07: the
