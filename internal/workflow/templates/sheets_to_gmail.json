@@ -1,7 +1,7 @@
 {
   "name": "Sheets to Gmail",
   "summary": "Emails a follow-up to the next contact marked pending in a Google Sheet.",
-  "description": "Manual run: read rows from a Google Sheet, keep rows with status 'pending', and email a follow-up to the first of them (one email per run — mark the row done in the sheet, then run again for the next). Set the Google credential, spreadsheet ID, and SMTP values before running.",
+  "description": "Manual run: read rows from a Google Sheet, keep rows with status 'pending', and email a follow-up to the first of them (one email per run — mark the row done in the sheet, then run again for the next). Set the Google credential, spreadsheet ID, and SMTP values before running; the SMTP password is read from the vault item smtp_app_password (create it with the vault commands), never typed into the workflow.",
   "version": 1,
   "is_active": false,
   "nodes": [
@@ -57,7 +57,7 @@
         "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
         "username": "you@example.com",
-        "password": "REPLACE_WITH_APP_PASSWORD",
+        "password": "@secret:smtp_app_password",
         "from": "you@example.com",
         "to": "{{ $json.email }}",
         "subject": "Following up",
