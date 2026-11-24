@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/httpapi"
 )
 
 // Handler is what a dedicated /v1 listener serves: GET /health and the /v1
@@ -38,14 +40,19 @@ var (
 // There is no server-wide WriteTimeout: a turn or a stream can run for
 // minutes, so each response sets its own write deadline.
 func (g *Gateway) Serve(ctx context.Context, ln net.Listener, p Policy, tlsCfg *tls.Config) error {
+	bound := ln.Addr().String()
 	if tlsCfg != nil {
 		ln = tls.NewListener(ln, tlsCfg)
 	}
 	srv := &http.Server{
-		Handler:           g.Handler(p),
+		// On a loopback bind the Host guard of the HTTP API applies here too.
+		Handler:           httpapi.LoopbackHostGuard(bound, g.Handler(p)),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// ReadTimeout covers the whole request, body included: a chat body of up to
+		// Config.BodyLimit has 30 s to arrive, and a slower sender (a large body over a
+		// slow link) is cut off with a connection reset, not a JSON error.
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
