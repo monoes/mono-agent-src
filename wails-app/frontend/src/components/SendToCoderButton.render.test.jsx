@@ -152,3 +152,13 @@ describe('TaskHeaderCard', () => {
     expect(screen.getByText('filled, waiting for you to submit')).toBeInTheDocument()
   })
 })
+
+describe('SendToCoderButton without a bubble provider', () => {
+  it('says the chat could not open instead of staying silent', async () => {
+    aitaskApi.status.mockResolvedValue({ enabled: true })
+    aitaskApi.submit.mockResolvedValue(task)
+    renderButton({ openDraft: null })
+    fireEvent.click(screen.getByRole('button', { name: /send to coder/i }))
+    expect(await screen.findByText(/could not open here/i)).toBeInTheDocument()
+  })
+})

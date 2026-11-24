@@ -44,6 +44,7 @@ export default function SendToCoderButton({ kind = 'generic', goal, context = []
         // kind lets the pane know a confined application-apply chat the moment it opens.
         task: { taskId: task.taskId, kind: task.kind || kind, goal: task.goal || goal, status: task.status, origin, doneLabel },
       })
+      if (!openDraft) setNote({ text: 'Sent. The chat could not open here; find it in Coder history.' })
       onSent?.(task)
     } catch (err) {
       setNote({ text: String(err?.message || err), error: true })

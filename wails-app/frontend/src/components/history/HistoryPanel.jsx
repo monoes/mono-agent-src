@@ -22,7 +22,7 @@ import './history.css'
 // live summary overlays its row.
 export default function HistoryPanel({ store, onNavigate }) {
   const { t } = useTranslation()
-  const { openDraft } = useSendToCoder()
+  const { openDraft, openNewChat } = useSendToCoder()
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState('')
   const [status, setStatus] = useState('')
@@ -110,8 +110,8 @@ export default function HistoryPanel({ store, onNavigate }) {
   const openApplication = (id) => { onNavigate?.('applications', { application: id }); close() }
 
   const newChat = () => {
-    // TODO: call openNewChat() from CoderBubbleContext once the pane worker lands it.
-    openDraft?.()
+    // openNewChat opens a blank chat; without a provider fall back to openDraft.
+    ;(openNewChat ?? openDraft)?.()
     close()
   }
 
