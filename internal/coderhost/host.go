@@ -120,11 +120,15 @@ func (h *Host) Recover() error {
 		if x.TurnID == "" && x.TurnPID == 0 && x.State != StateRunning {
 			continue
 		}
-		// A bound turn is never adopted: it is stopped (by its leader's own pidfd) and the session settled once the
-		// leader is gone, or held.
+		// A bound turn that is still running is adopted like an unbound one (adoptBound), so a restart never leaves its
+		// agent running beside a new one. One that cannot be adopted is stopped (by its leader's own pidfd) and the
+		// session settled once the leader is gone, or held.
 		if isV2, pid, stamp, err := h.Store.V2Turn(x.ProfileID, x.ConversationID, x.TurnID); err != nil {
 			return err
 		} else if isV2 {
+			if h.adoptBound(x) {
+				continue
+			}
 			h.recoverV2(x, pid, stamp)
 			continue
 		}
