@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/testmode"
 )
 
 // internalNets are the ranges net.IP's own predicates miss: carrier-grade NAT, "this network",
@@ -36,6 +38,14 @@ func isInternalIP(ip net.IP) bool {
 	}
 	return false
 }
+
+// enforceInternalGuardInTest switches the guard on inside a test binary. Tests of other packages drive
+// `node run` against httptest servers on loopback, which an unapproved AI-authored run may not reach, so
+// the guard is off in a test binary unless the test of the guard itself turns it on (testmode.On is set only
+// by testhome.Main: nothing in a real process's environment can switch the guard off).
+var enforceInternalGuardInTest bool
+
+func internalGuardOn() bool { return !testmode.On || enforceInternalGuardInTest }
 
 // refuseInternalDial is a DialContext for a request that an unapproved, AI-authored workflow makes:
 // it connects only to addresses that are not internal. The check runs in the dialer's Control hook,

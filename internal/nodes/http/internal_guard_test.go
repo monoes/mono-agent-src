@@ -23,6 +23,8 @@ func TestIsInternalIP(t *testing.T) {
 
 // An unapproved AI-authored workflow does not reach this machine's own services; an approved one does.
 func TestRequestRefusesInternalAddressesWhenAIAuthored(t *testing.T) {
+	enforceInternalGuardInTest = true // the guard is off in a test binary unless its own test turns it on
+	t.Cleanup(func() { enforceInternalGuardInTest = false })
 	rec := newRecorder(t, nil)
 	cfg := map[string]interface{}{"url": rec.URL + "/admin", "method": "GET"}
 	in := workflow.NodeInput{Items: []workflow.Item{{JSON: map[string]interface{}{}}}}

@@ -107,7 +107,7 @@ func newHTTPClient(o clientOptions) (*http.Client, func()) {
 	if o.insecure {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // allow_unauthorized_certs is the user's explicit choice
 	}
-	if o.refuseInternal {
+	if o.refuseInternal && internalGuardOn() {
 		transport.DialContext = refuseInternalDial(o.proxy)
 	}
 	var rt http.RoundTripper = transport
