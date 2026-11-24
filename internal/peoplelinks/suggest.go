@@ -53,7 +53,6 @@ func personState(p Person) map[string]any {
 		"platform_username": p.PlatformUsername,
 		"website":           p.Website,
 		"job_title":         p.JobTitle,
-		"category":          p.Category,
 		"untrusted_bio":     string(bio),
 	}
 }
