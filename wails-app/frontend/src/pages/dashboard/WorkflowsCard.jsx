@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitBranch, Play, ChevronRight, ToggleLeft, ToggleRight, Loader, StopCircle, Clock } from 'lucide-react'
 import { execStatus } from '../../lib/execStatus.js'
@@ -31,9 +31,11 @@ function WorkflowRow({ wf, last, sched, invalid, daemonRunning, onRun, onStop, o
   const [toggling, setToggling] = useState(false)
   const st = execStatus(last?.status)
 
+  const runTimer = useRef(null)
+  useEffect(() => () => clearTimeout(runTimer.current), [])
   const handleRun = async () => {
     setRunning(true)
-    try { await onRun(wf.id) } finally { setTimeout(() => setRunning(false), 2000) }
+    try { await onRun(wf.id) } finally { runTimer.current = setTimeout(() => setRunning(false), 2000) }
   }
   const handleStop = async () => {
     if (!last?.id) return
