@@ -55,6 +55,25 @@ func TestWriteFileTightensAnExistingFile(t *testing.T) {
 	}
 }
 
+// The mode is fixed before the content is written: a file the owner cannot write (0444) is made 0600 first, so
+// the write goes into a private file. Writing first would have failed here.
+func TestWriteFileFixesTheModeBeforeWriting(t *testing.T) {
+	skipOnWindows(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to any file")
+	}
+	file := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(file, []byte("old"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(file, []byte("new")); err != nil {
+		t.Fatalf("WriteFile onto a 0444 file: %v", err)
+	}
+	if got := perm(t, file); got != FilePerm {
+		t.Fatalf("mode %v, want %v", got, FilePerm)
+	}
+}
+
 func TestFindExposedAndRepair(t *testing.T) {
 	skipOnWindows(t)
 	root := t.TempDir()
