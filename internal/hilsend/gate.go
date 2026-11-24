@@ -74,6 +74,23 @@ func Detect() (PreparedBy, bool) {
 	}, true
 }
 
+// UnmarkedAgentID is PreparedBy.AgentID on a send whose process carries no agent marker but runs under
+// one (AncestorCheck): an agent that stripped its markers with `env -u`.
+const UnmarkedAgentID = "unmarked-agent"
+
+// AncestorCheck is the operator's own check for a process that no environment marker names: it
+// returns why a parent process marks this one as an agent's, or "" for the operator. internal/operator
+// imports this package, so the command line installs it (internal/cli/hil) instead of this package
+// importing the check; nil means markers alone.
+var AncestorCheck func() string
+
+func ancestorAgent() string {
+	if AncestorCheck == nil {
+		return ""
+	}
+	return AncestorCheck()
+}
+
 // Enabled reads the sendApproval setting; on unless the operator turned it off.
 func Enabled(db *sql.DB) bool {
 	var raw string
@@ -147,7 +164,11 @@ func Guard(ctx context.Context, nodeType string, in workflow.NodeInput, config m
 	who, agent := Detect()
 	if !agent {
 		if who, agent = unapprovedRun(ctx); !agent {
-			return nil, false, nil
+			why := ancestorAgent()
+			if why == "" {
+				return nil, false, nil
+			}
+			who, agent = PreparedBy{AgentID: UnmarkedAgentID, Role: why, System: true}, true
 		}
 	}
 	db := vault.DBFromContext(ctx)
