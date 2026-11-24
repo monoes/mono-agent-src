@@ -54,14 +54,31 @@ func (a *App) GetPersonMessages(personID string) []*PersonMessage {
 
 // GetAllPersonMessages is the cross-person feed (`people messages all`).
 func (a *App) GetAllPersonMessages(limit int) []*PersonMessageWithPerson {
+	return a.GetAllPersonMessagesFiltered(limit, "", "", false)
+}
+
+// GetAllPersonMessagesFiltered is the feed narrowed by the CLI itself:
+// source, one exact status, and unread inbound only (`--source --status
+// --unread`), so the limit applies to the matching messages.
+func (a *App) GetAllPersonMessagesFiltered(limit int, source, status string, unread bool) []*PersonMessageWithPerson {
 	if a.signedOut() != nil {
 		return nil
 	}
 	if limit <= 0 {
 		limit = 100
 	}
+	args := []string{"people", "messages", "all", "--limit", strconv.Itoa(limit)}
+	if source != "" {
+		args = append(args, "--source", source)
+	}
+	if status != "" {
+		args = append(args, "--status", status)
+	}
+	if unread {
+		args = append(args, "--unread")
+	}
 	out := []*PersonMessageWithPerson{}
-	if err := a.runMonoCLI("", &out, "people", "messages", "all", "--limit", strconv.Itoa(limit)); err != nil {
+	if err := a.runMonoCLI("", &out, args...); err != nil {
 		return nil
 	}
 	return out
