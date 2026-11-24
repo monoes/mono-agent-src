@@ -355,6 +355,8 @@ func (c *cli) cancel() *cobra.Command {
 			if err != nil {
 				return cliErr(err)
 			}
+			// What the task spent is charged and its hold on the caps freed now, not left until a supervisor that may be gone settles it.
+			_ = ledger(svc).Settle(cmd.Context(), t.ID, t.ConversationID)
 			return c.print(cmd, t, human(t))
 		},
 	}
