@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/attachments"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
@@ -46,7 +47,31 @@ func (s *Scheduler) Start() {
 		s.logger.Error().Err(err).Msg("scheduler tick job not registered")
 	}
 	noteTick()
+	s.startAttachmentPrune()
 	s.cron.Start()
+}
+
+// pruneSpec is how often synced attachments past their retention are removed.
+// prune is what runs (attachments.Prune with the default one-year retention).
+var (
+	pruneSpec = "@every 24h"
+	prune     = func() (int, error) { return attachments.Prune(attachments.DefaultRetention, time.Now()) }
+)
+
+// startAttachmentPrune applies the attachment retention once now (off the
+// start path) and then daily (R11-09).
+func (s *Scheduler) startAttachmentPrune() {
+	run := func() {
+		if n, err := prune(); err != nil {
+			s.logger.Error().Err(err).Msg("attachment prune failed")
+		} else if n > 0 {
+			s.logger.Info().Int("folders", n).Msg("pruned old message attachments")
+		}
+	}
+	if _, err := s.cron.AddFunc(pruneSpec, run); err != nil {
+		s.logger.Error().Err(err).Msg("attachment prune job not registered")
+	}
+	go run()
 }
 
 // Stop gracefully stops the scheduler.
