@@ -3549,5 +3549,27 @@
     "importComplete": "Import Complete",
     "importSummary_one": "Imported {{imported}}, skipped {{count}} duplicate.",
     "importSummary_other": "Imported {{imported}}, skipped {{count}} duplicates."
+  },
+  "mediaVaultBody": {
+    "fileKind": "file",
+    "loadFailed": "Failed to load vault: {{error}}",
+    "uploadFailed": "Upload failed: {{error}}",
+    "dropPathUnavailable": "Drag-drop path unavailable — use the Add Media button instead",
+    "deleteFailed": "Delete failed: {{error}}",
+    "title": "Media Vault",
+    "summary": "{{count}} items · {{size}}",
+    "loadingShort": "loading…",
+    "searchPlaceholder": "search…",
+    "addMedia": "Add Media",
+    "dropNow": "Drop to add to vault",
+    "dropHint": "Drop images, audio or video anywhere to add them to the vault",
+    "colId": "ID",
+    "colLabel": "Label / Filename",
+    "colSource": "Source",
+    "colWorkflow": "Workflow",
+    "colSize": "Size",
+    "colDate": "Date",
+    "noMatch": "Nothing matches your search",
+    "empty": "Nothing here yet — run a workflow or drop images, audio or video here"
   }
 }

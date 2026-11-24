@@ -3549,5 +3549,27 @@
     "importComplete": "Importación completa",
     "importSummary_one": "Importadas {{imported}}, omitido {{count}} duplicado.",
     "importSummary_other": "Importadas {{imported}}, omitidos {{count}} duplicados."
+  },
+  "mediaVaultBody": {
+    "fileKind": "archivo",
+    "loadFailed": "No se pudo cargar la bóveda: {{error}}",
+    "uploadFailed": "Error al subir: {{error}}",
+    "dropPathUnavailable": "La ruta del archivo arrastrado no está disponible: usa el botón Añadir multimedia",
+    "deleteFailed": "Error al eliminar: {{error}}",
+    "title": "Bóveda multimedia",
+    "summary": "{{count}} elementos · {{size}}",
+    "loadingShort": "cargando…",
+    "searchPlaceholder": "buscar…",
+    "addMedia": "Añadir multimedia",
+    "dropNow": "Suelta para añadir a la bóveda",
+    "dropHint": "Suelta imágenes, audio o vídeo en cualquier lugar para añadirlos a la bóveda",
+    "colId": "ID",
+    "colLabel": "Etiqueta / Archivo",
+    "colSource": "Origen",
+    "colWorkflow": "Flujo de trabajo",
+    "colSize": "Tamaño",
+    "colDate": "Fecha",
+    "noMatch": "Nada coincide con tu búsqueda",
+    "empty": "Aún no hay nada: ejecuta un flujo de trabajo o suelta imágenes, audio o vídeo aquí"
   }
 }
