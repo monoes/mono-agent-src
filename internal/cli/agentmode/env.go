@@ -57,6 +57,9 @@ func (d Deps) newEnvCmd() *cobra.Command {
 				if base == "" {
 					base = apiBase(d.addr())
 				}
+				if w := plainHTTPWarning(base); w != "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+w)
+				}
 				vars := [][2]string{{EnvURL, strings.TrimRight(base, "/") + "/profiles/" + tok.ProfileID}, {EnvToken, secret}}
 				return writeEnv(cmd, vars, format)
 			})
@@ -90,6 +93,28 @@ func apiBase(addr string) string {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port)
+}
+
+// plainHTTPWarning says why an http:// base on a host that is not loopback will not work: the
+// agent client only talks plain http to loopback and refuses it anywhere else. "" when fine.
+func plainHTTPWarning(base string) string {
+	rest, ok := strings.CutPrefix(base, "http://")
+	if !ok {
+		return ""
+	}
+	host := rest
+	if i := strings.IndexAny(host, "/?#"); i >= 0 {
+		host = host[:i]
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return ""
+	}
+	return "the API address " + base + " is plain http on a host that is not loopback, which the agent client refuses; " +
+		"put the API behind https and pass --url https://…, or listen on loopback"
 }
 
 // tokenText reads an active token's text back from the vault.
