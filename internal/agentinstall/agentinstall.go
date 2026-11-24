@@ -41,6 +41,11 @@ type Recipe struct {
 	Packages  []string `json:"packages,omitempty"`   // npm
 	ScriptURL string   `json:"script_url,omitempty"` // script
 	Shell     string   `json:"shell,omitempty"`      // script: bash | sh
+	// ScriptSHA256 is the hex sha-256 of the script as reviewed; a download that
+	// hashes differently is not run. Empty when monomind sent none.
+	ScriptSHA256 string `json:"script_sha256,omitempty"`
+	// IgnoreScripts runs npm with --ignore-scripts (monomind says the package installs without them).
+	IgnoreScripts bool `json:"ignore_scripts,omitempty"`
 	Hint      string   `json:"hint"`                 // the original text
 }
 
@@ -126,12 +131,12 @@ func ForEntry(e monomind.ScanEntry) Recipe {
 				return r
 			}
 		}
-		r.Kind, r.Packages = KindNpm, in.Packages
+		r.Kind, r.Packages, r.IgnoreScripts = KindNpm, in.Packages, in.IgnoreScripts
 	case "script":
 		if !validScript(in.URL, in.Shell) {
 			return r
 		}
-		r.Kind, r.ScriptURL, r.Shell = KindScript, in.URL, in.Shell
+		r.Kind, r.ScriptURL, r.Shell, r.ScriptSHA256 = KindScript, in.URL, in.Shell, in.SHA256
 	}
 	return r
 }
@@ -178,7 +183,16 @@ func (in *Installer) Install(ctx context.Context, r Recipe, progress func(string
 				return fmt.Errorf("%w — %q is not an npm registry package", ErrManual, p)
 			}
 		}
-		_, err := in.Node.InstallGlobal(ctx, progress, r.Packages...)
+		pkgs := append([]string(nil), r.Packages...)
+		if r.IgnoreScripts {
+			pkgs = append(pkgs, "--ignore-scripts")
+		}
+		for _, p := range r.Packages {
+			if !pinned(p) {
+				progress("warning: " + p + " is not pinned to a version")
+			}
+		}
+		_, err := in.Node.InstallGlobal(ctx, progress, pkgs...)
 		return err
 	case KindScript:
 		// Checked again here: a Recipe can be built by hand, not only by
@@ -202,6 +216,30 @@ func (in *Installer) NpmBinDir(ctx context.Context) (string, error) {
 	return plan.BinDir, nil
 }
 
+// pinned says whether an npm package spec names a version or tag.
+func pinned(spec string) bool {
+	return strings.Contains(strings.TrimPrefix(spec, "@"), "@")
+}
+
+// installerEnvKeys is the part of the caller's environment a vendor installer
+// sees: no API tokens, cloud or git credentials.
+var installerEnvKeys = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMPDIR",
+	"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+	"SystemRoot", "USERPROFILE",
+}
+
+func installerEnv() []string {
+	var env []string
+	for _, k := range installerEnvKeys {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
+}
+
 // runScript downloads the vendor installer with Go (no dependency on curl
 // being installed), reports its size and SHA-256 so the log shows exactly
 // what ran, and executes it with the named shell.
@@ -223,7 +261,11 @@ func (in *Installer) runScript(ctx context.Context, r Recipe, progress func(stri
 		return err
 	}
 	sum := sha256.Sum256(body)
-	progress(fmt.Sprintf("downloaded installer %s (%d bytes, sha256 %s)", r.ScriptURL, len(body), hex.EncodeToString(sum[:])))
+	got := hex.EncodeToString(sum[:])
+	progress(fmt.Sprintf("downloaded installer %s (%d bytes, sha256 %s)", r.ScriptURL, len(body), got))
+	if want := strings.ToLower(strings.TrimSpace(r.ScriptSHA256)); want != "" && want != got {
+		return fmt.Errorf("installer %s has sha256 %s, not the reviewed %s: not run", r.ScriptURL, got, want)
+	}
 
 	f, err := os.CreateTemp("", "monoagent-installer-*.sh")
 	if err != nil {
@@ -239,5 +281,6 @@ func (in *Installer) runScript(ctx context.Context, r Recipe, progress func(stri
 	progress("running installer with " + r.Shell)
 	cmd := exec.CommandContext(ctx, r.Shell, f.Name())
 	cmd.Stdin = nil // installers must not wait for input
+	cmd.Env = installerEnv()
 	return nodemgr.StreamCmd(cmd, progress)
 }
