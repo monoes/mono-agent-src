@@ -35,7 +35,11 @@ func InChain(chain []int, pid int, stamp string) bool {
 	}
 	for _, p := range chain {
 		if p == pid {
-			return stamp == "" || SameStamp(stamp, Stamp(p))
+			if stamp == "" {
+				// No stamp to compare: where stamps are read, that cannot be told from a reused pid.
+				return !Supported
+			}
+			return SameStamp(stamp, Stamp(p))
 		}
 	}
 	return false
