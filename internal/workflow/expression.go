@@ -66,7 +66,7 @@ type ExpressionEngine struct {
 	// parsed on every use, so item data embedded in a source cannot grow
 	// the daemon's memory without bound.
 	cached atomic.Int64
-	funcs template.FuncMap
+	funcs  template.FuncMap
 }
 
 // NewExpressionEngine returns a fully configured ExpressionEngine.
