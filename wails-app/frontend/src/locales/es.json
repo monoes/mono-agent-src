@@ -3417,5 +3417,19 @@
   },
   "tasksPage": {
     "shellCheckFailed": "Solo lectura: no se pudo comprobar si un agente inició esta app ({{error}}). Reinicia la app para editar el tablero."
+  },
+  "logsBody": {
+    "title": "Registros en vivo",
+    "subtitle": "Ejecución en tiempo real",
+    "scrollBottom": "Ir al final",
+    "clear": "Borrar",
+    "filterPlaceholder": "Filtrar registros...",
+    "allLevels": "Todos los niveles",
+    "entries_one": "{{count}} entrada",
+    "entries_other": "{{count}} entradas",
+    "emptyTitle": "Sin registros",
+    "emptyDesc": "Los registros aparecerán aquí cuando se estén ejecutando acciones.",
+    "askCoder": "Preguntar al coder sobre esto",
+    "askGoal": "Explica este error del registro de la app y qué hacer al respecto."
   }
 }

@@ -60,8 +60,8 @@ export default function Logs({ logs, onClear, onRefresh }) {
     <>
       <div className="page-header">
         <div className="page-header-left">
-          <div className="page-title">Live Logs</div>
-          <div className="page-subtitle">Real-time Execution</div>
+          <div className="page-title">{t('logsBody.title')}</div>
+          <div className="page-subtitle">{t('logsBody.subtitle')}</div>
         </div>
         <div className="page-header-right">
           <RefreshButton onClick={handleRefresh} loading={refreshing} />
@@ -74,11 +74,11 @@ export default function Logs({ logs, onClear, onRefresh }) {
               }}
               style={{ gap: 5, animation: 'pulse-dot 1.5s infinite' }}
             >
-              <ArrowDown size={12} /> Scroll to Bottom
+              <ArrowDown size={12} /> {t('logsBody.scrollBottom')}
             </button>
           )}
           <button className="btn btn-danger btn-sm" onClick={onClear} style={{ gap: 5 }}>
-            <Trash2 size={12} /> Clear
+            <Trash2 size={12} /> {t('logsBody.clear')}
           </button>
         </div>
       </div>
@@ -87,7 +87,7 @@ export default function Logs({ logs, onClear, onRefresh }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
             className="search-input"
-            placeholder="Filter logs..."
+            placeholder={t('logsBody.filterPlaceholder')}
             value={filter}
             onChange={e => setFilter(e.target.value)}
             style={{ maxWidth: 300 }}
@@ -98,14 +98,14 @@ export default function Logs({ logs, onClear, onRefresh }) {
             onChange={e => setLevelFilter(e.target.value)}
             style={{ maxWidth: 120 }}
           >
-            <option value="all">All Levels</option>
+            <option value="all">{t('logsBody.allLevels')}</option>
             <option value="INFO">INFO</option>
             <option value="WARN">WARN</option>
             <option value="ERROR">ERROR</option>
             <option value="SYSTEM">SYSTEM</option>
           </select>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-            {filtered.length} {filtered.length !== 1 ? 'entries' : 'entry'}
+            {t('logsBody.entries', { count: filtered.length })}
           </span>
           {autoScroll && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
@@ -118,9 +118,9 @@ export default function Logs({ logs, onClear, onRefresh }) {
         {filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon"><Terminal size={40} /></div>
-            <div className="empty-state-title">No Logs</div>
+            <div className="empty-state-title">{t('logsBody.emptyTitle')}</div>
             <div className="empty-state-desc">
-              Logs will appear here when actions are running.
+              {t('logsBody.emptyDesc')}
             </div>
           </div>
         ) : (
@@ -141,7 +141,7 @@ export default function Logs({ logs, onClear, onRefresh }) {
                   <span className={`log-source ${colors.level}`}>[{(entry.source || 'SYS').slice(0, 6)}]</span>
                   <span className={colors.msg}>{entry.message}</span>
                   {entry.level?.toUpperCase() === 'ERROR' && (
-                    <SendToCoderButton label="Ask coder about this" goal="Explain this error from the app's log and what to do about it."
+                    <SendToCoderButton label={t('logsBody.askCoder')} goal={t('logsBody.askGoal')}
                       context={[selectionText(`[${entry.source || 'SYS'}] ${entry.message}`)]} origin={{ page: 'logs', label: 'Logs' }}
                       className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} />
                   )}

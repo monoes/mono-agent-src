@@ -3417,5 +3417,19 @@
   },
   "tasksPage": {
     "shellCheckFailed": "Read-only: could not check whether an agent started this app ({{error}}). Restart the app to edit the board."
+  },
+  "logsBody": {
+    "title": "Live Logs",
+    "subtitle": "Real-time Execution",
+    "scrollBottom": "Scroll to Bottom",
+    "clear": "Clear",
+    "filterPlaceholder": "Filter logs...",
+    "allLevels": "All Levels",
+    "entries_one": "{{count}} entry",
+    "entries_other": "{{count}} entries",
+    "emptyTitle": "No Logs",
+    "emptyDesc": "Logs will appear here when actions are running.",
+    "askCoder": "Ask coder about this",
+    "askGoal": "Explain this error from the app's log and what to do about it."
   }
 }
