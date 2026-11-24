@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/orgdecide"
 	"github.com/monoes/mono-agent/internal/orgdesign"
@@ -104,6 +105,17 @@ func (mt *MonoagentTools) getOrg(args string) (string, error) {
 	})
 }
 
+// lockOrgRows holds the profile's org rows lock for one load-write-save, the
+// lock `org` commands and the daemon's reconcile take, so a document loaded
+// here cannot be saved over a concurrent edit.
+func lockOrgRows(root string) (func(), error) {
+	release, err := orgenv.LockRows(root)
+	if err != nil {
+		return nil, fmt.Errorf("org rows lock: %w", err)
+	}
+	return release, nil
+}
+
 type createOrgArgs struct {
 	Name          string `json:"name"`
 	Goal          string `json:"goal"`
@@ -120,6 +132,11 @@ func (mt *MonoagentTools) createOrg(args string) (string, error) {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	root := mt.profileRoot()
+	release, err := lockOrgRows(root)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	path, err := orgdesign.ConfigPath(root, a.Name)
 	if err != nil {
 		return "", fmt.Errorf("create org: %w", err)
@@ -178,6 +195,11 @@ func (mt *MonoagentTools) addOrgRole(args string) (string, error) {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	root := mt.profileRoot()
+	release, err := lockOrgRows(root)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	doc, err := orgdesign.Load(root, a.OrgName)
 	if err != nil {
 		return "", fmt.Errorf("load org %s: %w", a.OrgName, err)
@@ -238,6 +260,11 @@ func (mt *MonoagentTools) updateOrgRole(args string) (string, error) {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	root := mt.profileRoot()
+	release, err := lockOrgRows(root)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	doc, err := orgdesign.Load(root, a.OrgName)
 	if err != nil {
 		return "", fmt.Errorf("load org %s: %w", a.OrgName, err)
@@ -273,6 +300,11 @@ func (mt *MonoagentTools) setRoleReportsTo(args string) (string, error) {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	root := mt.profileRoot()
+	release, err := lockOrgRows(root)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	doc, err := orgdesign.Load(root, a.OrgName)
 	if err != nil {
 		return "", fmt.Errorf("load org %s: %w", a.OrgName, err)
@@ -322,6 +354,11 @@ func (mt *MonoagentTools) removeOrgRole(args string) (string, error) {
 	}
 
 	root := mt.profileRoot()
+	release, err := lockOrgRows(root)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	doc, err := orgdesign.Load(root, a.OrgName)
 	if err != nil {
 		return "", fmt.Errorf("load org %s: %w", a.OrgName, err)
@@ -378,6 +415,11 @@ func (mt *MonoagentTools) reloadOrg(args string) (string, error) {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	root := mt.profileRoot()
+	release, err := lockOrgRows(root)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	doc, err := orgdesign.Load(root, a.OrgName)
 	if err != nil {
 		return "", fmt.Errorf("load org %s: %w", a.OrgName, err)
