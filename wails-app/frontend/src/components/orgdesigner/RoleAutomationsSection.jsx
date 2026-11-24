@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, Trash2, Pencil, AlertTriangle, Workflow, WifiOff } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
+import i18n from '../../i18n.js'
 import { Chip, TierChip, mono, mutedText } from '../orgs/ui.jsx'
 
 const SOURCE_COLORS = { org: 'var(--text-muted)', grant: 'var(--cyan, #00b4d8)', builtin: 'var(--text-dim, #6c7b90)' }
@@ -102,7 +103,7 @@ export default function RoleAutomationsSection({
   const mine = grants.filter(g => g.role === node.id)
 
   const remove = async (g) => {
-    const ok = await confirm(`Revoke ${node.title || node.id}'s grant to ${g.alias}?`, { title: 'Revoke grant', confirmLabel: 'Revoke', danger: true })
+    const ok = await confirm(i18n.t('orgConfirm.revokeGrantBody', { role: node.title || node.id, alias: g.alias }), { title: i18n.t('orgConfirm.revokeGrantTitle'), confirmLabel: i18n.t('orgConfirm.revokeGrantConfirm'), danger: true })
     if (!ok) return
     setBusy(g.alias)
     try {

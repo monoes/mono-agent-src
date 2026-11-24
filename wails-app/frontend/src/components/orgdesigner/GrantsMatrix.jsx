@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Check, Plus, Pencil, Send } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
+import i18n from '../../i18n.js'
 import { defaultGrantSpec } from './GrantDialog.jsx'
 import { TierChip, mono, mutedText } from '../orgs/ui.jsx'
 
@@ -27,7 +28,7 @@ export default function GrantsMatrix({ orgName, nodes, automations, grants, onCh
     const key = `${role.id}|${automation.alias}`
     const existing = byKey.get(key)
     if (existing) {
-      const ok = await confirm(`Revoke ${role.title || role.id}'s grant to ${automation.alias}?`, { title: 'Revoke grant', confirmLabel: 'Revoke', danger: true })
+      const ok = await confirm(i18n.t('orgConfirm.revokeGrantBody', { role: role.title || role.id, alias: automation.alias }), { title: i18n.t('orgConfirm.revokeGrantTitle'), confirmLabel: i18n.t('orgConfirm.revokeGrantConfirm'), danger: true })
       if (!ok) return
     }
     setBusy(key)
