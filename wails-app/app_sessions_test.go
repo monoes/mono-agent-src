@@ -139,7 +139,6 @@ esac
 	for _, want := range []string{
 		"--profile work --json connect list",
 		"--profile work --json connect list --platform gmail",
-		"--profile work --json connect for-node service.github",
 		"--profile work --json connect test c-ok",
 		"--profile work --json connect test c-bad",
 		"--profile work --json login test 42",

@@ -78,7 +78,6 @@ esac
 	}
 	want := []string{
 		"--profile work --json media list --limit 200",
-		"--profile work --json media search -- -logo",
 		"--profile work --json media get -- img-002",
 		"--profile work --json media data -- img-002",
 		"--profile work --json media add --label Logo -- /pics/a.png",

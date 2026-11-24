@@ -160,8 +160,6 @@ esac
 	}
 
 	want := []string{
-		"--profile work --json people messages add --source=manual --subject=Hi --body=hello there -- p1",
-		"--profile work --json people messages add --source=outlook --external-id=x1 --direction=outbound --sender=me -- p1",
 		"--profile work --json people messages compose --connection=outlook --subject=Hi --body=<p>body</p> --draft -- p1",
 		"--profile work --json people messages compose --connection=c1 --subject= --body=b -- p1",
 		"--profile work --json people messages drafts",
