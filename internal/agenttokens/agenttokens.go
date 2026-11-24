@@ -206,8 +206,15 @@ func newID() (string, error) {
 	return idPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))[:12], nil
 }
 
-// Create issues a token for the profile. ttl <= 0 means it never expires. The
-// returned secret is the only time the token exists in the clear here.
+// DefaultTTL is how long a token lives when the caller names no ttl (ttl == 0): an agent is the
+// less trusted party, so a token it holds does not last forever by default.
+const DefaultTTL = 90 * 24 * time.Hour
+
+// NoExpiry is the ttl that asks for a token that never expires. It has to be asked for.
+const NoExpiry time.Duration = -1
+
+// Create issues a token for the profile. ttl == 0 means DefaultTTL, NoExpiry (any negative ttl)
+// means it never expires. The returned secret is the only time the token exists in the clear here.
 func (s *Store) Create(ctx context.Context, profileID, name string, scope Scope, ttl time.Duration) (Token, string, error) {
 	return s.CreateBound(ctx, profileID, name, scope, ttl, Binding{})
 }
@@ -236,6 +243,9 @@ func (s *Store) CreateBound(ctx context.Context, profileID, name string, scope S
 		return Token{}, "", err
 	}
 	now := s.now().UTC()
+	if ttl == 0 {
+		ttl = DefaultTTL
+	}
 	var exp any
 	if ttl > 0 {
 		exp = now.Add(ttl).Format(timeFmt)
