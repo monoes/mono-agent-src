@@ -73,13 +73,23 @@ func ortLibURL() (archiveURL, libGlob string, err error) {
 	}
 }
 
-// Pinned SHA-256 digests (lower-case hex) of the downloads. They could not be obtained when this
-// check was written (the model's release asset carries no digest, and the ONNX Runtime archives
-// were not reachable), so an empty entry is not verified by hash: the size checks above still
-// apply. Fill these in from a download that was checked by hand.
-const u2netModelSHA256 = ""
+// Pinned SHA-256 digests (lower-case hex) of the downloads. An empty entry is not verified by
+// hash (the size checks above still apply).
+//
+// u2netModelSHA256: computed 2026-11-24 with sha256sum on a fresh curl download of u2netModelURL
+// (175997641 bytes, equal to u2netModelSize and to the size of the release asset in the release
+// API). Second source: the file's md5 (60024c5c889badc19c04ad937298a77b) equals the md5 that
+// rembg's own sessions/u2net.py pins for this URL (rembg v2.0.57). The release publishes no
+// SHA-256 digest of its own.
+const u2netModelSHA256 = "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491"
 
-var ortArchiveSHA256 = map[string]string{} // "linux/amd64", "darwin/arm64", "darwin/amd64"
+// ortArchiveSHA256 is keyed "linux/amd64", "darwin/arm64", "darwin/amd64" (what ortLibURL
+// selects; linux on any other arch is served the x64 archive and so has no entry). All three
+// are STILL EMPTY: on 2026-11-24 every ONNX Runtime v1.24.1 archive URL answered HTTP 404 and
+// the microsoft/onnxruntime repository and release API were not reachable, so no digest could be
+// computed or cross-checked. Do not fill them from memory; download each URL, run sha256sum and
+// compare with the release's published checksum first.
+var ortArchiveSHA256 = map[string]string{}
 
 // ── ORT & model singletons ─────────────────────────────────────────────────────
 
