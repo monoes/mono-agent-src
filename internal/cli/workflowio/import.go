@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/workflowbundle"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -129,7 +130,7 @@ func (d Deps) newImportCmd() *cobra.Command {
 			if replaceAutomations {
 				refusal := d.Refusal
 				if refusal == nil {
-					refusal = operator.Refusal
+					refusal = opgate.Refusal
 				}
 				if why := clicore.OperatorRefusal(refusal); why != "" {
 					return clicore.OperatorOnly("workflow import --replace-automations replaces installed automation code with the file's copy, which only the user decides: %s; run it yourself in your terminal or the app", why)

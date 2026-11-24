@@ -157,7 +157,7 @@ func (d Deps) newVersionsRestoreCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "Restore a version that fails `workflow validate` anyway")
+	cmd.Flags().BoolVar(&force, "force", false, "Restore a version that fails workflow validate anyway")
 	return cmd
 }
 
