@@ -20,7 +20,7 @@
 
 > **Project status:** pre-1.0, single maintainer. Core workflow engine and node set are exercised by CI (`go test ./...`), but expect breaking changes between minor versions until 1.0.
 
-- 🔁 **DAG workflow engine** — 104 built-in node types (default build, 2026-10-13), plus the web automations you add from the monoes.me library: services (GitHub, Google Sheets / Gmail / Drive, Stripe, Salesforce, HubSpot, Jira, Linear, Notion, Airtable), databases, HTTP, data transforms, and comms (Gmail, Outlook, Slack, Telegram, Discord, and more)
+- 🔁 **DAG workflow engine** — a large set of built-in node types (`monoagentcli node list` prints them), plus the web automations you add from the monoes.me library: services (GitHub, Google Sheets / Gmail / Drive, Stripe, Salesforce, HubSpot, Jira, Linear, Notion, Airtable), databases, HTTP, data transforms, and comms (Gmail, Outlook, Slack, Telegram, Discord, and more)
 - 📦 **Single static Go binary** — zero CGO, SQLite embedded, no Docker, no Node.js runtime, no analytics or usage counters (AI steps hand off to the separate monomind runner — see [How AI works](#how-ai-works-in-mono-agent)). Workflow state stays on your machine (crash reports default to local files — see [SECURITY.md](SECURITY.md))
 - 🖥️ **Three ways to drive it** — a visual canvas editor (Wails desktop GUI), a 180+-command CLI with JSON output everywhere, and a built-in MCP server so AI agents can operate it safely
 - 🤝 **Human-in-the-loop as a platform primitive** — pause any workflow for review, edit the payload, then approve or reject; the queue is durable and survives restarts
@@ -291,7 +291,7 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 
 ## Node Library
 
-> 104 built-in node types in the default build (counted with `node list --json` on 2026-10-13). The social platform actions (below) come from web automation packages on the monoes.me library and add their node types once installed. `monoagentcli node list` prints the exact set your binary has.
+> The built-in node types of the default build are listed below. The social platform actions (below) come from web automation packages on the monoes.me library and add their node types once installed. `monoagentcli node list` prints the exact set your binary has.
 
 <details>
 <summary><strong>⚙️ Core Control (15 nodes)</strong></summary>
