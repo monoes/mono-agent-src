@@ -16,6 +16,11 @@ type State struct {
 	// it lives in; commands without --tab act on it.
 	TabID    int    `json:"tabId,omitempty"`
 	Instance string `json:"instance,omitempty"`
+	// Profile is the profile that last used TabID. One browser instance can
+	// serve several profiles, so a command naming another profile must not
+	// land on that tab. Files written before this field existed have none
+	// and are not reused for a command that names a profile.
+	Profile string `json:"profile,omitempty"`
 	// Reported is, per tab ("<instance>/<tabId>"), the submit_guard seq of
 	// the last blocked submit already turned into a HIL item.
 	Reported map[string]int `json:"reported,omitempty"`

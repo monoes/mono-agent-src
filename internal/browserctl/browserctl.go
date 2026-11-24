@@ -214,7 +214,7 @@ func (s *Session) pickTab(explicit int) error {
 	if explicit > 0 {
 		return s.UseTab(explicit)
 	}
-	if s.state.TabID > 0 && s.state.Instance == s.info.Instance {
+	if s.state.TabID > 0 && s.state.Instance == s.info.Instance && (s.profile == "" || s.state.Profile == s.profile) {
 		if err := s.UseTab(s.state.TabID); err == nil || refusedSite(err) {
 			return err // a refusal is the agent's to read, not a reason to act elsewhere
 		}
@@ -272,7 +272,7 @@ func (s *Session) UseTab(id int) error {
 		return err
 	}
 	s.tabID, s.url, s.blankTab = id, u, isBlank
-	s.state.TabID, s.state.Instance = id, s.info.Instance
+	s.state.TabID, s.state.Instance, s.state.Profile = id, s.info.Instance, s.profile
 	return s.saveState()
 }
 
