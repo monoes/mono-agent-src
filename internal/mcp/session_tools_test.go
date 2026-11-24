@@ -105,7 +105,7 @@ func TestSessionToolsAreServedAndGated(t *testing.T) {
 			found++
 		}
 	}
-	if found != 20 { // the eleven master tools plus session_ask_ancestor, session_reply_ask and the seven session_boss_* tools (ask_ancestor_tool.go, ask_reply_tool.go, boss_tools.go, boss_tools_finish.go, boss_tools_finish_ready.go, boss_tools_strategy.go)
+	if found != 21 { // the eleven master tools plus session_ask_ancestor, session_reply_ask and the eight session_boss_* tools (ask_ancestor_tool.go, ask_reply_tool.go, boss_tools.go, boss_tools_finish.go, boss_tools_finish_ready.go, boss_tools_strategy.go, boss_tools_model.go)
 		t.Fatalf("allTools serves %d session tools", found)
 	}
 }

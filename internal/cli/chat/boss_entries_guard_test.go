@@ -110,15 +110,16 @@ func TestEveryEntryThatCanStartATurnIsInTheTable(t *testing.T) {
 	}
 }
 
-// Who may call the bounded send: only enqueueBounded calls EnqueueSendBounded, and enqueueBounded is called only by the steer and
-// the first turn, each of which asks requireUser (the user's own gate) in the same function.
+// Who may call the bounded send: only enqueueBounded calls EnqueueSendBounded, only queueBossTurn calls enqueueBounded (it also writes
+// the operator's confirmation), and queueBossTurn is called only by the steer and the first turn, each of which asks requireUser (the
+// user's own gate) in the same function.
 func TestBoundedSendIsCalledOnlyByTheUsersOwnVerbs(t *testing.T) {
 	files := treeFiles(t)
 	fset := token.NewFileSet()
-	callers := map[string]map[string]bool{"EnqueueSendBounded": {}, "enqueueBounded": {}}
+	callers := map[string]map[string]bool{"EnqueueSendBounded": {}, "enqueueBounded": {}, "queueBossTurn": {}}
 	asksUser := map[string]bool{}
 	for name, src := range files {
-		if !strings.Contains(src, "EnqueueSendBounded") && !strings.Contains(src, "enqueueBounded") {
+		if !strings.Contains(src, "EnqueueSendBounded") && !strings.Contains(src, "enqueueBounded") && !strings.Contains(src, "queueBossTurn") {
 			continue
 		}
 		f, err := parser.ParseFile(fset, name, src, 0)
@@ -144,8 +145,8 @@ func TestBoundedSendIsCalledOnlyByTheUsersOwnVerbs(t *testing.T) {
 				}
 				return true
 			})
-			for _, fnName := range []string{"EnqueueSendBounded", "enqueueBounded"} {
-				if has[fnName] && !(fd.Name.Name == "enqueueBounded" && fnName == "enqueueBounded") && name != "internal/coderhost/send_bounded.go" {
+			for _, fnName := range []string{"EnqueueSendBounded", "enqueueBounded", "queueBossTurn"} {
+				if has[fnName] && !(fd.Name.Name == fnName) && name != "internal/coderhost/send_bounded.go" {
 					callers[fnName][name+":"+fd.Name.Name] = true
 					if has["requireUser"] {
 						asksUser[name+":"+fd.Name.Name] = true
@@ -157,9 +158,12 @@ func TestBoundedSendIsCalledOnlyByTheUsersOwnVerbs(t *testing.T) {
 	if got := keys(callers["EnqueueSendBounded"]); strings.Join(got, ",") != "internal/cli/chat/coder_boss_guard.go:enqueueBounded" {
 		t.Errorf("EnqueueSendBounded is called by %v", got)
 	}
+	if got := keys(callers["enqueueBounded"]); strings.Join(got, ",") != "internal/cli/chat/coder_boss_guard.go:queueBossTurn" {
+		t.Errorf("enqueueBounded is called by %v", got)
+	}
 	want := []string{"internal/cli/chat/coder_boss_first.go:QueueBossFirstTurn", "internal/cli/chat/coder_sessions_steer.go:newCoderSessionsSteerCmd"}
-	if got := keys(callers["enqueueBounded"]); strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("enqueueBounded is called by %v, want %v", got, want)
+	if got := keys(callers["queueBossTurn"]); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("queueBossTurn is called by %v, want %v", got, want)
 	}
 	for _, c := range want {
 		if !asksUser[c] {
