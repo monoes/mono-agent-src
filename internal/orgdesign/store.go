@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -155,6 +156,9 @@ func Load(profileRoot, name string) (*Doc, error) {
 	return LoadPath(path)
 }
 
+// ErrConcurrentEdit is Save refusing to overwrite an org file that changed since d was loaded.
+var ErrConcurrentEdit = errors.New("the org file changed since it was loaded; reload and apply the edit again")
+
 // Save validates d, then writes it to <profileRoot>/.monomind/orgs/<d.Name>.json
 // atomically (write to a .tmp sibling, then rename — the same pattern as
 // internal/workflow/file_store.go's SaveWorkflow and monomind's own
@@ -187,9 +191,39 @@ func Save(profileRoot string, d *Doc) (sha string, err error) {
 	}
 	data = append(data, '\n')
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return "", fmt.Errorf("writing %s: %w", tmp, err)
+	release, err := lockOrgFile(path)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	// Compare-and-swap: a Doc loaded from the file saves only over the bytes it was loaded from.
+	if d.loadedSHA != "" {
+		if cur, rerr := os.ReadFile(path); rerr == nil {
+			sum := sha256.Sum256(cur)
+			if hex.EncodeToString(sum[:]) != d.loadedSHA {
+				return "", fmt.Errorf("%w: %s", ErrConcurrentEdit, path)
+			}
+		}
+	}
+
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("writing %s: %w", path, err)
+	}
+	tmp := f.Name()
+	_, werr := f.Write(data)
+	if werr == nil {
+		werr = f.Sync()
+	}
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Chmod(tmp, 0o644)
+	}
+	if werr != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("writing %s: %w", tmp, werr)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
