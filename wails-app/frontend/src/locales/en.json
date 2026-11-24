@@ -3571,5 +3571,23 @@
     "colDate": "Date",
     "noMatch": "Nothing matches your search",
     "empty": "Nothing here yet — run a workflow or drop images, audio or video here"
+  },
+  "nodeRunnerMore": {
+    "op_runStatus": "run status",
+    "op_loadWorkflow": "load workflow",
+    "op_connectNodes": "connect nodes",
+    "op_stopRun": "stop run",
+    "op_runWorkflow": "run workflow",
+    "op_activateWorkflow": "activate workflow",
+    "op_createFromTemplate": "create workflow from template",
+    "op_deleteWorkflow": "delete workflow",
+    "runFailed": "Run failed",
+    "coderGoal": "Work out why this workflow run failed and fix the workflow.",
+    "coderOrigin": "Workflows",
+    "curlImportOpen": "Import cURL…",
+    "curlLabel": "curl command",
+    "curlImporting": "Importing…",
+    "curlImport": "Import (replaces the request settings)",
+    "curlCancel": "Cancel"
   }
 }

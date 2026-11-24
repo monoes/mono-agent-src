@@ -120,7 +120,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
       onClose()
     } catch (e) {
       setUsingTemplate(null)
-      notify('create workflow from template', e.message || e)
+      notify(t('nodeRunnerMore.op_createFromTemplate'), e.message || e)
     }
   }
 
@@ -274,7 +274,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
                   // drop the row from the list when it was actually deleted.
                   onDelete(wf.id)
                     .then(deleted => { if (deleted) setList(l => l.filter(w => w.id !== wf.id)) })
-                    .catch(err => notify('delete workflow', t('nodeRunner.modals.deleteFailed', { error: err?.message || err })))
+                    .catch(err => notify(t('nodeRunnerMore.op_deleteWorkflow'), t('nodeRunner.modals.deleteFailed', { error: err?.message || err })))
                 }}
                 title={t('nodeRunner.modals.delete')}
                 style={{ background:'transparent',border:'none',cursor:'pointer',color:'rgba(239,68,68,0.4)',padding:4,display:'flex',alignItems:'center' }}
