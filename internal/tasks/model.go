@@ -182,6 +182,10 @@ type Task struct {
 	LastEvent *LastEvent `json:"last_event"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
+	// ClaimStuck is set by List on an In progress task that holds a claim and has
+	// MaxEventsToClaim events: nobody, its holder included, can claim or renew it
+	// any more, so only the operator can free it.
+	ClaimStuck bool `json:"claim_stuck,omitempty"`
 
 	// Of a task of a session (session_id is not NULL); all are left out of the
 	// JSON of a personal task, which reads as it always did.

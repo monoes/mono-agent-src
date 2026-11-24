@@ -119,6 +119,8 @@ func heldNote(t tasks.Task) string {
 	switch {
 	case t.Claim == nil:
 		return ""
+	case t.ClaimStuck:
+		return "stuck (too many events to renew): " + t.Claim.By
 	case t.Claim.Stale:
 		return "stale: " + t.Claim.By
 	}
