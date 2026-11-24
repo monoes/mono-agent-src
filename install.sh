@@ -6,20 +6,17 @@
 #      (monoes.me is tried second)
 #   2. verify the manifest's Ed25519 signature (manifest.json.sig) against the
 #      pinned release key (RELEASE_PUBKEY below). This needs `openssl` with
-#      Ed25519 support (pkeyutl -rawin), or, when the release publishes a
-#      manifest.json.sshsig next to the manifest, `ssh-keygen -Y verify`
-#      (stock macOS has it). If neither can verify, the install STOPS; set
-#      MONOAGENT_ALLOW_UNSIGNED=1 to accept a checksum-only install, or pass
-#      --no-verify. It never claims a signature was verified when it was not.
+#      Ed25519 support; without it the install is checksum-only and says so.
+#      It never claims a signature was verified when it was not.
 #   3. choose the "cli" asset for this host's os/arch (and, with --app, the
 #      "app" asset)
 #   4. download it from the asset's url
 #   5. verify its sha256 against the manifest
 #
 # Legacy path (kept simple, labelled in the output): the GitHub releases API
-# plus SHA256SUMS.txt. Used only when MONOAGENT_ALLOW_LEGACY_GITHUB=1. An
-# unreachable manifest is an error, and so is one that fails verification:
-# neither is ever a reason to fall back.
+# plus SHA256SUMS.txt. Used only when MONOAGENT_ALLOW_LEGACY_GITHUB=1, or
+# when the manifest URL cannot be reached. A manifest that is reachable but
+# fails verification is a hard error, never a fallback.
 #
 # Supported platforms: darwin/{arm64,amd64}, linux/{amd64,arm64}.
 # Windows: download the .exe from the releases page.
@@ -39,9 +36,7 @@
 #   MONOAGENT_APP_DIR                where --app puts the app (default above)
 #   MONOAGENT_MANIFEST_URL           manifest URL (tests, mirrors); only this one is tried
 #   MONOAGENT_RELEASE_PUBKEY         base64 raw Ed25519 public key; overrides RELEASE_PUBKEY
-#   MONOAGENT_ALLOW_LEGACY_GITHUB=1  use the GitHub API path directly (unsigned: checksum only)
-#   MONOAGENT_ALLOW_UNSIGNED=1       accept a checksum-only install when the
-#                                    signature cannot be checked on this machine
+#   MONOAGENT_ALLOW_LEGACY_GITHUB=1  use the GitHub API path directly
 #   MONOAGENT_TEST_APPLICATIONS_DIR  tests only: stands in for /Applications
 #                                    when --app picks the macOS app folder
 set -euo pipefail
@@ -161,66 +156,32 @@ asset_url_allowed() {
   esac
 }
 
-# b64d — decode base64 on stdin (GNU/BSD spell the flag differently).
-b64d() { base64 -d 2>/dev/null || base64 -D; }
-
-# openssl_can_verify <tmp> — 0 when this openssl can check a raw Ed25519
-# signature; otherwise prints why and returns 1.
-openssl_can_verify() {
-  if ! command -v openssl >/dev/null 2>&1; then
-    echo "NOTE: openssl not found; manifest signature verification is SKIPPED with openssl." >&2
-    return 1
-  fi
-  {
-    printf -- '-----BEGIN PUBLIC KEY-----\n'
-    printf 'MCowBQYDK2VwAyEA%s\n' "$RELEASE_PUBKEY"
-    printf -- '-----END PUBLIC KEY-----\n'
-  } > "$1/pub.pem"
-  if ! openssl pkey -pubin -in "$1/pub.pem" -noout >/dev/null 2>&1; then
-    echo "NOTE: this openssl cannot read Ed25519 keys; manifest signature verification is SKIPPED with openssl." >&2
-    return 1
-  fi
-  # Verifying needs pkeyutl -rawin (OpenSSL 1.1.1+). An openssl that reads the
-  # key but lacks it (such as a LibreSSL build) would fail every signature.
-  if ! openssl pkeyutl -help 2>&1 | grep -q -e '-rawin'; then
-    echo "NOTE: this openssl cannot verify raw Ed25519 signatures (no pkeyutl -rawin); manifest signature verification is SKIPPED with openssl." >&2
-    return 1
-  fi
-}
-
-# verify_manifest_sshsig <manifest> <sshsig-url> <tmp> — the same pinned key
-# through `ssh-keygen -Y verify` (ships with macOS and Linux). 0 verified, 1
-# failed, 2 not possible here (no ssh-keygen, or the release has no .sshsig).
-verify_manifest_sshsig() {
-  g_file="$1"; g_url="$2"; g_tmp="$3"
-  command -v ssh-keygen >/dev/null 2>&1 || return 2
-  curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location -fsSL -o "${g_tmp}/manifest.json.sshsig" "$g_url" 2>/dev/null || return 2
-  # ssh public key blob: string "ssh-ed25519" + string <32-byte key>, as base64.
-  g_blob="$({ printf '\000\000\000\013ssh-ed25519\000\000\000 '; printf '%s' "$RELEASE_PUBKEY" | b64d; } | base64 | tr -d '\n')"
-  printf 'monoagent-release namespaces="monoagent-manifest" ssh-ed25519 %s\n' "$g_blob" > "${g_tmp}/allowed_signers"
-  ssh-keygen -Y verify -f "${g_tmp}/allowed_signers" -I monoagent-release -n monoagent-manifest \
-    -s "${g_tmp}/manifest.json.sshsig" < "$g_file" >/dev/null 2>&1 || return 1
-  m_keyid="${RELEASE_PUBKEY} via ssh-keygen"
-  return 0
-}
-
 # verify_manifest_signature <manifest> <sig-url> <tmp> — returns 0 verified,
-# 2 cannot be checked here (message printed; the caller stops unless
-# MONOAGENT_ALLOW_UNSIGNED=1), 1 failed.
+# 2 skipped (no key / no openssl Ed25519; message printed), 1 failed.
 verify_manifest_signature() {
   m_file="$1"; m_sigurl="$2"; m_tmp="$3"
   if [ -z "$RELEASE_PUBKEY" ]; then
     echo "NOTE: no release signing key is configured in this installer; manifest signature verification is SKIPPED (checksum-only)." >&2
     return 2
   fi
-  if ! openssl_can_verify "$m_tmp"; then
-    g_rc=0
-    verify_manifest_sshsig "$m_file" "${m_sigurl%.sig}.sshsig" "$m_tmp" || g_rc=$?
-    case "$g_rc" in
-      0) return 0 ;;
-      1) return 1 ;;
-    esac
-    echo "NOTE: manifest signature verification is SKIPPED (checksum-only): neither openssl (Ed25519, pkeyutl -rawin) nor a signed manifest.json.sshsig with ssh-keygen is available here." >&2
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "NOTE: openssl not found; manifest signature verification is SKIPPED (checksum-only)." >&2
+    return 2
+  fi
+  {
+    printf -- '-----BEGIN PUBLIC KEY-----\n'
+    printf 'MCowBQYDK2VwAyEA%s\n' "$RELEASE_PUBKEY"
+    printf -- '-----END PUBLIC KEY-----\n'
+  } > "${m_tmp}/pub.pem"
+  if ! openssl pkey -pubin -in "${m_tmp}/pub.pem" -noout >/dev/null 2>&1; then
+    echo "NOTE: this openssl cannot read Ed25519 keys; manifest signature verification is SKIPPED (checksum-only)." >&2
+    return 2
+  fi
+  # Verifying needs pkeyutl -rawin (OpenSSL 1.1.1+). An openssl that reads the
+  # key but lacks it (such as a LibreSSL build) would fail every signature, so
+  # it is treated like one without Ed25519.
+  if ! openssl pkeyutl -help 2>&1 | grep -q -e '-rawin'; then
+    echo "NOTE: this openssl cannot verify raw Ed25519 signatures (no pkeyutl -rawin); manifest signature verification is SKIPPED (checksum-only)." >&2
     return 2
   fi
   curl ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --retry 3 --fail --location -fsSL -o "${m_tmp}/manifest.json.sig" "$m_sigurl" || return 1
@@ -325,11 +286,7 @@ install_from_manifest() {
     verify_manifest_signature "${TMP_DIR}/manifest.json" "${MANIFEST_URL}.sig" "$TMP_DIR" || sig_status=$?
     case "$sig_status" in
       0) echo "Manifest signature verified (Ed25519, key ${m_keyid})." ;;
-      2) if [ "${MONOAGENT_ALLOW_UNSIGNED:-0}" = "1" ]; then
-           echo "WARNING: MONOAGENT_ALLOW_UNSIGNED=1; continuing with the SHA256 from an unverified manifest." >&2
-         else
-           err "the manifest signature could not be checked on this machine, so nothing was installed. Install an openssl with Ed25519 (for example 'brew install openssl' and put it first on PATH), or set MONOAGENT_ALLOW_UNSIGNED=1 to accept a checksum-only install (or pass --no-verify)."
-         fi ;;
+      2) ;;
       *) err "manifest signature verification FAILED; the manifest is not signed by the pinned release key. Nothing was installed." ;;
     esac
   fi
@@ -418,7 +375,8 @@ else
   rc=0
   install_from_manifest || rc=$?
   if [ "$rc" -eq 10 ]; then
-    err "the release manifest could not be fetched (${MANIFEST_URLS}). Nothing was installed. To install from the unsigned GitHub release path anyway, set MONOAGENT_ALLOW_LEGACY_GITHUB=1."
+    echo "Manifest unreachable (${MANIFEST_URLS}); falling back to the legacy GitHub path." >&2
+    install_from_github_legacy
   fi
 fi
 

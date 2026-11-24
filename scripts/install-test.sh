@@ -87,10 +87,8 @@ run pinned-key-refuses-other fail "not the pinned key"
 # 1b. checksum-only: an openssl without Ed25519 says so and does not claim a
 # signature. A stub openssl that fails everything stands in for one.
 mkdir -p "$work/stub" && printf '#!/bin/sh\nexit 1\n' > "$work/stub/openssl" && chmod +x "$work/stub/openssl"
-# r05-D1: that is a stop unless the user opts in; the opt-in installs checksum-only and says so.
-run no-ed25519-openssl-stops fail "could not be checked on this machine" PATH="$work/stub:$PATH"
-run no-ed25519-openssl ok "signature verification is SKIPPED" PATH="$work/stub:$PATH" MONOAGENT_ALLOW_UNSIGNED=1
-out="$(env -u MONOAGENT_RELEASE_PUBKEY MONOAGENT_ALLOW_UNSIGNED=1 PATH="$work/stub:$PATH" INSTALL_DIR="$work/p-neg" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)"
+run no-ed25519-openssl ok "signature verification is SKIPPED" PATH="$work/stub:$PATH"
+out="$(env -u MONOAGENT_RELEASE_PUBKEY PATH="$work/stub:$PATH" INSTALL_DIR="$work/p-neg" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)"
 if printf '%s' "$out" | grep -q "signature verified"; then echo "FAIL claimed verification without checking"; fails=$((fails+1)); else echo "PASS no false claim"; fi
 
 # 2. tarball asset.
@@ -272,10 +270,8 @@ EOF
 
   # 9e. an openssl without pkeyutl -rawin (LibreSSL) is checksum-only and
   # says so, rather than failing every signature.
-  run mac-libressl-stops fail "could not be checked on this machine" \
-    PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
   run mac-libressl ok "cannot verify raw Ed25519 signatures" \
-    PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_ALLOW_UNSIGNED=1 --app-flag
+    PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
   st=0
   { printf '%s\n' "$out" | grep -q "Checksum verified: MonoAgent-darwin-arm64.zip" \
     && ! printf '%s\n' "$out" | grep -q "signature verified"; } || st=1
@@ -287,23 +283,6 @@ EOF
 else
   echo "SKIP mac-app (needs zip, unzip, shasum and perl)"
 fi
-
-# 7e. r05-D1: where openssl cannot verify, a manifest.json.sshsig is checked with ssh-keygen -Y verify.
-if command -v ssh-keygen >/dev/null 2>&1; then
-  ssh-keygen -q -t ed25519 -N '' -f "$work/sshkey" >/dev/null 2>&1
-  sshpub="$(awk '{print $2}' "$work/sshkey.pub" | openssl base64 -d -A | tail -c 32 | openssl base64 -A)"
-  write_manifest "$asset" "$(sha "$web/$asset")"; sign
-  ssh-keygen -Y sign -q -f "$work/sshkey" -n monoagent-manifest < "$web/manifest.json" > "$web/manifest.json.sshsig" 2>/dev/null
-  run sshsig-verified ok "Manifest signature verified" PATH="$work/stub:$PATH" MONOAGENT_RELEASE_PUBKEY="$sshpub"
-  sed 's/v9.9.9/v6.6.6/' "$web/manifest.json" > "$work/m3" && cp "$work/m3" "$web/manifest.json"
-  run sshsig-tampered fail "signature verification FAILED" PATH="$work/stub:$PATH" MONOAGENT_RELEASE_PUBKEY="$sshpub"
-  rm -f "$web/manifest.json.sshsig"
-else
-  echo "SKIP sshsig (no ssh-keygen)"
-fi
-
-# 7f. r05-D3: an unreachable manifest is an error, not a fall back to the unsigned GitHub path.
-run manifest-unreachable-stops fail "could not be fetched" MONOAGENT_MANIFEST_URL="$base/no-such-manifest.json"
 
 # 8. no asset for this platform.
 printf '{"schema":1,"version":"v9.9.9","assets":[]}' > "$web/manifest.json"; sign
