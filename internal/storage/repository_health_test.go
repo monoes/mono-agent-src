@@ -47,40 +47,19 @@ func TestHealthGetListDeletePeople(t *testing.T) {
 		t.Errorf("GetPersonByUsername on wrong platform = %v, %v", missing, err)
 	}
 
-	names := func(ps []*storage.Person) map[string]bool {
-		m := map[string]bool{}
-		for _, p := range ps {
-			m[p.PlatformUsername] = true
-		}
-		return m
+	if err := db.DeletePerson("work", alice); err == nil {
+		t.Error("DeletePerson of another profile's person should report not found")
 	}
-	all, err := db.ListPeople("", "", 0, -1)
-	if err != nil || len(all) != 3 {
-		t.Fatalf("ListPeople all = %d, %v", len(all), err)
+	if p, _ := db.GetPersonInProfile("work", alice); p != nil {
+		t.Error("GetPersonInProfile returned another profile's person")
 	}
-	onX, _ := db.ListPeople("x", "", 10, 0)
-	if n := names(onX); len(n) != 2 || !n["alice"] || !n["bob"] {
-		t.Errorf("ListPeople platform=x = %v", n)
+	if p, _ := db.GetPersonInProfile("default", alice); p == nil {
+		t.Error("GetPersonInProfile lost the profile's own person")
 	}
-	// Search matches username or full name, case-insensitively for ASCII.
-	ali, _ := db.ListPeople("", "ali", 10, 0)
-	if n := names(ali); len(n) != 2 || !n["alice"] || !n["alina"] {
-		t.Errorf("ListPeople search=ali = %v", n)
-	}
-	byName, _ := db.ListPeople("x", "BOB", 10, 0)
-	if n := names(byName); len(n) != 1 || !n["bob"] {
-		t.Errorf("ListPeople search=BOB on x = %v", n)
-	}
-	page1, _ := db.ListPeople("", "", 2, 0)
-	page2, _ := db.ListPeople("", "", 2, 2)
-	if len(page1) != 2 || len(page2) != 1 {
-		t.Errorf("pagination = %d + %d, want 2 + 1", len(page1), len(page2))
-	}
-
-	if err := db.DeletePerson(alice); err != nil {
+	if err := db.DeletePerson("default", alice); err != nil {
 		t.Fatalf("DeletePerson: %v", err)
 	}
-	if err := db.DeletePerson(alice); err == nil {
+	if err := db.DeletePerson("default", alice); err == nil {
 		t.Error("second DeletePerson should report not found")
 	}
 }
@@ -114,7 +93,7 @@ func TestHealthDeletePersonCascadesHistory(t *testing.T) {
 	if _, err := db.AddPersonStatusUpdate(id, "default", "met at conf"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.DeletePerson(id); err != nil {
+	if err := db.DeletePerson("default", id); err != nil {
 		t.Fatal(err)
 	}
 	if m, _ := db.GetPersonMessage(msg.ID); m != nil {
@@ -153,9 +132,10 @@ func TestHealthBatchUpsertPeople(t *testing.T) {
 	if err := db.BatchUpsertPeople([]*storage.Person{{PlatformUsername: "p1", Platform: "x", ProfileID: "default", FullName: "Uno"}}); err != nil {
 		t.Fatal(err)
 	}
-	all, _ := db.ListPeople("x", "", 0, 0)
-	if len(all) != 2 {
-		t.Errorf("rows after re-upsert = %d, want 2", len(all))
+	var rows int
+	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE platform = 'x'`).Scan(&rows)
+	if rows != 2 {
+		t.Errorf("rows after re-upsert = %d, want 2", rows)
 	}
 	p1, _ = db.GetPersonByUsername("p1", "x", "default")
 	if p1.FullName != "Uno" {
