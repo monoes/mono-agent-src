@@ -57,12 +57,13 @@ function usePlatformNames() {
     if (!platformNames) {
       const entry = { promise: api.platformNames() }
       platformNames = entry
+      entry.promise = entry.promise.catch(() => ({}))
       entry.promise.then(n => {
         if (n && Object.keys(n).length) entry.value = n
         else if (platformNames === entry) platformNames = null
       })
     }
-    platformNames.promise.then(n => { if (alive && n) setNames(n) })
+    platformNames.promise.then(n => { if (alive && n) setNames(n) }).catch(() => {})
     return () => { alive = false }
   }, [])
   return names
@@ -98,7 +99,8 @@ export function CurlImport({ onImport, inputStyle }) {
 
   const run = async () => {
     setBusy(true)
-    const res = await api.nodeConfigFromCurl(command)
+    let res
+    try { res = await api.nodeConfigFromCurl(command) } catch (e) { res = { error: e?.message || String(e) } }
     if (!alive.current) return
     setBusy(false)
     setResult(res)
