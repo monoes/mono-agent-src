@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 // Promise-based confirm to replace blocking native window.confirm(), which looks
 // foreign in a styled Wails app and freezes the webview. Usage:
@@ -73,10 +74,13 @@ export default function ConfirmHost() {
     return () => document.removeEventListener('keydown', onTab)
   }, [req])
 
+  // Escape goes through the shared stack, so a confirm opened over a modal
+  // answers "no" and leaves the modal open.
+  useEscapeClose(() => close(false), !!req)
+
   useEffect(() => {
     if (!req) return
     const onKey = (e) => {
-      if (e.key === 'Escape') close(false)
       // A focused button answers Enter itself (Cancel with focus means
       // cancel). Only Enter with no button focused confirms; the confirm
       // button has focus when the dialog opens, so Enter still confirms by

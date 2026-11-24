@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { mdComponents } from './FileViewerModal.jsx'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 // A browser capture previewed from its parts: the AI summary (when the
 // capture asked for one), the page's readable text, a video's transcript,
@@ -51,11 +52,7 @@ export default function CaptureViewerModal({ doc, onClose }) {
   const [error, setError] = useState(null)
   const [tab, setTab] = useState('text')
 
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose, !!doc)
 
   useEffect(() => {
     if (!doc) return

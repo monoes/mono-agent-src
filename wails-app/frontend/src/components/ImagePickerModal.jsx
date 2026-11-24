@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Search } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { isVaultImage } from '../lib/vaultItems.js'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 function VaultThumb({ id }) {
   const [src, setSrc] = useState(null)
@@ -31,11 +32,7 @@ export default function ImagePickerModal({ onSelect, onClose }) {
     return () => clearTimeout(focusTimer)
   }, [])
 
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   const filtered = query
     ? images.filter(img =>

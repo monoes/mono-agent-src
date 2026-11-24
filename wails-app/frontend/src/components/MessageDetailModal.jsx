@@ -5,6 +5,7 @@ import { StatusBadge } from './CommsLinks.jsx'
 import { statusTimeline } from '../lib/commsStatus.js'
 import SendToCoderButton from './SendToCoderButton.jsx'
 import { selectionText } from './SendToCoderApi.js'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 // The goal is the app's own words; the text to reply to travels only as the
 // user's selection (a synced message or thread is never handed to a coder task).
@@ -22,11 +23,7 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
   const [replyText, setReplyText] = useState('')
   const { t } = useTranslation()
 
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose, !!message)
 
   if (!message) return null
 

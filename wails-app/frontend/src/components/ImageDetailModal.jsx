@@ -4,6 +4,7 @@ import { X, Copy, Trash2, Edit3, Check, AlertTriangle, Wand2, Download, FileText
 import * as WailsApp from '../wailsjs/go/main/App'
 import ImageEditorFullscreen from './ImageEditorFullscreen'
 import { isVaultImage, vaultFileKind, vaultKind } from '../lib/vaultItems.js'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 export default function ImageDetailModal({ image, onClose, onDelete, onRename, onSaved }) {
   const overlayRef = useRef(null)
@@ -16,11 +17,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
 
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose, !!image)
 
   useEffect(() => {
     if (!image) return

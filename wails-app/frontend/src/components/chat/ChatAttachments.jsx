@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { FileText, X } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { isImage, formatBytes, imagePathsInResult, baseName } from './chatAttachments.js'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 // The images and files of a coder chat (C4): the composer's attachment
 // chips, the thumbnails under a sent message, and the images a tool result
@@ -33,11 +34,7 @@ function loadWorkspaceImage(conversationId, path) {
 }
 
 export function ImageLightbox({ src, alt, onClose }) {
-  useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={alt} data-testid="image-lightbox" onClick={onClose} style={{
       position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(2,5,9,0.88)',

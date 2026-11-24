@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Wand2, Download, Loader2, CheckCircle, AlertCircle, Sliders, Crop,
          RefreshCw, Eraser, FileImage, RotateCcw, Lock, Unlock } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 // ── shared style tokens ───────────────────────────────────────────────────────
 const mono = { fontFamily: 'var(--font-mono)', fontSize: 11 }
@@ -447,11 +448,7 @@ export default function ImageEditorFullscreen({ image, onClose, onSaved, initial
   const [saved, setSaved]     = useState(false)
   const imgRef = useRef(null)
 
-  useEffect(() => {
-    const esc = e => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', esc)
-    return () => window.removeEventListener('keydown', esc)
-  }, [onClose])
+  useEscapeClose(onClose, !!image)
 
   useEffect(() => {
     if (!image) return
