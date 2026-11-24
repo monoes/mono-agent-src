@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
 )
@@ -31,8 +32,20 @@ func NewScheduler(logger zerolog.Logger) *Scheduler {
 	}
 }
 
-// Start begins the scheduler.
+// tickSpec is how often the scheduler reports that its loop is alive; noteTick
+// is what it calls (the daemon heartbeat's scheduler tick, R16-D8).
+var (
+	tickSpec = "@every 30s"
+	noteTick = daemonhb.NoteSchedulerTick
+)
+
+// Start begins the scheduler. A job that fires on the cron loop itself
+// reports each pass, so a wedged loop stops reporting and the heartbeat shows it.
 func (s *Scheduler) Start() {
+	if _, err := s.cron.AddFunc(tickSpec, noteTick); err != nil {
+		s.logger.Error().Err(err).Msg("scheduler tick job not registered")
+	}
+	noteTick()
 	s.cron.Start()
 }
 
