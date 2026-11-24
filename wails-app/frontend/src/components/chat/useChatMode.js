@@ -12,7 +12,9 @@ const REFRESH_MS = 15000
 // from `coder sessions chat-modes` for the access level and the choice is only kept here (pendingMode): it goes to
 // the CLI together with the conversation (chatAccessApi.create), so there is no write of its own and no first message
 // that can run before it.
-export function useChatMode(conversationId, enabled = true, access = '') {
+// Mission and open-ended chats need Dynamic org; the CLI switches it on when the mode is chosen, and the hook says so
+// (notice) and tells onDynamicOrg so the pane shows the org mode as on.
+export function useChatMode(conversationId, enabled = true, access = '', onDynamicOrg = null) {
   const { t } = useTranslation()
   const tRef = useRef(t)
   tRef.current = t
@@ -20,6 +22,7 @@ export function useChatMode(conversationId, enabled = true, access = '') {
   const [draftOptions, setDraftOptions] = useState(null)
   const [pending, setPending] = useState('off')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const epoch = useRef(0) // a read older than a save is dropped instead of putting the old state back
@@ -46,16 +49,20 @@ export function useChatMode(conversationId, enabled = true, access = '') {
 
   useEffect(() => { if (conversationId) setPending('off') }, [conversationId])
 
+  const onDynamicOrgRef = useRef(onDynamicOrg)
+  onDynamicOrgRef.current = onDynamicOrg
   const pendingRef = useRef('off')
   pendingRef.current = pending
 
   const set = useCallback(async mode => {
-    if (!conversationId) { setPending(mode); return }
+    setNotice('')
+    if (!conversationId) { setPending(mode); if (mode !== 'off') setNotice(tRef.current('chatMode.orgSwitched')); return }
     epoch.current++
     setBusy(true); setError('')
     try {
       const r = await api.setChatMode(conversationId, mode)
       setView(r?.chatMode || null)
+      if (mode !== 'off') { setNotice(tRef.current('chatMode.orgSwitched')); onDynamicOrgRef.current?.() }
     } catch (err) {
       setError(tRef.current('chatMode.saveFailed', { error: String(err?.message || err) }))
     } finally {
@@ -81,5 +88,5 @@ export function useChatMode(conversationId, enabled = true, access = '') {
 
   const draft = draftOptions ? { mode: pending, locked: false, options: draftOptions } : null
   const state = enabled ? (conversationId ? view : draft) : null
-  return { state, busy: busy || checking, checking, checkOpen, error, set, refresh: read, pendingMode: () => (enabled && pendingRef.current !== 'off' ? pendingRef.current : '') }
+  return { state, busy: busy || checking, checking, checkOpen, error, notice, set, refresh: read, pendingMode: () => (enabled && pendingRef.current !== 'off' ? pendingRef.current : '') }
 }

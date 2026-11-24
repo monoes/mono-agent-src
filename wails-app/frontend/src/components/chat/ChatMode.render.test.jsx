@@ -24,8 +24,8 @@ const OPTIONS = [
 const mode = (over = {}) => ({ mode: 'off', locked: false, options: OPTIONS, ...over })
 const view = m => ({ conversationId: 'c1', chatMode: m })
 
-function Harness({ id = 'c1', enabled = true, access = 'full', onMode }) {
-  const chatMode = useChatMode(id, enabled, access)
+function Harness({ id = 'c1', enabled = true, access = 'full', onMode, onDynamicOrg }) {
+  const chatMode = useChatMode(id, enabled, access, onDynamicOrg)
   if (onMode) onMode(chatMode)
   return <><ChatModeChip state={chatMode.state} /><CoderHeader cwd="/work/app" chatMode={chatMode} /></>
 }
@@ -79,6 +79,16 @@ describe('chat mode selector', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: 'Mission' })).toHaveAttribute('aria-checked', 'true'))
     expect(api.setChatMode).toHaveBeenCalledWith('c1', 'mission')
     expect(screen.getByTestId('chat-mode-chip')).toHaveAttribute('data-mode', 'mission')
+  })
+
+  it('says Dynamic org was switched on when Mission is chosen, and tells the pane', async () => {
+    api.setChatMode.mockResolvedValue(view(mode({ mode: 'mission' })))
+    const onDynamicOrg = vi.fn()
+    render(<Harness onDynamicOrg={onDynamicOrg} />)
+    expect(await radio('Mission')).toBeEnabled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Mission' }))
+    expect(await screen.findByTestId('chat-mode-org-notice')).toHaveTextContent('Dynamic org was switched on')
+    expect(onDynamicOrg).toHaveBeenCalledTimes(1)
   })
 
   it('is disabled once the CLI says the chat has its first message, with the reason as a tooltip and shown', async () => {

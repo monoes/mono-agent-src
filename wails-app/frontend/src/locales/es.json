@@ -2749,6 +2749,7 @@
     "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
     "unavailable": "No disponible",
     "whyUnavailable": "{{mode}} no está disponible: {{reason}}",
+    "orgSwitched": "Se activó la organización dinámica en este chat porque una misión la necesita",
     "loadFailed": "No se pudo leer el modo del chat",
     "saveFailed": "No se pudo cambiar el modo del chat: {{error}}",
     "checking": "Comprobando...",
