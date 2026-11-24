@@ -230,3 +230,18 @@ func TestHistoryListRowsCarryTheChatMode(t *testing.T) {
 		t.Fatalf("chat modes in the history list = %v", modes)
 	}
 }
+
+// An explicit --org solo does not keep a Mission chat solo: the mode needs Dynamic org, and the owner decided it switches on anyway.
+func TestHistoryCreateMissionOverridesAnExplicitSoloOrg(t *testing.T) {
+	r := newAccessRig(t, true)
+	setCoderSettings(t, r.dbPath, coderSettings{Enabled: true})
+	out, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "mission", "--org", "solo")
+	if code != 0 {
+		t.Fatalf("create: exit %d %s", code, out)
+	}
+	var c ai.ConversationRecord
+	decodeChatJSON(t, out, &c)
+	if got := orgModeOf(t, r.dbPath, c.ID); got != ai.OrgModeDynamic {
+		t.Fatalf("a Mission chat created with --org solo is org %q", got)
+	}
+}

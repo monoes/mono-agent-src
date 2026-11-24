@@ -248,6 +248,9 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 					if conv, err = setOrgMode(cfg, conv.ID, ai.OrgModeDynamic); err != nil {
 						return err
 					}
+					if orgMode != ai.OrgModeDynamic { // the mode, not the user's --org, turned it on: say so, even over an explicit --org solo
+						fmt.Fprintln(cmd.ErrOrStderr(), dynamicOrgNotice)
+					}
 				}
 				return printConversation(cfg, conv.Record())
 			}
