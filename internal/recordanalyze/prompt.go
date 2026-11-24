@@ -79,10 +79,21 @@ func BuildPrompt(a *Analysis, env *Env, snippets map[string]string) (string, err
 	if in.Inputs == nil {
 		in.Inputs = []InputSpec{}
 	}
+	in.Inputs = append([]InputSpec(nil), in.Inputs...)
+	for i := range in.Inputs {
+		if personalValue(in.Inputs[i].Default) {
+			in.Inputs[i].Default = ""
+		}
+	}
 	for _, s := range a.Steps {
 		ps := promptStep{Step: s, DOM: sanitizeText(trimSnippet(snippets[s.EventID]))}
 		if s.Masked {
 			ps.Value = ""
+		} else if personalValue(ps.Value) {
+			ps.Value = ""
+			if ps.Input != "" {
+				ps.Value = "{{" + ps.Input + "}}"
+			}
 		}
 		if len(ps.Candidates) > 4 {
 			ps.Candidates = ps.Candidates[:4]
