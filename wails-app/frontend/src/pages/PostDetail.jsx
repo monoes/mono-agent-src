@@ -6,21 +6,31 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
   const [post, setPost]         = useState(null)
   const [comments, setComments] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [attempt, setAttempt]     = useState(0)
 
   useEffect(() => {
+    let cancelled = false // a slow answer for an earlier id must not land
     setLoading(true)
     setPost(null)
     setComments([])
+    setLoadError('')
     if (!id) { setLoading(false); return }
     Promise.all([
       api.getPostDetail(id),
       api.getPostComments(id),
     ]).then(([p, c]) => {
+      if (cancelled) return
       setPost(p)
       setComments(c || [])
       setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [id])
+    }).catch(e => {
+      if (cancelled) return
+      setLoadError(e?.message || String(e))
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [id, attempt])
 
   if (loading) {
     return (
@@ -36,7 +46,10 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
         <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ gap: 5, marginBottom: 16 }}>
           <ArrowLeft size={13} /> Back
         </button>
-        <div className="empty-state">Post not found.</div>
+        <div className="empty-state" role={loadError ? 'alert' : undefined}>
+          {loadError ? `Could not load the post: ${loadError}` : 'Post not found.'}
+          {loadError && <button className="btn btn-ghost btn-sm" onClick={() => setAttempt(n => n + 1)} style={{ marginLeft: 8 }}>Retry</button>}
+        </div>
       </div>
     )
   }
