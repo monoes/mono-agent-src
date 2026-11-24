@@ -77,6 +77,7 @@ func bossTools() []tool {
 		},
 		bossFinishTool(),
 		bossFinishReadyTool(),
+		bossSetModelTool(),
 	}, bossStrategyTools()...)
 }
 

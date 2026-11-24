@@ -24,7 +24,7 @@ export function ChatModeChip({ state }) {
 
 export function ChatModeSelector({ chatMode }) {
   const { t } = useTranslation()
-  const { state, busy, error, set, checking, checkOpen } = chatMode
+  const { state, busy, error, notice, set, checking, checkOpen } = chatMode
   if (!state && !error) return null
   const locked = !!state?.locked
   const lockedWhy = state?.reason || t('chatMode.locked')
@@ -56,6 +56,7 @@ export function ChatModeSelector({ chatMode }) {
       ))}
       {locked && <span data-testid="chat-mode-reason" style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>{lockedWhy}</span>}
       {error && <span role="alert" data-testid="chat-mode-error" style={{ flexBasis: '100%', fontFamily: mono, fontSize: 10, color: 'var(--red)' }}>{error}</span>}
+      {notice && !error && <span role="status" data-testid="chat-mode-org-notice" style={{ flexBasis: '100%', fontFamily: mono, fontSize: 10, color: 'var(--text-muted)' }}>{notice}</span>}
     </>
   )
 }

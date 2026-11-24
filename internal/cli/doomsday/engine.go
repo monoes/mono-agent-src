@@ -94,6 +94,8 @@ type Status struct {
 	FirstTurnError string `json:"first_turn_error,omitempty"`
 	// Progress is the judge's reported count against the target of each counted criterion; only `status` fills it.
 	Progress []CriterionCountView `json:"progress,omitempty"`
+	// ModelSpend is the model-turn spend of the run's sessions, informational (see ModelSpend); only `status` fills it.
+	ModelSpend *ModelSpend `json:"model_spend,omitempty"`
 }
 
 // Engine is what the store and stop packages give the CLI. Enter must

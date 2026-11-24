@@ -76,6 +76,11 @@ func (d Deps) newOverview() *cobra.Command {
 			o := unavailableOverview(why, code)
 			if why == "" {
 				o = BuildOverview(v, now().Unix())
+				if d.ModelSpend != nil && o.Run != nil { // a reading apart from the verified view: an unreadable one is left out and never fails the overview
+					if ms, merr := d.ModelSpend(cmd.Context()); merr == nil {
+						o.ModelSpend = ms
+					}
+				}
 			}
 			if perr := printControlRoom(cmd.OutOrStdout(), d.json(), o, func(w io.Writer) { overviewText(w, o) }); perr != nil {
 				return perr
@@ -146,6 +151,7 @@ func overviewText(w io.Writer, o Overview) {
 	if o.Spend != nil {
 		fmt.Fprintf(w, "spend: %d micro used (asks and grants only; the sessions' own model turns, the boss's included, are not counted here)\n", o.Spend.UsedMicro)
 	}
+	writeModelSpend(w, o.ModelSpend)
 }
 
 func feedText(w io.Writer, p FeedPage) {

@@ -5238,6 +5238,13 @@ The strategy layer NEVER begins a finish and holds no finish engine (`TestTheStr
 every criterion reads plausibly met, nothing is asked of anyone; one `strategy.finish.ready` audit row is written per judged epoch, `doomsday strategy status`
 shows `finish_ready` (and why not), and the boss reads the same reading through the read-only `session_boss_finish_ready` (top lead only), then decides and calls
 `session_boss_finish_begin` itself. A later bad judgment, a stale one, a reading that is not all met or a direction the judgment never saw clear the reading.
+**The boss's turns and tools.** The boss's first turn and each steer are the operator's own act: `queueBossTurn` (`internal/cli/chat/coder_boss_guard.go`) queues them marked as a mission
+send and writes the operator's single-use, command-bound, MAC-signed confirmation (as `coder sessions send --mission`), so the turn gets the mission tools; only the operator-gated start flow and
+`steer` reach it. A boss's turn also sets `MONOAGENT_MCP_BOSS_TOOLS=1` (`exposeBossTools`), which makes the monoagent MCP server list the `session_boss_*` tools (and no other mutating tool) although the user
+registered it without `--allow-mutations`; the tools still verify the lead's session token and a running run. `session_boss_set_model` (`coderhost.BossSetModel`) changes the model of a session below the boss:
+only to a working roster model of the session's own runtime, never the boss's own session, not once the session's budget is used up, at most 3 times per session, written to that session's decisions ledger;
+it touches no budget or charter line. `doomsday status` / `overview` show `model_spend` (boss, planners, doers): informational, not enforced, not authenticated, apart from the asks-and-grants meter.
+With `coder.box` on, a boss's turn (dynamic org, full access) is refused by the box rule, as every such turn is.
 **No run, no mode** (`internal/cli/doomsday/runactivity.go`): while the profile has no run that is not quiescent the wired engine is inert. The strategy
 loop's tick is one read-only count (`OpenRunPrecheck`): no host is built (so no pinned connection and no inotify watch), no key or keychain is read, nothing is
 logged or written; the governor and the dispatch gate list the runs and find none. A `doomsday_runs` table that cannot be listed (missing, busy, locked, closed,

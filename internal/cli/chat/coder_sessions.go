@@ -122,22 +122,32 @@ func coderConversation(cfg *Deps, id string) (string, error) {
 	return profileID, nil
 }
 
-// requireDynamicOrgForMission refuses a mission send to a chat whose org mode is solo: the mission tools are wired
-// only for a Dynamic org turn, so the send would be accepted and plan in prose.
-func requireDynamicOrgForMission(cfg *Deps, id string) error {
+// dynamicOrgNotice is said when a mission or an open-ended run switched Dynamic org on for a solo chat.
+const dynamicOrgNotice = "Dynamic org was switched on for this chat because a mission needs it"
+
+// ensureDynamicOrgForMission switches a solo chat to Dynamic org (the mission tools are wired only for a Dynamic org
+// turn, so a mission on a solo chat would plan in prose). It goes through setOrgMode, as `chat history set-org` does.
+// Callers are operator-gated: an agent never reaches it. It reports whether it switched.
+func ensureDynamicOrgForMission(cfg *Deps, id string) (bool, error) {
 	store, profileID, closeDB, err := openChatHistory(cfg)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer closeDB()
 	conv, err := store.GetConversation(id, profileID)
+	closeDB()
 	if err != nil {
-		return chatStoreErr(err)
+		return false, chatStoreErr(err)
 	}
-	if conv.OrgMode != ai.OrgModeDynamic {
-		return clicore.InvalidInput("a mission needs Dynamic org: this chat is solo, so the lead would have no mission tools. Turn Dynamic org on for it (`chat history set-org %s dynamic`, or create the chat with `--org dynamic`) and send again", id)
+	if conv.OrgMode == ai.OrgModeDynamic {
+		return false, nil
 	}
-	return nil
+	if err := clicore.RequireOperator(cfg.RequireOperator, "switch Dynamic org on for a mission"); err != nil {
+		return false, err
+	}
+	if _, err := setOrgMode(cfg, id, ai.OrgModeDynamic); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // enqueue queues one command for the host, starting the host first when asked.
@@ -192,8 +202,9 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			if err := refuseBossConversation(cmd.Context(), cfg, profileID, args[0]); err != nil {
 				return err
 			}
+			orgSwitched := false
 			if mission {
-				if err := requireDynamicOrgForMission(cfg, args[0]); err != nil {
+				if orgSwitched, err = ensureDynamicOrgForMission(cfg, args[0]); err != nil {
 					return err
 				}
 			}
@@ -226,7 +237,12 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 				}
 				return qerr
 			}
-			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "turnId": c.TurnID, "hostStarted": !noHost})
+			out := map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "turnId": c.TurnID, "hostStarted": !noHost}
+			if orgSwitched {
+				out["dynamicOrgSwitchedOn"] = true
+				out["notice"] = dynamicOrgNotice
+			}
+			return printQueueJSON(cmd, out)
 		},
 	}
 	cmd.Flags().StringVar(&turn, "turn", "", "Turn id (default: a new one)")

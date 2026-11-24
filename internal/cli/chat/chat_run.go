@@ -99,6 +99,9 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 		if err := refuseBossTurnWithoutHostIdentity(ctx, cfg, jprofile, conversationID, turnID); err != nil {
 			return err
 		}
+		if err := exposeBossTools(ctx, cfg, jprofile, conversationID); err != nil {
+			return err
+		}
 		attachSrc, err := journaledAttachments(jstore, jprofile, conversationID, turnID, attach)
 		if err != nil {
 			return err

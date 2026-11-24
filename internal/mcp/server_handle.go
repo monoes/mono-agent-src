@@ -78,7 +78,7 @@ func (s *Server) handleLine(ctx context.Context, line []byte) *rpcResponse {
 			}
 			return s.result(req.ID, map[string]interface{}{"tools": s.grantToolDefinitions(ctx)})
 		}
-		return s.result(req.ID, map[string]interface{}{"tools": definitionsOf(s.servedTools(), s.opts.AllowMutations)})
+		return s.result(req.ID, map[string]interface{}{"tools": definitionsOf(s.listedTools(), s.opts.AllowMutations)})
 
 	case "tools/call":
 		return s.handleToolsCall(ctx, req)

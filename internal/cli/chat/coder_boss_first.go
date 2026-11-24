@@ -25,7 +25,7 @@ const bossRole = "YOUR ROLE: you direct; you do not do the work. Do not edit or 
 	"and let the planner's own lead spawn the doers that carry the tasks out and the verifiers that check them. " +
 	"Your own actions are to spawn and stop sessions, read their reports as data, answer asks, approve plans and grant budget through your boss tools inside the charter, " +
 	"re-evaluate when a direction finishes or stalls, and finish through the boss finish tools. " +
-	"Record each line of work as a strategy direction with session_boss_strategy_propose (title, rationale, criteria ids) BEFORE you spawn a planner for it, and report it with session_boss_strategy_report (state stalled or finished) when it stalls or ends; `doomsday strategy directions` and `doomsday strategy epochs` are the strategy view. If you catch yourself about to change a file or run the work, spawn a session for it instead.\n\n"
+	"Record each line of work as a strategy direction with session_boss_strategy_propose (title, rationale, criteria ids) BEFORE you spawn a planner for it, and report it with session_boss_strategy_report (state stalled or finished) when it stalls or ends; `doomsday strategy directions` and `doomsday strategy epochs` are the strategy view. If a session below you keeps failing because its model is not capable of the task, change that session's model with session_boss_set_model (a working roster model of the same runtime, with your reason; never your own session). If you catch yourself about to change a file or run the work, spawn a session for it instead.\n\n"
 
 // BossFirstTurn is what the boss is told in its first turn: the run it leads, the charter that bounds it and its goal.
 type BossFirstTurn struct {
@@ -93,7 +93,7 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 	}
 	afterFirstTurnCheck()
 	// nothing may be waiting: the insert holds that bound (a concurrent caller cannot queue a second one)
-	c, _, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
+	c, _, err := queueBossTurn(cfg, profileID, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
 		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, coderhost.SendBounds{MaxPending: 1, NoTurnYet: true})
 	if errors.Is(err, coderhost.ErrTooManyWaiting) || errors.Is(err, coderhost.ErrTurnExists) {
 		return c, clicore.InvalidInput("a message already waits for the boss, or it already had its first turn: nothing was queued")

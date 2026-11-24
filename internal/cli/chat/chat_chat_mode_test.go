@@ -129,6 +129,10 @@ func TestHistoryCreateSetsTheChatModeWithTheConversation(t *testing.T) {
 	}
 	var c ai.ConversationRecord
 	decodeChatJSON(t, out, &c)
+	// a Mission chat needs Dynamic org: creating one switches it on without --org
+	if got := orgModeOf(t, r.dbPath, c.ID); got != ai.OrgModeDynamic {
+		t.Fatalf("a new Mission chat is org %q", got)
+	}
 	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default", JSONOutput: true})
 	sout, scode := runSessionsCLI(t, cfg, "settings", "get", c.ID)
 	var v sessionSettingsView
@@ -224,5 +228,20 @@ func TestHistoryListRowsCarryTheChatMode(t *testing.T) {
 	}
 	if modes[f.conv.ID] != "mission" || modes[plain.ID] != "off" {
 		t.Fatalf("chat modes in the history list = %v", modes)
+	}
+}
+
+// An explicit --org solo does not keep a Mission chat solo: the mode needs Dynamic org, and the owner decided it switches on anyway.
+func TestHistoryCreateMissionOverridesAnExplicitSoloOrg(t *testing.T) {
+	r := newAccessRig(t, true)
+	setCoderSettings(t, r.dbPath, coderSettings{Enabled: true})
+	out, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "mission", "--org", "solo")
+	if code != 0 {
+		t.Fatalf("create: exit %d %s", code, out)
+	}
+	var c ai.ConversationRecord
+	decodeChatJSON(t, out, &c)
+	if got := orgModeOf(t, r.dbPath, c.ID); got != ai.OrgModeDynamic {
+		t.Fatalf("a Mission chat created with --org solo is org %q", got)
 	}
 }

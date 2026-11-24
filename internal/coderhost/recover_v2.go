@@ -12,8 +12,8 @@ import (
 )
 
 // A turn launched with peer-credential binding (a v2 turn: its token row is in coder_session_tokens_v2, which is
-// durable) is never adopted by a later host, whatever the setting is now: adopting one under the legacy path would
-// resurrect it without the binding. On every host start the previous host's v2 turn is STOPPED through its leader
+// durable) that is still running on a host start is ADOPTED (adoptBound), with its tokens revoked, so the conversation
+// keeps its one agent. A v2 turn that cannot be adopted (no recorded identity, no such process) is STOPPED through its leader
 // (procbind.Stopper: by its pidfd on Linux and a handle on Windows; on macOS its pid and start time are checked again
 // right before each signal), and its session settled only once the leader is confirmed gone. A check that cannot be completed (no descriptor, no permission, an unreadable stamp, a leader that
 // will not exit) is not evidence of absence: the session is HELD, no new turn starts for it, and the check is retried
@@ -67,6 +67,41 @@ func (s *Store) V2Turn(profileID, conversationID, turnID string) (isV2 bool, pid
 		return true, 0, "", nil
 	}
 	return true, b.WorkerPID, b.WorkerStamp, nil
+}
+
+// boundStamp reads a process's start stamp; a variable so tests can stand in for a process.
+var boundStamp = BoundStamp
+
+// adoptBound keeps a bound turn the previous host left running as the one turn of its conversation (#1743): killing the
+// leader's process group stops only the runner, while the agent and its runtime lead groups of their own and keep
+// running, beside the next turn the chat would start. The turn's tokens are revoked first (the new host has a new
+// generation, so they would not verify anyway): the adopted agent keeps working but holds no usable credential. It
+// returns false, and the caller stops the turn as before, when the session did not record the launcher's identity of
+// the process, the tokens could not be revoked, or the launcher finds no such process. Callers hold mu.
+func (h *Host) adoptBound(x Session) bool {
+	if x.TurnPID <= 1 || x.TurnStamp == "" || x.TurnID == "" {
+		return false
+	}
+	// A process whose start time cannot be read cannot be told from a later one that reused the pid: not adopted.
+	if boundStamp(x.TurnPID) == "" {
+		return false
+	}
+	if err := h.Store.RevokeSessionTokensErr(x.ProfileID, x.ConversationID); err != nil {
+		return false
+	}
+	if x.Role == "child" { // as when a turn is stopped: no task token of a mission child outlives the host that issued it
+		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil {
+			return false
+		}
+	}
+	t := h.L.Adopt(x.TurnPID, x.TurnStamp)
+	if t == nil {
+		return false
+	}
+	h.live[key(x.ProfileID, x.ConversationID)] = t
+	h.watch(x, t)
+	h.logf("coder host: adopted the running bound turn %s of %s (its tokens were revoked)", x.TurnID, x.ConversationID)
+	return true
 }
 
 func (h *Host) leaderStopper() LeaderStopper {

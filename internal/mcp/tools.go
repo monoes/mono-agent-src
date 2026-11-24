@@ -95,7 +95,7 @@ func callToolResult(ctx context.Context, s *Server, name string, args json.RawMe
 		if t.name != name {
 			continue
 		}
-		if t.mutating && !s.opts.AllowMutations {
+		if !s.mutationAllowed(t) {
 			return "", nil, fmt.Errorf("%s requires --allow-mutations (or MONOAGENT_MCP_ALLOW_MUTATIONS=1) on the mcp server", t.name)
 		}
 		if !t.global {

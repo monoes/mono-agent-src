@@ -73,15 +73,17 @@ const RateBasisNone = "none"
 
 // Overview is the document of `doomsday overview --json`.
 type Overview struct {
-	SchemaVersion int            `json:"schema_version"`
-	Available     bool           `json:"available"`
-	Reason        string         `json:"reason,omitempty"` // only when available is false
-	ErrorCode     string         `json:"error_code,omitempty"`
-	GeneratedAt   int64          `json:"generated_at,omitempty"`
-	Run           *RunInfo       `json:"run,omitempty"`
-	Tree          *TreeInfo      `json:"tree,omitempty"`
-	Spend         *SpendInfo     `json:"spend,omitempty"`
-	Integrity     *IntegrityInfo `json:"integrity,omitempty"`
+	SchemaVersion int        `json:"schema_version"`
+	Available     bool       `json:"available"`
+	Reason        string     `json:"reason,omitempty"` // only when available is false
+	ErrorCode     string     `json:"error_code,omitempty"`
+	GeneratedAt   int64      `json:"generated_at,omitempty"`
+	Run           *RunInfo   `json:"run,omitempty"`
+	Tree          *TreeInfo  `json:"tree,omitempty"`
+	Spend         *SpendInfo `json:"spend,omitempty"`
+	// ModelSpend is the model turns of the run's sessions: informational, apart from Spend (see ModelSpend).
+	ModelSpend *ModelSpend    `json:"model_spend,omitempty"`
+	Integrity  *IntegrityInfo `json:"integrity,omitempty"`
 }
 
 // RunInfo identifies the run. State is the store's run state; Active is false only for a quiescent run, Stopping is
