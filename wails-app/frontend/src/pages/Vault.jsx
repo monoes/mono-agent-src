@@ -112,6 +112,8 @@ export default function Vault({ isActive = true }) {
   const [error, setError] = useState(null)
   const [editingEntry, setEditingEntry] = useState(null)
   const [exportResult, setExportResult] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const [copied, setCopied] = useState('') // '' | 'ok' | 'failed'
   const [importPath, setImportPath] = useState(null)
   const [importPassphrase, setImportPassphrase] = useState('')
   const [importResult, setImportResult] = useState(null)
@@ -129,6 +131,9 @@ export default function Vault({ isActive = true }) {
     try {
       const list = await WailsApp.ListSecrets()
       setEntries(list || [])
+      setLoaded(true)
+      // A load failure clears once a load works; other errors stay.
+      setError(prev => (prev && prev.startsWith('Failed to load vault') ? null : prev))
     } catch (e) {
       setError('Failed to load vault: ' + e)
     }
@@ -368,7 +373,7 @@ export default function Vault({ isActive = true }) {
           }}>
             <KeyRound size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              No vault entries yet — add a new item above
+              {loaded ? 'No vault entries yet — add a new item above' : 'Loading…'}
             </div>
           </div>
         )}
@@ -448,12 +453,17 @@ export default function Vault({ isActive = true }) {
               </span>
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(exportResult.passphrase)}
+                onClick={() => {
+                  Promise.resolve().then(() => navigator.clipboard.writeText(exportResult.passphrase))
+                    .then(() => setCopied('ok'), () => setCopied('failed'))
+                }}
                 title="Copy"
+                aria-label={copied === 'ok' ? 'Copied' : copied === 'failed' ? 'Copy failed: select the passphrase and copy it by hand' : 'Copy passphrase'}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 4, display: 'flex' }}
               >
                 <Copy size={13} />
               </button>
+              {copied && <span role="status" style={{ fontSize: 10, color: copied === 'ok' ? '#00f5d4' : '#fca5a5' }}>{copied === 'ok' ? 'Copied' : 'Copy failed: select it and copy by hand'}</span>}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
