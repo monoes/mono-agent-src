@@ -19,6 +19,7 @@ import (
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orgsign"
+	"github.com/monoes/mono-agent/internal/testmode"
 )
 
 // Signed org definitions (#288, monomind#502): the save that keeps an
@@ -43,11 +44,14 @@ type orgSignResult struct {
 	Review    string `json:"review,omitempty"`
 	Signed    bool   `json:"signed,omitempty"` // this call signed it
 	Message   string `json:"message,omitempty"`
+	// Nonce is the one-time proof --issue-nonce hands the operator for a
+	// later terminal-less `--yes` (the app's), bound to Hash.
+	Nonce string `json:"nonce,omitempty"`
 }
 
 func newOrgSignCmd(env *orgEnv) *cobra.Command {
-	var yes, statusOnly bool
-	var expect string
+	var yes, statusOnly, issueNonce bool
+	var expect, nonce string
 	c := &cobra.Command{
 		Use:   "sign <org>",
 		Short: "Review an org definition and sign it as the operator (monomind 2.21+)",
@@ -98,6 +102,9 @@ func newOrgSignCmd(env *orgEnv) *cobra.Command {
 				}
 				return printJSONValue(res)
 			}
+			if issueNonce {
+				return issueSignNonce(ctx, env, root, name, &res)
+			}
 			var note string
 			if !yes {
 				res.Hash, res.Review, note, err = reviewOrg(ctx, root, name)
@@ -147,6 +154,15 @@ func newOrgSignCmd(env *orgEnv) *cobra.Command {
 			if expect == "" {
 				expect, _ = orgsign.Hash(root, raw)
 			}
+			if yes && !env.d.StdinIsTerminal() && signNonceRequired() {
+				// No terminal: --yes alone proves nothing (an agent that clears its
+				// environment has none either). The operator's own terminal or the
+				// app issued a nonce for exactly this definition.
+				if err := operator.ConsumeNonce(signNoncePurpose, name+":"+expect, nonce); err != nil {
+					return env.d.InvalidInput("refusing to sign without a terminal: %s. Run `monoagentcli org sign %s --issue-nonce` "+
+						"in your own terminal, then `--yes --expect-hash <hash> --nonce <nonce>`", err, name)
+				}
+			}
 			out := orgsign.SignExact(ctx, orgenv.Signer, root, name, expect)
 			res.State, res.Detail, res.Signed = out.State, "", out.Signed
 			if !out.Signed {
@@ -158,6 +174,8 @@ func newOrgSignCmd(env *orgEnv) *cobra.Command {
 	}
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Sign without asking (required when not on a terminal)")
 	c.Flags().StringVar(&expect, "expect-hash", "", "With --yes: sign only if the definition's hash (the review's \"hash\", instructions files included) is this")
+	c.Flags().BoolVar(&issueNonce, "issue-nonce", false, "On your own terminal: review the org and print a one-time nonce for a later terminal-less --yes --expect-hash <hash> --nonce <nonce>")
+	c.Flags().StringVar(&nonce, "nonce", "", "With --yes and no terminal: the one-time nonce --issue-nonce printed")
 	c.Flags().BoolVar(&statusOnly, "status", false, "Print the signature state only")
 	return c
 }
@@ -309,4 +327,43 @@ func confirmOrgSign(w io.Writer, in io.Reader, name, review string) bool {
 	ans, _ := bufio.NewReader(in).ReadString('\n')
 	ans = strings.ToLower(strings.TrimSpace(ans))
 	return ans == "y" || ans == "yes"
+}
+
+// signNoncePurpose is the purpose a sign nonce is issued and consumed for.
+const signNoncePurpose = "org-sign"
+
+// enforceSignNonceInTest turns the nonce rule on inside a test binary (the
+// fixtures sign with --yes and no terminal; same seam style as
+// operator's enforcePortPolicyInTest).
+var enforceSignNonceInTest bool
+
+func signNonceRequired() bool { return !testmode.On || enforceSignNonceInTest }
+
+// issueSignNonce is `org sign --issue-nonce`: the operator's own terminal
+// reviews org and gets a one-time nonce for signing exactly that definition
+// later without a terminal.
+func issueSignNonce(ctx context.Context, env *orgEnv, root, name string, res *orgSignResult) error {
+	if !env.d.StdinIsTerminal() {
+		return env.d.InvalidInput("--issue-nonce needs your own terminal")
+	}
+	if m := signBlocker(); m != "" {
+		return &orgSignBlocked{marker: m, org: name}
+	}
+	var note string
+	var err error
+	res.Hash, res.Review, note, err = reviewOrg(ctx, root, name)
+	if err != nil {
+		return err
+	}
+	if res.Hash == "" {
+		return env.d.InvalidInput("org %s: no nonce: %s", name, note)
+	}
+	n, err := operator.IssueNonce(signNoncePurpose, name+":"+res.Hash, true)
+	if err != nil {
+		return env.d.InvalidInput("%s", err.Error())
+	}
+	res.Nonce = n
+	res.Message = "nonce valid for " + operator.NonceTTL.String() + ", once, for this exact definition: `monoagentcli org sign " + name +
+		" --yes --expect-hash " + res.Hash + " --nonce " + n + "`"
+	return printJSONValue(res)
 }
