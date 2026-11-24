@@ -3,9 +3,11 @@ package chat
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/mcp"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -102,6 +104,22 @@ func refuseBossTurnWithoutHostIdentity(ctx context.Context, cfg *Deps, profileID
 		return nil
 	}
 	return clicore.InvalidInput("conversation %s is a boss's: a turn there runs only as the host launches it from a queued message (`coder sessions steer %s`)", conversationID, front)
+}
+
+// exposeBossTools is called once refuseBossTurnWithoutHostIdentity has passed: when the turn is a boss's, the process environment
+// (which the runtime and the MCP server it starts inherit, as they do the session token) carries mcp.BossToolsEnv, so that server
+// lists the session_boss_* tools although the user registered it without --allow-mutations. Another conversation's turn gets
+// nothing; the tools still check the session token and that a run is going.
+func exposeBossTools(ctx context.Context, cfg *Deps, profileID, conversationID string) error {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, _, ok, err := tasks.BossFrontDesk(ctx, db.DB, profileID, conversationID); err != nil || !ok {
+		return err
+	}
+	return os.Setenv(mcp.BossToolsEnv, "1")
 }
 
 // refuseBossResume refuses `chat --resume <runtime session id>` (a turn outside any conversation) when the id is the runtime
