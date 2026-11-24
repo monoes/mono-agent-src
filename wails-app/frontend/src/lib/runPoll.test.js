@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed } from './runPoll.js'
+import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed, pollOutcome } from './runPoll.js'
 
 describe('nextPollFailures', () => {
   it('counts consecutive empty polls and resets on a detail', () => {
@@ -21,5 +21,19 @@ describe('cancelFailed', () => {
   it('treats a successful binding result as ok', () => {
     expect(cancelFailed(undefined)).toBe(false)
     expect(cancelFailed(null)).toBe(false)
+  })
+})
+
+describe('pollOutcome', () => {
+  it('keeps polling every live engine status, including WAITING', () => {
+    for (const st of ['RUNNING', 'queued', 'PENDING', 'Waiting']) expect(pollOutcome({ status: st })).toEqual({ done: false })
+  })
+  it('maps a finished status through the shared execStatus table', () => {
+    expect(pollOutcome({ status: 'SUCCESS' })).toEqual({ done: true, globalStatus: 'ok' })
+    expect(pollOutcome({ status: 'COMPLETED' })).toEqual({ done: true, globalStatus: 'ok' })
+    expect(pollOutcome({ status: 'SUCCESS_WITH_ERRORS' })).toEqual({ done: true, globalStatus: 'warning' })
+    expect(pollOutcome({ status: 'FAILED' })).toEqual({ done: true, globalStatus: 'error' })
+    expect(pollOutcome({ status: 'CANCELLED' })).toEqual({ done: true, globalStatus: 'error' })
+    expect(pollOutcome({ status: 'SOMETHING_NEW' })).toEqual({ done: true, globalStatus: 'error' })
   })
 })

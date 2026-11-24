@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Play, Square, RotateCcw, ZoomIn, ZoomOut, Trash2, Search,
   ChevronDown, ChevronRight, X, Settings2, Copy, RefreshCw,
@@ -9,7 +10,7 @@ import {
 import * as WailsApp from '../wailsjs/go/main/App'
 import { api, notify, reportRunFailure, subscribeEvent } from '../services/api.js'
 import { LIVE_STATUSES } from '../lib/execStatus.js'
-import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed } from '../lib/runPoll.js'
+import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed, pollOutcome } from '../lib/runPoll.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { toggleActive, loadWorkflowChecked, openRunWorkflow } from '../lib/editorFailures.js'
 import ResourcePickerField from '../components/ResourcePickerField.jsx'
@@ -23,6 +24,7 @@ import {
   makeIdGen,
 } from './nodeConfigFields.js'
 import { SaveModal, WorkflowsModal, TriggerInputModal } from './NodeRunnerModals.jsx'
+import { workflowToCanvas } from './workflowCanvas.js'
 import WorkflowImportDialog from './WorkflowImportDialog.jsx'
 import GenerateWorkflowDialog from '../components/GenerateWorkflowDialog.jsx'
 import PublishToMonoesDialog from '../components/library/PublishToMonoesDialog.jsx'
@@ -126,6 +128,7 @@ const parseGoTime = (s) => {
 
 // ── Status badge on node ──────────────────────────────────────────────────────
 function NodeStatusBadge({ status, itemCount, durationMs }) {
+  const { t } = useTranslation()
   if (!status) return null
   const color = status === 'ok' ? '#10b981' : status === 'error' ? '#ef4444' : status === 'skipped' ? '#6b7280' : status === 'waiting' ? '#f59e0b' : '#00b4d8'
   const icon = status === 'ok' ? '✓' : status === 'error' ? '✕' : status === 'skipped' ? '—' : status === 'waiting' ? '⏸' : '…'
@@ -142,7 +145,7 @@ function NodeStatusBadge({ status, itemCount, durationMs }) {
       boxShadow: `0 0 8px ${color}66`,
       whiteSpace: 'nowrap',
     }}>
-      {icon} {status === 'ok' ? `${itemCount} item${itemCount !== 1 ? 's' : ''}` : status === 'running' ? 'running' : status === 'waiting' ? 'waiting' : status === 'skipped' ? 'skipped' : 'error'}
+      {icon} {status === 'ok' ? t('nodeRunner.canvas.items', { count: itemCount }) : status === 'running' ? t('nodeRunner.canvas.running') : status === 'waiting' ? t('nodeRunner.canvas.waiting') : status === 'skipped' ? t('nodeRunner.canvas.skipped') : t('nodeRunner.canvas.error')}
       {durationMs != null && !isNaN(durationMs) && status === 'ok' && <span style={{ opacity: 0.7 }}> · {durationMs}ms</span>}
     </div>
   )
@@ -154,6 +157,7 @@ function NodeStatusBadge({ status, itemCount, durationMs }) {
 // top edge for its sub_output. While a sub-node connection is being dragged
 // (dragKind), the inputs of that kind light up.
 function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInputMouseUp }) {
+  const { t } = useTranslation()
   const k = node.subInputs?.length || 0
   const diamond = (active, required) => ({
     position: 'absolute', width: PORT_R * 2, height: PORT_R * 2,
@@ -175,7 +179,7 @@ function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInpu
           }}>{s.label}{s.required ? '*' : ''}{n > 1 ? ` ·${n}` : ''}</div>
           <div
             data-testid={`sub-in-${node.id}-${s.handle}`}
-            title={`${s.label}${s.required ? ' (required)' : ''}${s.max ? ` · up to ${s.max}` : ''} — drag a ${s.label} node's top port here`}
+            title={`${s.label}${s.required ? ' ' + t('nodeRunner.canvas.required') : ''}${s.max ? ' · ' + t('nodeRunner.canvas.upTo', { max: s.max }) : ''} — ${t('nodeRunner.canvas.dragHere', { label: s.label })}`}
             onMouseUp={e => { e.stopPropagation(); onSubInputMouseUp(s.handle) }}
             style={{ ...diamond(lit, s.required && n === 0), left: cx - PORT_R, top: h - PORT_R }}
           />
@@ -185,7 +189,7 @@ function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInpu
     {node.subOutput && (
       <div
         data-testid={`sub-out-${node.id}`}
-        title={`Drag to connect this ${node.label} to an AI node`}
+        title={t('nodeRunner.canvas.dragToAi', { label: node.label })}
         onMouseDown={e => { e.stopPropagation(); onSubOutputMouseDown(e) }}
         style={{ ...diamond(false, false), left: NODE_W / 2 - PORT_R, top: -PORT_R }}
       />
@@ -194,6 +198,7 @@ function AiSubPorts({ node, h, counts, dragKind, onSubOutputMouseDown, onSubInpu
 }
 
 function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouseDown, onInputPortMouseUp, onClick, onDelete, onConfigure, missing, subCounts, dragKind, onSubOutputMouseDown, onSubInputMouseUp }) {
+  const { t } = useTranslation()
   const h = nodeH(node)
   const compact = !hasMainPorts(node)
   const color = node.color || catColor(node.category)
@@ -226,8 +231,8 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
       {missing?.length > 0 && (
         <div
           role="img"
-          aria-label={`Needs a ${missing.join(', ')} connection`}
-          title={`Needs a ${missing.join(', ')} connection`}
+          aria-label={t('nodeRunner.canvas.needs', { what: missing.join(', ') })}
+          title={t('nodeRunner.canvas.needs', { what: missing.join(', ') })}
           data-testid={`missing-sub-${node.id}`}
           style={{
             position: 'absolute', top: -9, left: -9, zIndex: 3, width: 18, height: 18, borderRadius: '50%',
@@ -264,7 +269,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
         <button
           onMouseDown={e => e.stopPropagation()}
           onClick={e => { e.stopPropagation(); onConfigure() }}
-          title="Configure"
+          title={t('nodeRunner.canvas.configure')}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.5)', padding: 2, display: 'flex', alignItems: 'center', transition: 'color 100ms' }}
           onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
           onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,.5)'}
@@ -272,7 +277,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
         <button
           onMouseDown={e => e.stopPropagation()}
           onClick={e => { e.stopPropagation(); onDelete() }}
-          title="Delete node"
+          title={t('nodeRunner.canvas.deleteNode')}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.3)', padding: 2, display: 'flex', alignItems: 'center', transition: 'color 100ms' }}
           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
           onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,.3)'}
@@ -347,6 +352,7 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
 
 // ── Node palette sidebar ──────────────────────────────────────────────────────
 function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(() => {
     try { return JSON.parse(localStorage.getItem('nr2-palette-open') || '{}') } catch { return {} }
@@ -379,7 +385,8 @@ function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search nodes…"
+            placeholder={t('nodeRunner.palette.search')}
+            aria-label={t('nodeRunner.palette.search')}
             style={{
               width: '100%', background: '#020509',
               border: '1px solid rgba(0,180,216,0.15)', borderRadius: 6,
@@ -402,12 +409,12 @@ function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
             </div>
             {sec.categories.length === 0 && (
               <div style={{ padding: '2px 10px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                {search ? 'No matches' : <>
-                  None installed —{' '}
+                {search ? t('nodeRunner.palette.noMatches') : <>
+                  {t('nodeRunner.palette.noneInstalled')}{' '}
                   <button onClick={onBrowseAutomations} style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                     fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00b4d8', textDecoration: 'underline', textAlign: 'left',
-                  }}>browse and install web automations</button>
+                  }}>{t('nodeRunner.palette.browse')}</button>
                 </>}
               </div>
             )}
@@ -430,7 +437,7 @@ function Palette({ categories, onAdd, onNodeMouseDown, onBrowseAutomations }) {
                   key={n.subtype}
                   onMouseDown={e => { e.preventDefault(); onNodeMouseDown(e, { ...n, category: n.category || cat.id }) }}
                   onClick={() => onAdd({ ...n, category: n.category || cat.id })}
-                  title={`Click or drag to add ${n.label}`}
+                  title={t('nodeRunner.palette.add', { label: n.label })}
                   style={{
                     padding: '5px 14px 5px 20px',
                     cursor: 'grab',
@@ -470,6 +477,7 @@ function resolveSchema(node, liveSchemas) {
 }
 
 export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchemas, automationIds }) {
+  const { t } = useTranslation()
   const schema = resolveSchema(node, liveSchemas)
   const [copied, setCopied] = useState(false)
   const [connections, setConnections] = useState([])
@@ -533,7 +541,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
       }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label}</span>
-        <button onClick={onClose} aria-label="Close inspector" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}
+        <button onClick={onClose} aria-label={t('nodeRunner.inspector.close')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}
           onMouseEnter={e => e.currentTarget.style.color = '#fff'}
           onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
         ><X size={12} /></button>
@@ -545,7 +553,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
         {/* Credential dropdown — shown for platforms that require auth */}
         {pickerMode && (
           <>
-            <Label>{isBrowserPlatform ? 'SESSION' : 'CREDENTIAL'}</Label>
+            <Label>{isBrowserPlatform ? t('nodeRunner.inspector.session') : t('nodeRunner.inspector.credential')}</Label>
             <div style={{ marginBottom: 10 }}>
               <select
                 value={node.config?.credential_id ?? ''}
@@ -554,7 +562,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 style={selectStyle}
                 disabled={loadingCreds}
               >
-                <option value="">— None —</option>
+                <option value="">{t('nodeRunner.inspector.none')}</option>
                 {pickerMode === 'any'
                   ? <AnyPlatformConnections connections={connections} />
                   : connections.map(c => {
@@ -564,12 +572,12 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
               </select>
               {pickerMode === 'any' && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
-                  Any saved connection, grouped by platform. Optional.
+                  {t('nodeRunner.inspector.anyConnection')}
                 </div>
               )}
               {loadingCreds && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
-                  Loading…
+                  {t('nodeRunner.inspector.loading')}
                 </div>
               )}
               <button
@@ -582,7 +590,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
                 onMouseLeave={e => e.currentTarget.style.opacity = '1'}
               >
-                Manage credentials →
+                {t('nodeRunner.inspector.manageCredentials')}
               </button>
             </div>
           </>
@@ -594,13 +602,13 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
           if (fields.length === 0) {
             return (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
-                No config fields — this node runs with defaults.
+                {t('nodeRunner.inspector.noFields')}
               </div>
             )
           }
           return (
             <>
-              <Label>CONFIG</Label>
+              <Label>{t('nodeRunner.inspector.config')}</Label>
               {node.subtype === 'http.request' && (
                 <CurlImport
                   inputStyle={inputStyle}
@@ -656,7 +664,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                         rows={f.rows || 10}
                         value={val}
                         onChange={e => onConfigChange(node.id, f.key, e.target.value)}
-                        placeholder={f.placeholder || `// Enter ${f.language || ''} code here`}
+                        placeholder={f.placeholder || t('nodeRunner.inspector.codePlaceholder', { language: f.language || '' })}
                         spellCheck={false}
                         autoComplete="off"
                         autoCorrect="off"
@@ -689,7 +697,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                       {/* A value the options don't list (no default yet, or
                           an imported one) shows as itself, not as option one. */}
                       {!(f.options || []).map(String).includes(String(val)) && (
-                        <option value={val}>{val === '' ? '— choose —' : val}</option>
+                        <option value={val}>{val === '' ? t('nodeRunner.inspector.choose') : val}</option>
                       )}
                       {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
@@ -726,7 +734,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                       <input
                         type="text"
                         className="array-tag-input"
-                        placeholder={f.placeholder || 'Type and press Enter...'}
+                        placeholder={f.placeholder || t('nodeRunner.inspector.tagPlaceholder')}
                         style={inputStyle}
                         onKeyDown={e => {
                           if (e.key === 'Enter' && e.target.value.trim()) {
@@ -756,13 +764,13 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                       )}
                       {f.examples?.length > 0 && (
                         <div className="field-examples">
-                          <span className="field-examples-label">Examples — click to add</span>
+                          <span className="field-examples-label">{t('nodeRunner.inspector.examplesAdd')}</span>
                           {f.examples.map((ex, i) => (
                             <button
                               key={i}
                               type="button"
                               className="field-example"
-                              title="Add this prompt"
+                              title={t('nodeRunner.inspector.addPrompt')}
                               onClick={() => onConfigChange(node.id, f.key, [...arrValue, ex])}
                             >{ex}</button>
                           ))}
@@ -805,7 +813,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                                 marginBottom: 3, wordBreak: 'break-all',
                                 cursor: 'pointer',
                               }}
-                                title="Click to copy"
+                                title={t('nodeRunner.inspector.clickCopy')}
                                 onClick={() => {
                                   navigator.clipboard.writeText(ex)
                                 }}
@@ -865,7 +873,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                           style={{ ...inputStyle, flex: 1 }}
                         />
                         {media && <button
-                          title="Pick from Media Vault"
+                          title={t('nodeRunner.inspector.pickVault')}
                           onClick={() => setPickerField(f.key)}
                           style={{
                             background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 4,
@@ -885,7 +893,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                           boxShadow: '0 4px 16px rgba(0,0,0,0.5)', overflow: 'hidden', marginTop: 2,
                         }}>
                           <div style={{ padding: '3px 8px', background: '#111827', fontFamily: 'var(--font-mono)', fontSize: 8, color: '#334155', textTransform: 'uppercase', letterSpacing: 1 }}>
-                            Vault Images
+                            {t('nodeRunner.inspector.vaultImages')}
                           </div>
                           {acMatches.map(img => (
                             <div
@@ -926,13 +934,13 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                     {inputEl}
                     {f.examples?.length > 0 && (
                       <div className="field-examples">
-                        <span className="field-examples-label">Examples — click to use</span>
+                        <span className="field-examples-label">{t('nodeRunner.inspector.examplesUse')}</span>
                         {f.examples.map((ex, i) => (
                           <button
                             key={i}
                             type="button"
                             className="field-example"
-                            title="Use this as the value"
+                            title={t('nodeRunner.inspector.useValue')}
                             onClick={() => onConfigChange(node.id, f.key, ex)}
                           >{ex}</button>
                         ))}
@@ -987,7 +995,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
           <>
             <div style={{ height: 1, background: 'rgba(0,180,216,0.08)', margin: '12px 0' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <Label style={{ marginBottom: 0 }}>OUTPUT</Label>
+              <Label style={{ marginBottom: 0 }}>{t('nodeRunner.inspector.output')}</Label>
               <div style={{ flex: 1 }} />
               {node.runStatus === 'ok' && (
                 <button
@@ -996,27 +1004,27 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                   onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
                   onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
                 >
-                  <Copy size={9} /> {copied ? 'COPIED' : 'COPY'}
+                  <Copy size={9} /> {copied ? t('nodeRunner.inspector.copied') : t('nodeRunner.inspector.copy')}
                 </button>
               )}
             </div>
 
             {node.runStatus === 'running' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                <Loader size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> Running…
+                <Loader size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> {t('nodeRunner.inspector.running')}
               </div>
             )}
             {node.runStatus === 'waiting' && (
               <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 6, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Clock size={11} color="#f59e0b" />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#f59e0b' }}>WAITING — paused for human review</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#f59e0b' }}>{t('nodeRunner.inspector.waitingReview')}</span>
               </div>
             )}
             {node.runStatus === 'error' && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, padding: '8px 10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                   <AlertCircle size={11} color="#ef4444" />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#ef4444' }}>ERROR</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#ef4444' }}>{t('nodeRunner.inspector.errorLabel')}</span>
                 </div>
                 <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {withoutAgentSetupMarker(node.runError)}
@@ -1025,17 +1033,17 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
               </div>
             )}
             {node.runStatus === 'skipped' && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#6b7280', fontStyle: 'italic' }}>skipped — no items received from upstream nodes</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#6b7280', fontStyle: 'italic' }}>{t('nodeRunner.inspector.skipped')}</div>
             )}
             {node.runStatus === 'ok' && !node.runOutputs && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>no output items</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>{t('nodeRunner.inspector.noOutput')}</div>
             )}
             {node.runStatus === 'ok' && node.runOutputs?.map((out, oi) => (
               <div key={oi} style={{ marginBottom: 8 }}>
                 {node.runOutputs.length > 1 && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#00b4d8', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00b4d8' }} />
-                    {out.handle} · {out.items.length} item{out.items.length !== 1 ? 's' : ''}
+                    {out.handle} · {t('nodeRunner.canvas.items', { count: out.items.length })}
                   </div>
                 )}
                 {out.items.slice(0, 5).map((item, ii) => (
@@ -1050,7 +1058,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 ))}
                 {out.items.length > 5 && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', padding: '4px 0' }}>
-                    + {out.items.length - 5} more items
+                    {t('nodeRunner.inspector.moreItems', { count: out.items.length - 5 })}
                   </div>
                 )}
               </div>
@@ -1114,6 +1122,7 @@ function schemaDefaults(fields) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) {
+  const { t } = useTranslation()
   const [categories, setCategories] = useState([])
   // type -> schema, from the node catalog. The workflow file carries the
   // schema each node had when it was saved; the catalog is what the running
@@ -1236,29 +1245,28 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       // Tick gated on page visibility — a hidden window stops polling; the
       // next tick after returning visible picks the execution back up.
       if (!pageVisibleRef.current) return
-      try {
-        const detail = await api.getExecutionDetail(execId)
-        failures = nextPollFailures(failures, detail)
-        if (!detail) {
-          if (failures >= POLL_FAIL_LIMIT) {
-            clearInterval(iv)
-            if (pollRef.current === iv) pollRef.current = null
-            setRunning(false)
-            notify('run status', `Lost contact with run ${execId}. It may still be running: open it from Workflows > Executions to check.`)
-          }
-          return
-        }
-        applyExecDetail(detail)
-        const st = (detail.status || '').toUpperCase()
-        // WAITING (paused at a Human-in-Loop node) may resume after approval,
-        // so keep polling it alongside the active statuses.
-        if (st !== 'RUNNING' && st !== 'QUEUED' && st !== 'PENDING' && st !== 'WAITING') {
+      let detail = null
+      try { detail = await api.getExecutionDetail(execId) } catch (e) { console.error('Poll error', e) }
+      failures = nextPollFailures(failures, detail)
+      if (!detail) {
+        if (failures >= POLL_FAIL_LIMIT) {
           clearInterval(iv)
           if (pollRef.current === iv) pollRef.current = null
           setRunning(false)
-          setGlobalStatus(st === 'SUCCESS' || st === 'COMPLETED' ? 'ok' : st === 'SUCCESS_WITH_ERRORS' ? 'warning' : st === 'WAITING' ? 'waiting' : 'error')
+          notify('run status', t('nodeRunner.run.lostContact', { id: execId }))
         }
-      } catch (e) { console.error('Poll error', e) }
+        return
+      }
+      applyExecDetail(detail)
+      // WAITING (paused at a Human-in-Loop node) may resume after approval,
+      // so pollOutcome keeps it live alongside the active statuses.
+      const outcome = pollOutcome(detail)
+      if (outcome.done) {
+        clearInterval(iv)
+        if (pollRef.current === iv) pollRef.current = null
+        setRunning(false)
+        setGlobalStatus(outcome.globalStatus)
+      }
     }, 2000)
     pollRef.current = iv
   }
@@ -1275,31 +1283,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     let cancelled = false
     ;(async () => {
       try {
-        const wf = await WailsApp.GetWorkflow(navData.workflowId)
+        const wf = await loadWorkflowChecked({ id: navData.workflowId, getWorkflow: WailsApp.GetWorkflow, stopPolling, notify })
         if (cancelled || !wf) return
-        const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
-        const loadedNodes = (wf.nodes || []).map(n => {
-          const nt = normalizeNodeType(n.node_type || n.type || '')
-          const prefix = nt.split('.')[0]
-          const cat = prefixToCat[prefix] || prefix
-          return {
-            id: n.id, label: n.name, subtype: nt, category: cat,
-            x: n.position_x, y: n.position_y,
-            config: n.config || {}, color: catColor(cat),
-            schema: n.schema || null,
-            configFields: n.schema?.fields ? n.schema.fields : getConfigFields(nt),
-            inputs: deriveInputs(nt), outputs: deriveOutputs(nt, n.config),
-            runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-          }
-        })
-        const nodeById = {}
-        loadedNodes.forEach(n => { nodeById[n.id] = n })
-        const loadedEdges = (wf.connections || []).map(c => ({
-          id: c.id, source: c.source_node_id, sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
-          sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
-          target: c.target_node_id, targetPortId: c.target_handle,
-          targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
-        }))
+        const { nodes: loadedNodes, edges: loadedEdges } = toCanvas(wf)
+        setGlobalStatus(null)
         setWfId(wf.id)
         setWfName(wf.name || 'Untitled Workflow')
         setWfActive(!!wf.is_active)
@@ -1309,7 +1296,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setSelectedId(null)
         setIsDirty(false)
         setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
-      } catch (e) { console.error('Failed to load workflow from navData', e) }
+      } catch (e) {
+        console.error('Failed to load workflow from navData', e)
+        notify('load workflow', t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
+      }
     })()
     return () => { cancelled = true }
   }, [navData?.workflowId, navData?.executionId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1329,35 +1319,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         const needLoad = !!detail.workflow_id && (detail.workflow_id !== wfId || nodes.length === 0)
         const opened = await openRunWorkflow({
           detail, wfId, needLoad, isDirty, getWorkflow: WailsApp.GetWorkflow, notify,
-          confirmDiscard: () => confirm('Discard unsaved changes?', { title: 'Open Run', confirmLabel: 'Discard & Open' }),
+          confirmDiscard: () => confirm(t('nodeRunner.dialogs.discardChanges'), { title: t('nodeRunner.dialogs.openRunTitle'), confirmLabel: t('nodeRunner.dialogs.discardOpen') }),
         })
         if (opened.cancelled || cancelled) return
         if (needLoad) {
           const wf = opened.wf
           if (wf) {
-            const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
-            const loadedNodes = (wf.nodes || []).map(n => {
-              const nt = normalizeNodeType(n.node_type || n.type || '')
-              const prefix = nt.split('.')[0]
-              const cat = prefixToCat[prefix] || prefix
-              return {
-                id: n.id, label: n.name, subtype: nt, category: cat,
-                x: n.position_x, y: n.position_y,
-                config: n.config || {}, color: catColor(cat),
-                schema: n.schema || null,
-                configFields: n.schema?.fields ? n.schema.fields : getConfigFields(nt),
-                inputs: deriveInputs(nt), outputs: deriveOutputs(nt, n.config),
-                runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-              }
-            })
-            const nodeById = {}
-            loadedNodes.forEach(n => { nodeById[n.id] = n })
-            const loadedEdges = (wf.connections || []).map(c => ({
-              id: c.id, source: c.source_node_id, sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
-              sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
-              target: c.target_node_id, targetPortId: c.target_handle,
-              targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
-            }))
+            const { nodes: loadedNodes, edges: loadedEdges } = toCanvas(wf)
             setWfId(wf.id)
             setWfName(wf.name || 'Untitled Workflow')
             setWfActive(!!wf.is_active)
@@ -1371,8 +1339,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         }
         if (cancelled) return
         applyExecDetail(detail)
-        const st = (detail.status || '').toUpperCase()
-        if (st === 'RUNNING' || st === 'QUEUED' || st === 'PENDING' || st === 'WAITING') {
+        if (!pollOutcome(detail).done) {
           setRunning(true)
           startExecPoll(detail.id)
         }
@@ -1390,7 +1357,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       try {
         const execs = await WailsApp.GetWorkflowExecutions(wfId, 3)
         if (cancelled || !execs?.length) return
-        const active = execs.find(e => { const s = (e.status||'').toUpperCase(); return s==='RUNNING'||s==='QUEUED'||s==='PENDING'||s==='WAITING' })
+        const active = execs.find(e => !pollOutcome(e).done)
         if (active && !cancelled) {
           setRunning(true)
           startExecPoll(active.id)
@@ -1646,7 +1613,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const tNode = nodesRef.current.find(n => n.id === targetNodeId)
     const label = (tNode?.subInputs || []).find(x => x.handle === handle)?.label || handle
     if (d.type === 'edge') {
-      notify('connect nodes', `Connection rejected: the ${label} input takes an AI sub-node; drag from the top port of a ${label} node.`)
+      notify('connect nodes', t('nodeRunner.run.rejectedAiInput', { label }))
       return
     }
     const sNode = nodesRef.current.find(n => n.id === d.sourceNodeId)
@@ -1662,7 +1629,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const completeEdge = (targetNodeId, targetPortIdx) => {
     if (dragRef.current?.type === 'subEdge') {
       dragRef.current = null; setPendingEdge(null)
-      notify('connect nodes', 'Connection rejected: an AI sub-node connects to a matching input on the bottom edge of an AI node, not to a main input.')
+      notify('connect nodes', t('nodeRunner.run.rejectedSubToMain'))
       return
     }
     if (!dragRef.current || dragRef.current.type !== 'edge') return
@@ -1674,7 +1641,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     // A cycle is allowed only as a loop closing into a Split In Batches node.
     const candidate = { source: sourceNodeId, sourcePortIdx, sourcePortId: sNode.outputs[sourcePortIdx]?.id, target: targetNodeId }
     if (hasForbiddenCycle(nodesRef.current, [...edges, candidate])) {
-      notify('connect nodes', 'Connection rejected: it would create a cycle. Only a loop back into a Split In Batches node may close one.')
+      notify('connect nodes', t('nodeRunner.run.rejectedCycle'))
       dragRef.current = null; setPendingEdge(null)
       return
     }
@@ -1699,7 +1666,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       try { failed = cancelFailed(await api.cancelWorkflow(execId)) } catch { failed = true }
       if (failed) {
         // The run was not cancelled: keep polling and the running state.
-        notify('stop run', `Could not stop run ${execId}; it is still running.`)
+        notify('stop run', t('nodeRunner.run.couldNotStop', { id: execId }))
         return
       }
     }
@@ -1754,7 +1721,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       if (!wfId || isDirty) {
         const saved = await handleSave()
         if (!saved?.id) {
-          notify('run workflow', 'Auto-save failed — workflow not run')
+          notify('run workflow', t('nodeRunner.run.autoSaveFailed'))
           setRunning(false)
           return
         }
@@ -1799,7 +1766,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         if (runTokenRef.current !== runToken) return // superseded by a newer run
         if (!execId) {
           setRunning(false)
-          notify('run workflow', 'The run stopped before it started — open Live Logs for the output.')
+          notify('run workflow', t('nodeRunner.run.stoppedEarly'))
           return
         }
 
@@ -1867,10 +1834,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setWfId(saved.id)
         setIsDirty(false)
         onWorkflowsChanged?.() // status bar / dashboard workflow count
-        setSaveMsg({ ok: true, text: 'Saved' })
+        setSaveMsg({ ok: true, text: t('nodeRunner.toolbar.saved') })
         return saved
       } else {
-        setSaveMsg({ ok: false, text: 'Save returned no ID' })
+        setSaveMsg({ ok: false, text: t('nodeRunner.toolbar.saveNoId') })
         return null
       }
     } catch (e) {
@@ -1881,7 +1848,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       clearTimeout(saveMsgTimerRef.current)
       saveMsgTimerRef.current = setTimeout(() => setSaveMsg(null), 3000)
     }
-  }, [saving, wfId, wfName, nodes, edges, setShowSaveModal])
+  }, [saving, wfId, wfName, nodes, edges, setShowSaveModal, t])
 
   // ── Load workflow ─────────────────────────────────────────────────────────
   // keepModal: the mount-time restore must not close a Templates dialog the
@@ -1889,7 +1856,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const handleLoad = useCallback(async (id, { keepModal = false } = {}) => {
     // Guard the dirty canvas: Load (modal), template creation and AI-created
     // workflows all funnel through here.
-    if (isDirty && !(await confirm('Discard unsaved changes?', { title: 'Load Workflow', confirmLabel: 'Discard & Load' }))) return
+    if (isDirty && !(await confirm(t('nodeRunner.dialogs.discardChanges'), { title: t('nodeRunner.dialogs.loadTitle'), confirmLabel: t('nodeRunner.dialogs.discardLoad') }))) return
     try {
       // a poll from a previous run must not repaint the new canvas, but it
       // keeps running when the load fails (stopped inside once wf is in hand)
@@ -1899,40 +1866,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       setWfName(wf.name || 'Untitled Workflow')
       setWfActive(!!wf.is_active)
       // Map backend WorkflowNodeData → canvas node shape
-      const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
-      const loadedNodes = (wf.nodes || []).map(n => {
-        const nt = normalizeNodeType(n.node_type || n.type || '')
-        const prefix = nt.split('.')[0]
-        const cat = prefixToCat[prefix] || prefix
-        return {
-        id:       n.id,
-        label:    n.name,
-        subtype:  nt,
-        category: cat,
-        x: n.position_x,
-        y: n.position_y,
-        config: n.config || {},
-        color: catColor(cat),
-        schema: n.schema || null,
-        configFields: n.schema?.fields ? n.schema.fields : getConfigFields(nt),
-        inputs:  deriveInputs(nt),
-        outputs: deriveOutputs(nt, n.config),
-        runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-      }})
-      // Map backend WorkflowConnectionData → canvas edge shape. Handles are
-      // port ids ('main', 'true', …) — resolve to indexes; legacy numeric
-      // strings fall back to the parsed index.
-      const nodeById = {}
-      loadedNodes.forEach(n => { nodeById[n.id] = n })
-      const loadedEdges = (wf.connections || []).map(c => ({
-        id:           c.id,
-        source:       c.source_node_id,
-        sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
-        sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
-        target:       c.target_node_id,
-        targetPortId: c.target_handle,
-        targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
-      }))
+      const { nodes: loadedNodes, edges: loadedEdges } = toCanvas(wf)
       canvasIds.advancePast([...loadedNodes, ...loadedEdges].map(x => x.id))
       setNodes(loadedNodes)
       setEdges(loadedEdges)
@@ -1944,7 +1878,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       return true
     } catch (e) {
       console.error('Load failed', e)
-      notify('load workflow', `Could not open the workflow: ${e?.message || e}`)
+      notify('load workflow', t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
     }
   }, [isDirty]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1976,7 +1910,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
   const handleNew = useCallback(async () => {
     if (isDirty && nodes.length > 0) {
-      if (!(await confirm('Create a new workflow? Unsaved changes will be lost.', { title: 'New Workflow', confirmLabel: 'Discard & New', danger: false }))) return
+      if (!(await confirm(t('nodeRunner.dialogs.newConfirm'), { title: t('nodeRunner.dialogs.newTitle'), confirmLabel: t('nodeRunner.dialogs.discardNew'), danger: false }))) return
     }
     stopPolling()
     resetCanvas()
@@ -2071,11 +2005,11 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         {/* Active toggle */}
         <button
           onClick={handleToggleActive}
-          title={wfActive ? 'Deactivate' : 'Activate'}
+          title={wfActive ? t('nodeRunner.toolbar.deactivate') : t('nodeRunner.toolbar.activate')}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: wfActive ? '#10b981' : 'var(--text-muted)', padding: '2px 4px' }}
         >
           {wfActive ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1 }}>{wfActive ? 'ACTIVE' : 'OFF'}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1 }}>{wfActive ? t('nodeRunner.toolbar.active') : t('nodeRunner.toolbar.off')}</span>
         </button>
 
         <div style={{ width: 1, height: 16, background: 'rgba(0,180,216,0.15)' }} />
@@ -2097,12 +2031,12 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
         {globalStatus && !saveMsg && !execOverlay && (() => {
           const g = globalStatus === 'ok'
-            ? { color: '#10b981', label: 'done', Icon: CheckCircle }
+            ? { color: '#10b981', label: t('nodeRunner.toolbar.statusDone'), Icon: CheckCircle }
             : globalStatus === 'warning'
-              ? { color: '#fbbf24', label: 'done with errors', Icon: AlertCircle }
+              ? { color: '#fbbf24', label: t('nodeRunner.toolbar.statusDoneErrors'), Icon: AlertCircle }
               : globalStatus === 'waiting'
-                ? { color: '#f59e0b', label: 'waiting for review', Icon: Clock }
-                : { color: '#ef4444', label: 'failed', Icon: AlertCircle }
+                ? { color: '#f59e0b', label: t('nodeRunner.toolbar.statusWaiting'), Icon: Clock }
+                : { color: '#ef4444', label: t('nodeRunner.toolbar.statusFailed'), Icon: AlertCircle }
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <g.Icon size={11} color={g.color} />
@@ -2138,7 +2072,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               tabIndex={execOverlay.problem ? 0 : undefined}
               onClick={execOverlay.problem ? () => setProblemHidden(h => !h) : undefined}
               onKeyDown={execOverlay.problem ? (e) => { if (e.key === 'Enter' || e.key === ' ') setProblemHidden(h => !h) } : undefined}
-              title={execOverlay.problem ? (problemHidden ? 'Show why' : 'Hide the error') : undefined}
+              title={execOverlay.problem ? (problemHidden ? t('nodeRunner.toolbar.showWhy') : t('nodeRunner.toolbar.hideError')) : undefined}
               style={{
                 fontFamily: 'var(--font-mono)', fontSize: 9,
                 color: execOverlay.status === 'RUNNING' ? 'var(--cyan)' :
@@ -2150,7 +2084,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                 cursor: execOverlay.problem ? 'pointer' : 'default',
                 textDecoration: execOverlay.problem && problemHidden ? 'underline' : 'none',
               }}>
-              Execution: {execOverlay.status}
+              {t('nodeRunner.toolbar.execution', { status: execOverlay.status })}
             </span>
             {execOverlay.status === 'FAILED' && isAgentNotSetup(execOverlay.error) && <AgentSetupLink onNavigate={onNavigate} compact />}
             <button
@@ -2163,7 +2097,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                 setExecOverlay(null)
                 setNodes(prev => prev.map(n => ({ ...n, runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null })))
               }}
-              title="Close execution view"
+              title={t('nodeRunner.toolbar.closeExecution')}
             >
               <X size={10} />
             </button>
@@ -2173,13 +2107,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         {/* HIL pause hint — WAITING runs wait for a human, they did not fail */}
         {execOverlay?.status === 'WAITING' && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-            {execOverlay.hint || 'Paused for human review'}
+            {execOverlay.hint || t('nodeRunner.toolbar.pausedForReview')}
             <button
               onClick={() => onNavigate?.('hil')}
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--font-mono)', fontSize: 9, color: '#00b4d8', textDecoration: 'underline' }}
-              title="Open Human in Loop page"
+              title={t('nodeRunner.toolbar.openHil')}
             >
-              Human in Loop →
+              {t('nodeRunner.toolbar.hilLink')}
             </button>
           </span>
         )}
@@ -2187,31 +2121,31 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <div style={{ flex: 1 }} />
 
         {/* New */}
-        <button style={tbBtn} onClick={handleNew} title="New workflow"><Plus size={13} /></button>
+        <button style={tbBtn} onClick={handleNew} title={t('nodeRunner.toolbar.new')}><Plus size={13} /></button>
 
         {/* Load */}
-        <button style={tbBtn} onClick={() => setShowWfModal('saved')} title="Open saved workflow"><FolderOpen size={13} /></button>
+        <button style={tbBtn} onClick={() => setShowWfModal('saved')} title={t('nodeRunner.toolbar.openSaved')}><FolderOpen size={13} /></button>
 
         {/* Templates: labelled, so starting from one needs no hunting */}
-        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowWfModal('templates')} title="Start from a template">
-          <LayoutTemplate size={13} /> Templates
+        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowWfModal('templates')} title={t('nodeRunner.toolbar.templateTitle')}>
+          <LayoutTemplate size={13} /> {t('nodeRunner.toolbar.templates')}
         </button>
 
         {/* Generate a workflow from a brief (coder task `workflow-generate`) */}
-        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowGenerate(true)} title="Generate a workflow with coder">
-          <Bot size={13} /> Generate
+        <button style={{ ...tbBtn, gap: 5, fontFamily: 'var(--font-mono)', fontSize: 10 }} onClick={() => setShowGenerate(true)} title={t('nodeRunner.toolbar.generateTitle')}>
+          <Bot size={13} /> {t('nodeRunner.toolbar.generate')}
         </button>
 
         {/* Import a workflow file (CLI `workflow import`) */}
-        <button style={tbBtn} onClick={() => setShowImport(true)} title="Import workflow" aria-label="Import workflow"><Upload size={13} /></button>
+        <button style={tbBtn} onClick={() => setShowImport(true)} title={t('nodeRunner.toolbar.import')} aria-label={t('nodeRunner.toolbar.import')}><Upload size={13} /></button>
 
         {/* Publish the saved workflow to monoes.me (CLI `library publish`) */}
         <button
           style={{ ...tbBtn, opacity: wfId ? 1 : 0.4 }}
           onClick={() => setShowPublish(true)}
           disabled={!wfId}
-          title={wfId ? 'Publish to monoes' : 'Save the workflow first'}
-          aria-label="Publish to monoes"
+          title={wfId ? t('nodeRunner.toolbar.publish') : t('nodeRunner.toolbar.saveFirst')}
+          aria-label={t('nodeRunner.toolbar.publish')}
         ><UploadCloud size={13} /></button>
 
         {/* Refresh: reload the open workflow fresh from the backend, discarding unsaved canvas edits */}
@@ -2219,7 +2153,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           style={{ ...tbBtn, opacity: wfId ? 1 : 0.4 }}
           onClick={handleRefresh}
           disabled={!wfId || refreshing}
-          title={wfId ? 'Reload workflow from disk' : 'No workflow open'}
+          title={wfId ? t('nodeRunner.toolbar.reload') : t('nodeRunner.toolbar.noWorkflow')}
         >
           <RefreshCw size={13} style={{ animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }} />
         </button>
@@ -2228,7 +2162,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <button
           style={{ ...tbBtn, color: saving ? 'var(--text-muted)' : '#00b4d8', borderColor: 'rgba(0,180,216,0.3)' }}
           onClick={() => { if (!saving) setShowSaveModal(true) }}
-          title="Save workflow"
+          title={t('nodeRunner.toolbar.save')}
         >
           {saving ? <Loader size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Save size={13} />}
         </button>
@@ -2236,20 +2170,20 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <div style={{ width: 1, height: 16, background: 'rgba(0,180,216,0.15)' }} />
 
         {/* Zoom */}
-        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.max(0.25, c.zoom / 1.2) }))} title="Zoom out"><ZoomOut size={13} /></button>
+        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.max(0.25, c.zoom / 1.2) }))} title={t('nodeRunner.toolbar.zoomOut')}><ZoomOut size={13} /></button>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', minWidth: 32, textAlign: 'center' }}>
           {Math.round(camera.zoom * 100)}%
         </span>
-        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.min(2.5, c.zoom * 1.2) }))} title="Zoom in"><ZoomIn size={13} /></button>
-        <button style={tbBtn} onClick={() => setCamera({ x: 60, y: 60, zoom: 1 })} title="Reset view"><RotateCcw size={13} /></button>
-        <button style={tbBtn} onClick={handleAutoLayout} title="Auto-layout nodes"><LayoutDashboard size={13} /></button>
+        <button style={tbBtn} onClick={() => setCamera(c => ({ ...c, zoom: Math.min(2.5, c.zoom * 1.2) }))} title={t('nodeRunner.toolbar.zoomIn')}><ZoomIn size={13} /></button>
+        <button style={tbBtn} onClick={() => setCamera({ x: 60, y: 60, zoom: 1 })} title={t('nodeRunner.toolbar.resetView')}><RotateCcw size={13} /></button>
+        <button style={tbBtn} onClick={handleAutoLayout} title={t('nodeRunner.toolbar.autoLayout')}><LayoutDashboard size={13} /></button>
 
         {/* Clear */}
         <button
           style={{ ...tbBtn, color: nodes.length ? 'rgba(239,68,68,0.6)' : 'var(--text-muted)' }}
-          onClick={async () => { if (nodes.length > 0 && !(await confirm('Clear the entire canvas?', { title: 'Clear Canvas', confirmLabel: 'Clear' }))) return; setNodes([]); setEdges([]); setSelectedId(null); setGlobalStatus(null) }}
-          title="Clear canvas"
-          aria-label="Clear canvas"
+          onClick={async () => { if (nodes.length > 0 && !(await confirm(t('nodeRunner.toolbar.clearConfirm'), { title: t('nodeRunner.toolbar.clearTitle'), confirmLabel: t('nodeRunner.toolbar.clearLabel') }))) return; setNodes([]); setEdges([]); setSelectedId(null); setGlobalStatus(null) }}
+          title={t('nodeRunner.toolbar.clearCanvas')}
+          aria-label={t('nodeRunner.toolbar.clearCanvas')}
         >
           <Trash2 size={13} />
         </button>
@@ -2258,7 +2192,9 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <button
           style={{ ...tbBtn, color: jsonView ? '#00b4d8' : 'var(--text-muted)', borderColor: jsonView ? 'rgba(0,180,216,0.3)' : 'rgba(0,180,216,0.15)', background: jsonView ? 'rgba(0,180,216,0.08)' : 'transparent' }}
           onClick={() => setJsonView(v => !v)}
-          title={jsonView ? 'Switch to visual canvas' : 'Switch to JSON view'}
+          title={jsonView ? t('nodeRunner.toolbar.toCanvas') : t('nodeRunner.toolbar.toJson')}
+          aria-label={jsonView ? t('nodeRunner.toolbar.toCanvas') : t('nodeRunner.toolbar.toJson')}
+          aria-pressed={jsonView}
         >
           <Braces size={13} />
         </button>
@@ -2276,10 +2212,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             }}
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.22)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.12)' }}
-            title="Stop execution"
+            title={t('nodeRunner.toolbar.stopTitle')}
           >
             <Square size={12} />
-            STOP
+            {t('nodeRunner.toolbar.stop')}
           </button>
         ) : (
           <button
@@ -2295,10 +2231,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             }}
             onMouseEnter={e => { if (nodes.length > 0) e.currentTarget.style.background = 'rgba(16,185,129,0.2)' }}
             onMouseLeave={e => { if (nodes.length > 0) e.currentTarget.style.background = 'rgba(16,185,129,0.12)' }}
-            title="Run all nodes"
+            title={t('nodeRunner.toolbar.runTitle')}
           >
             <Play size={12} />
-            RUN
+            {t('nodeRunner.toolbar.run')}
           </button>
         )}
       </div>
@@ -2355,7 +2291,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           }}
           onLibraryInstalled={() => { onWorkflowsChanged?.(); loadCatalog() }}
           onDelete={async (id) => {
-            if (!(await confirm('Delete this workflow? This cannot be undone.', { title: 'Delete Workflow', confirmLabel: 'Delete' }))) return false
+            if (!(await confirm(t('nodeRunner.dialogs.deleteConfirm'), { title: t('nodeRunner.dialogs.deleteTitle'), confirmLabel: t('nodeRunner.dialogs.deleteLabel') }))) return false
             await DeleteWorkflow(id)
             onWorkflowsChanged?.()
             if (id === wfId) {
@@ -2386,7 +2322,11 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         <Palette categories={categories} onAdd={addNode} onNodeMouseDown={onPaletteNodeMouseDown}
           onBrowseAutomations={() => onNavigate?.('connections')} />
 
-        {/* Canvas / JSON view */}
+        {/* Canvas / JSON view. The canvas is mouse-driven (drag to place and
+            connect nodes, no keyboard model); that is a decided limit (r21-D-02),
+            not an oversight. The JSON view (toolbar toggle, aria-pressed) is the
+            keyboard and screen-reader path to the same workflow, so the canvas is
+            labelled as mouse-only and points to it. */}
         {jsonView ? (
           <div style={{
             flex: 1, position: 'relative', overflow: 'auto',
@@ -2399,7 +2339,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
               <Braces size={11} color="#00b4d8" />
-              WORKFLOW JSON
+              {t('nodeRunner.canvas.jsonTitle')}
               {wfId && <span style={{ opacity: 0.5 }}>· {wfId}</span>}
             </div>
             <pre style={{
@@ -2437,6 +2377,8 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         ) : (
           <div
             ref={wrapperRef}
+            role="region"
+            aria-label={t('nodeRunner.canvas.region')}
             style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor: 'default' }}
             onMouseDown={(e) => {
               if (e.target !== wrapperRef.current && !e.target.dataset.bg) return
@@ -2462,12 +2404,12 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               }}>
                 <Plus size={32} style={{ opacity: 0.1 }} />
                 <button className="btn btn-secondary btn-sm" style={{ pointerEvents: 'auto', gap: 6 }} onClick={() => setShowWfModal('templates')}>
-                  <LayoutTemplate size={13} /> Start from a template
+                  <LayoutTemplate size={13} /> {t('nodeRunner.canvas.emptyTemplate')}
                 </button>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.8 }}>
-                  or click or drag nodes from the left panel<br />
-                  Connect output → input ports to chain them<br />
-                  Press <kbd style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 3, padding: '1px 5px' }}>RUN</kbd> to execute
+                  {t('nodeRunner.canvas.emptyAdd')}<br />
+                  {t('nodeRunner.canvas.emptyConnect')}<br />
+                  {t('nodeRunner.canvas.emptyPressPre')} <kbd style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 3, padding: '1px 5px' }}>{t('nodeRunner.toolbar.run')}</kbd> {t('nodeRunner.canvas.emptyPressPost')}
                 </div>
               </div>
             )}
@@ -2589,6 +2531,8 @@ const LEGACY_NODE_TYPES = {
   'read_write_file': 'system.read_write_file',
 }
 function normalizeNodeType(t) { return LEGACY_NODE_TYPES[t] || t }
+
+const toCanvas = (wf) => workflowToCanvas(wf, { normalizeNodeType, catColor, getConfigFields, resolvePortIdx, deriveInputs, deriveOutputs, canonicalOutputHandle })
 
 
 function getConfigFields(nodeType) {

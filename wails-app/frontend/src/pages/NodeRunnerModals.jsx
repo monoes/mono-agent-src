@@ -17,6 +17,7 @@ const GetWorkflowExecutions = WailsApp.GetWorkflowExecutions ?? (async () => [])
 
 // Extracted from NodeRunner.jsx to keep that file focused on the canvas editor.
 export function SaveModal({ initialName, onConfirm, onClose }) {
+  const { t } = useTranslation()
   const [name, setName] = useState(initialName || '')
   const inputRef = useRef(null)
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select() }, [])
@@ -29,7 +30,7 @@ export function SaveModal({ initialName, onConfirm, onClose }) {
       background: 'rgba(2,5,9,0.8)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div role="dialog" aria-modal="true" aria-label="Save workflow" style={{
+      <div role="dialog" aria-modal="true" aria-label={t('nodeRunner.modals.saveWorkflow')} style={{
         width: 360,
         background: '#080d16',
         border: '1px solid rgba(0,180,216,0.25)',
@@ -39,19 +40,19 @@ export function SaveModal({ initialName, onConfirm, onClose }) {
         display: 'flex', flexDirection: 'column', gap: 14,
       }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: '#e2e8f0', letterSpacing: 1 }}>
-          SAVE WORKFLOW
+          {t('nodeRunner.modals.saveTitle')}
         </div>
 
         <div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
-            Workflow Name
+            {t('nodeRunner.modals.name')}
           </div>
           <input
             ref={inputRef}
             value={name}
             onChange={e => setName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose() }}
-            placeholder="e.g. Daily Digest Pipeline"
+            placeholder={t('nodeRunner.modals.namePlaceholder')}
             style={{
               width: '100%', boxSizing: 'border-box',
               background: '#020509',
@@ -67,11 +68,11 @@ export function SaveModal({ initialName, onConfirm, onClose }) {
           <button
             onClick={onClose}
             style={{ background: 'transparent', border: '1px solid rgba(0,180,216,0.15)', borderRadius: 6, padding: '6px 16px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}
-          >Cancel</button>
+          >{t('nodeRunner.modals.cancel')}</button>
           <button
             onClick={() => { if (name.trim()) submit() }}
             style={{ background: 'rgba(0,180,216,0.15)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 6, padding: '6px 20px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#00b4d8' }}
-          >Save</button>
+          >{t('nodeRunner.modals.save')}</button>
         </div>
       </div>
     </div>
@@ -137,7 +138,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
   const errorRow = (msg, onRetry) => (
     <div role="alert" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#ef4444', padding: '24px', textAlign: 'center' }}>
       <div>{msg}</div>
-      <button onClick={onRetry} style={{ marginTop: 10, background: 'rgba(0,180,216,0.08)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 5, cursor: 'pointer', color: '#00b4d8', padding: '3px 10px', fontFamily: 'var(--font-mono)', fontSize: 10 }}>Retry</button>
+      <button onClick={onRetry} style={{ marginTop: 10, background: 'rgba(0,180,216,0.08)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 5, cursor: 'pointer', color: '#00b4d8', padding: '3px 10px', fontFamily: 'var(--font-mono)', fontSize: 10 }}>{t('nodeRunner.modals.retry')}</button>
     </div>
   )
 
@@ -147,7 +148,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
       background: 'rgba(2,5,9,0.85)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div role="dialog" aria-modal="true" aria-label="Workflows" style={{
+      <div role="dialog" aria-modal="true" aria-label={t('nodeRunner.modals.workflows')} style={{
         width: 520, maxHeight: '70vh',
         background: '#080d16',
         border: '1px solid rgba(0,180,216,0.2)',
@@ -161,9 +162,9 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
           {execsFor ? (
             <>
               <button onClick={() => { setExecsFor(null); setExecs([]) }} style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',display:'flex',alignItems:'center',gap:4,fontFamily:'var(--font-mono)',fontSize:10 }}>
-                ← BACK
+                {t('nodeRunner.modals.back')}
               </button>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>EXECUTIONS</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>{t('nodeRunner.modals.executions')}</span>
             </>
           ) : (
             <>
@@ -172,23 +173,23 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
                 <button
                   onClick={() => setTab('saved')}
                   style={{ background: tab === 'saved' ? 'rgba(0,180,216,0.15)' : 'transparent', border: 'none', borderRadius: 5, cursor: 'pointer', color: tab === 'saved' ? '#00b4d8' : 'var(--text-muted)', padding: '4px 10px', fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}
-                >SAVED WORKFLOWS</button>
+                >{t('nodeRunner.modals.tabSaved')}</button>
                 <button
                   onClick={() => setTab('templates')}
                   style={{ background: tab === 'templates' ? 'rgba(0,180,216,0.15)' : 'transparent', border: 'none', borderRadius: 5, cursor: 'pointer', color: tab === 'templates' ? '#00b4d8' : 'var(--text-muted)', padding: '4px 10px', fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}
-                >TEMPLATES</button>
+                >{t('nodeRunner.modals.tabTemplates')}</button>
               </div>
             </>
           )}
-          <button onClick={onClose} aria-label="Close" style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',display:'flex' }}><X size={14} /></button>
+          <button onClick={onClose} aria-label={t('nodeRunner.modals.close')} style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',display:'flex' }}><X size={14} /></button>
         </div>
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {execsFor ? (
-            execsError ? errorRow(`Could not load executions: ${execsError}`, () => showExecs(execsFor)) :
+            execsError ? errorRow(t('nodeRunner.modals.loadExecsFailed', { error: execsError }), () => showExecs(execsFor)) :
             execs.length === 0 ? (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No executions found</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.noExecs')}</div>
             ) : execs.map(ex => (
               <div key={ex.id} data-exec-row onClick={() => onOpenExecution?.(execsFor, ex.id)}
                 style={{ padding: '8px 16px', borderBottom: '1px solid rgba(0,180,216,0.05)', cursor: onOpenExecution ? 'pointer' : 'default' }}>
@@ -208,34 +209,34 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
               <button className="btn btn-secondary btn-sm" style={{ gap: 5 }} onClick={() => setLibraryOpen(true)}><Library size={11} /> {t('library.browse')}</button>
             </div>
             {templatesLoading ? (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>Loading…</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.loading')}</div>
             ) : templates.length === 0 ? (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No templates available</div>
-            ) : templates.map(t => (
-              <div key={t.id} style={{
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.noTemplates')}</div>
+            ) : templates.map(tpl => (
+              <div key={tpl.id} style={{
                 padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10,
                 borderBottom: '1px solid rgba(0,180,216,0.05)',
               }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>{t.name}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>{tpl.name}</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'normal' }}>
-                    {templateBlurb(t)}
+                    {templateBlurb(tpl)}
                   </div>
                 </div>
                 <button
-                  onClick={() => useTemplate(t.id)}
-                  disabled={usingTemplate === t.id}
-                  style={{ background:'rgba(0,180,216,0.08)',border:'1px solid rgba(0,180,216,0.2)',borderRadius:5,cursor:'pointer',color:'#00b4d8',padding:'3px 10px',fontFamily:'var(--font-mono)',fontSize:10,flexShrink:0,opacity: usingTemplate === t.id ? 0.5 : 1 }}
+                  onClick={() => useTemplate(tpl.id)}
+                  disabled={usingTemplate === tpl.id}
+                  style={{ background:'rgba(0,180,216,0.08)',border:'1px solid rgba(0,180,216,0.2)',borderRadius:5,cursor:'pointer',color:'#00b4d8',padding:'3px 10px',fontFamily:'var(--font-mono)',fontSize:10,flexShrink:0,opacity: usingTemplate === tpl.id ? 0.5 : 1 }}
                   onMouseEnter={e => e.currentTarget.style.background='rgba(0,180,216,0.18)'}
                   onMouseLeave={e => e.currentTarget.style.background='rgba(0,180,216,0.08)'}
-                >{usingTemplate === t.id ? 'Creating…' : 'Use Template'}</button>
+                >{usingTemplate === tpl.id ? t('nodeRunner.modals.creating') : t('nodeRunner.modals.useTemplate')}</button>
               </div>
             ))}
           </>) : loading ? (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>Loading…</div>
-          ) : listError ? errorRow(`Could not load workflows: ${listError}`, loadList)
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.loading')}</div>
+          ) : listError ? errorRow(t('nodeRunner.modals.loadListFailed', { error: listError }), loadList)
           : list.length === 0 ? (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No saved workflows yet</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.noSaved')}</div>
           ) : list.map(wf => (
             <div key={wf.id} style={{
               padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10,
@@ -246,16 +247,16 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
               onMouseEnter={e => { if (wf.id !== currentId) e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
               onMouseLeave={e => { if (wf.id !== currentId) e.currentTarget.style.background = 'transparent' }}
             >
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: wf.is_active ? '#10b981' : '#334155', flexShrink: 0 }} title={wf.is_active ? 'Active' : 'Inactive'} />
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: wf.is_active ? '#10b981' : '#334155', flexShrink: 0 }} title={wf.is_active ? t('nodeRunner.modals.active') : t('nodeRunner.modals.inactive')} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wf.name || 'Untitled'}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wf.name || t('nodeRunner.modals.untitled')}</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {wf.node_count ?? (wf.nodes || []).length} nodes · v{wf.version || 1} · {wf.updated_at ? new Date(wf.updated_at).toLocaleString() : ''}
+                  {t('nodeRunner.modals.nodeCount', { count: wf.node_count ?? (wf.nodes || []).length })} · v{wf.version || 1} · {wf.updated_at ? new Date(wf.updated_at).toLocaleString() : ''}
                 </div>
               </div>
               <button
                 onClick={e => { e.stopPropagation(); showExecs(wf.id) }}
-                title="View executions"
+                title={t('nodeRunner.modals.viewExecs')}
                 style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',padding:4,display:'flex',alignItems:'center' }}
                 onMouseEnter={e => e.currentTarget.style.color='#00b4d8'}
                 onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
@@ -265,7 +266,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
                 style={{ background:'rgba(0,180,216,0.08)',border:'1px solid rgba(0,180,216,0.2)',borderRadius:5,cursor:'pointer',color:'#00b4d8',padding:'3px 10px',fontFamily:'var(--font-mono)',fontSize:10 }}
                 onMouseEnter={e => e.currentTarget.style.background='rgba(0,180,216,0.18)'}
                 onMouseLeave={e => e.currentTarget.style.background='rgba(0,180,216,0.08)'}
-              >Open</button>
+              >{t('nodeRunner.modals.open')}</button>
               <button
                 onClick={e => {
                   e.stopPropagation()
@@ -273,9 +274,9 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
                   // drop the row from the list when it was actually deleted.
                   onDelete(wf.id)
                     .then(deleted => { if (deleted) setList(l => l.filter(w => w.id !== wf.id)) })
-                    .catch(err => notify('delete workflow', `Could not delete the workflow: ${err?.message || err}`))
+                    .catch(err => notify('delete workflow', t('nodeRunner.modals.deleteFailed', { error: err?.message || err })))
                 }}
-                title="Delete"
+                title={t('nodeRunner.modals.delete')}
                 style={{ background:'transparent',border:'none',cursor:'pointer',color:'rgba(239,68,68,0.4)',padding:4,display:'flex',alignItems:'center' }}
                 onMouseEnter={e => e.currentTarget.style.color='#ef4444'}
                 onMouseLeave={e => e.currentTarget.style.color='rgba(239,68,68,0.4)'}
@@ -298,6 +299,7 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
 // every expression resolved to nothing and the run did nothing while
 // reporting success.
 export function TriggerInputModal({ fields, initialValue, onRun, onClose }) {
+  const { t } = useTranslation()
   const [text, setText] = useState(initialValue || '{}')
   // A labelled field per key the workflow reads; "Raw JSON" is today's box.
   const [form, setForm] = useState(() => formFromJSON(initialValue || '{}', fields))
@@ -323,7 +325,7 @@ export function TriggerInputModal({ fields, initialValue, onRun, onClose }) {
     setError('')
     if (raw) {
       const next = formFromJSON(text, fields)
-      if (!next) { setError('Fix the JSON before switching to the form.'); return }
+      if (!next) { setError(t('nodeRunner.modals.fixJson')); return }
       setForm(next)
       setRaw(false)
       return
@@ -354,7 +356,7 @@ export function TriggerInputModal({ fields, initialValue, onRun, onClose }) {
       background: 'rgba(2,5,9,0.8)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div role="dialog" aria-modal="true" aria-label="Run with input" style={{
+      <div role="dialog" aria-modal="true" aria-label={t('nodeRunner.modals.runWithInput')} style={{
         width: 440, maxHeight: '85vh', overflowY: 'auto',
         background: '#080d16',
         border: '1px solid rgba(0,180,216,0.25)',
@@ -365,28 +367,28 @@ export function TriggerInputModal({ fields, initialValue, onRun, onClose }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: '#e2e8f0', letterSpacing: 1 }}>
-            RUN WITH INPUT
+            {t('nodeRunner.modals.runWithInputTitle')}
           </div>
           <button onClick={toggleRaw} aria-pressed={raw} style={{
             background: raw ? 'rgba(0,180,216,0.15)' : 'transparent', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 5,
             padding: '3px 8px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10, color: raw ? '#00b4d8' : 'var(--text-muted)',
-          }}>Raw JSON</button>
+          }}>{t('nodeRunner.modals.rawJson')}</button>
         </div>
 
         <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
           {fields.length === 1
-            ? <>This workflow reads <code style={{ color: '#00b4d8' }}>{fields[0].name}</code> from the trigger.</>
-            : <>This workflow reads {fields.map((f, i) => (
+            ? <>{t('nodeRunner.modals.readsPre')} <code style={{ color: '#00b4d8' }}>{fields[0].name}</code> {t('nodeRunner.modals.readsPost')}</>
+            : <>{t('nodeRunner.modals.readsPre')} {fields.map((f, i) => (
                 <span key={f.name}>
                   {i > 0 && ', '}<code style={{ color: '#00b4d8' }}>{f.name}</code>
                 </span>
-              ))} from the trigger.</>}
-          {' '}Without them it runs but does nothing.
+              ))} {t('nodeRunner.modals.readsPost')}</>}
+          {' '}{t('nodeRunner.modals.withoutThem')}
         </div>
 
         {raw ? (
           <div>
-            <label htmlFor="trigger-raw" style={labelStyle}>Trigger Data (JSON)</label>
+            <label htmlFor="trigger-raw" style={labelStyle}>{t('nodeRunner.modals.triggerData')}</label>
             <textarea
               id="trigger-raw"
               ref={areaRef}
@@ -414,7 +416,7 @@ export function TriggerInputModal({ fields, initialValue, onRun, onClose }) {
             />
             {form.asJSON[f.name] && (
               <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                JSON array, e.g. [&quot;first&quot;, &quot;second&quot;]
+                {t('nodeRunner.modals.arrayHint')}
               </div>
             )}
           </div>
@@ -429,11 +431,11 @@ export function TriggerInputModal({ fields, initialValue, onRun, onClose }) {
           <button
             onClick={onClose}
             style={{ background: 'transparent', border: '1px solid rgba(148,163,184,0.25)', borderRadius: 6, padding: '6px 16px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}
-          >Cancel</button>
+          >{t('nodeRunner.modals.cancel')}</button>
           <button
             onClick={submit}
             style={{ background: 'rgba(0,180,216,0.15)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 6, padding: '6px 20px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#00b4d8' }}
-          >Run</button>
+          >{t('nodeRunner.modals.run')}</button>
         </div>
       </div>
     </div>
