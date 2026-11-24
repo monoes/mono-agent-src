@@ -91,7 +91,7 @@ type Fill struct {
 }
 
 var (
-	secretLabel = regexp.MustCompile(`(?i)pass(word|code|phrase)?\b|secret|token|api[ _-]?key|otp|2fa|cvv|cvc|card[ _-]?number|\bssn\b|private[ _-]?key`)
+	secretLabel = regexp.MustCompile(`(?i)pass(word|code|phrase)?\b|secret|token|api[ _-]?key|(^|[^a-z])otp([^a-z]|$)|one[ _-]?time[ _-]?(code|pass)|(^|[^a-z])2fa([^a-z]|$)|(^|[^a-z])cvv([^a-z]|$)|(^|[^a-z])cvc([^a-z]|$)|card[ _-]?number|\bssn\b|private[ _-]?key`)
 	secretValue = regexp.MustCompile(`^(sk-|ghp_|gho_|xox[bap]-|AKIA|eyJ|Bearer\s)|-----BEGIN|^[A-Za-z0-9+/_=-]{40,}$`)
 )
 
