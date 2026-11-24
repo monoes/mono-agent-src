@@ -98,7 +98,7 @@ func (n *PeopleSaveNode) Execute(
 		   following_count = COALESCE(excluded.following_count, people.following_count),
 		   introduction    = COALESCE(excluded.introduction,    people.introduction),
 		   is_verified     = COALESCE(excluded.is_verified,     people.is_verified),
-		   category        = COALESCE(excluded.category,        people.category),
+		   category        = CASE WHEN people.category = 'rejected' AND excluded.category = 'pending_approval' THEN people.category ELSE COALESCE(excluded.category, people.category) END,
 		   job_title       = COALESCE(excluded.job_title,       people.job_title),
 		   headline        = COALESCE(excluded.headline,        people.headline),
 		   location        = COALESCE(excluded.location,        people.location),
