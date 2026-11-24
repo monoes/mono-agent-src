@@ -77,7 +77,12 @@ func Save(messageID, filename string, data []byte) (string, error) {
 // attachment that maps to a seen path (two "image.png") gets a content-hash
 // suffix instead of overwriting the first. A nil seen behaves as Save.
 func SaveDistinct(messageID, filename string, data []byte, seen map[string]bool) (string, error) {
-	dir := filepath.Join(Dir(), safeSegment(messageID, "message"))
+	return saveIn(Dir(), messageID, filename, data, seen)
+}
+
+// saveIn is SaveDistinct under the given root folder.
+func saveIn(root, messageID, filename string, data []byte, seen map[string]bool) (string, error) {
+	dir := filepath.Join(root, safeSegment(messageID, "message"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("attachments: create dir: %w", err)
 	}
