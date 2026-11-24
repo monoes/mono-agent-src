@@ -18,8 +18,12 @@ func TestCallerInATurnSeesAProcessInsideARunningTurn(t *testing.T) {
 	if in, err := st.CallerInATurn(); err != nil || in {
 		t.Fatalf("no turn runs: %v %v", in, err)
 	}
-	pid := os.Getpid() + 100000
-	if _, err := st.db.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = '' WHERE conversation_id = ?`, pid, m.ConversationID); err != nil {
+	// The turn's process is a real one (this process's parent) with its real stamp: an empty stamp is no match.
+	pid := os.Getppid()
+	if pid <= 1 {
+		t.Skip("no usable parent process")
+	}
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET turn_pid = ?, turn_stamp = ? WHERE conversation_id = ?`, pid, ProcStamp(pid), m.ConversationID); err != nil {
 		t.Fatal(err)
 	}
 	if in, _ := st.CallerInATurn(); in {

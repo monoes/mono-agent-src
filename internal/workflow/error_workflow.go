@@ -100,12 +100,21 @@ func (e *WorkflowEngine) fireErrorWorkflow(ctx context.Context, executionID, err
 		return "", fmt.Errorf("error workflow %s (%s) has no enabled %s node", target.Name, targetID, TriggerNodeTypeError)
 	}
 
+	payload := errorTriggerPayload(failed, wf, errMsg)
+	// An error workflow of an org run keeps the run's confinement (org.workdir).
+	if org, ok := failed.TriggerData["org"].(map[string]interface{}); ok {
+		cp := make(map[string]interface{}, len(org))
+		for k, v := range org {
+			cp[k] = v
+		}
+		payload["org"] = cp
+	}
 	exec := &WorkflowExecution{
 		WorkflowID:  target.ID,
 		ProfileID:   executionProfileID(target),
 		Status:      "QUEUED",
 		TriggerType: TriggerNodeTypeError,
-		TriggerData: errorTriggerPayload(failed, wf, errMsg),
+		TriggerData: payload,
 	}
 	if err := e.store.CreateExecution(ctx, exec); err != nil {
 		return "", fmt.Errorf("create error workflow execution: %w", err)

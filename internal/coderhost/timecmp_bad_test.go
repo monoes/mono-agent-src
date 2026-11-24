@@ -79,7 +79,8 @@ func TestHostInsideTurnAndVerifyAgreeAtTheExpiryInstant(t *testing.T) {
 			t.Fatal(err)
 		}
 		e := exp.Format(timeLayout)
-		if _, err := st.db.Exec(`UPDATE coder_session_tokens SET expires_at = ?, pid = ?, mac = ?`, e, os.Getpid(), tokenMAC(key, "p", m.ConversationID, "t1", hashToken(tok), e, os.Getpid(), "")); err != nil {
+		stamp := ProcStamp(os.Getpid())
+		if _, err := st.db.Exec(`UPDATE coder_session_tokens SET expires_at = ?, pid = ?, stamp = ?, mac = ?`, e, os.Getpid(), stamp, tokenMAC(key, "p", m.ConversationID, "t1", hashToken(tok), e, os.Getpid(), stamp)); err != nil {
 			t.Fatal(err)
 		}
 		_, verr := st.VerifySessionToken(tok)
