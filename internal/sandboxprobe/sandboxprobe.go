@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -47,7 +48,7 @@ func Real(stateDir string) Inputs {
 // Detect looks for the marks of a sandbox.
 func Detect(in Inputs) Report {
 	r := Report{Signals: []string{}, Advisory: advisory}
-	if v := in.Getenv(EnvMarker); v != "" {
+	if v := in.Getenv(EnvMarker); v != "" && !falsy(v) {
 		r.Signals = append(r.Signals, EnvMarker+"="+v+" is set")
 	}
 	if in.Getenv("APP_SANDBOX_CONTAINER_ID") != "" {
@@ -71,6 +72,35 @@ func Detect(in Inputs) Report {
 	return r
 }
 
+// falsy is a value that says "no sandbox" the way people write it.
+func falsy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "false", "no", "off":
+		return true
+	}
+	return false
+}
+
+// unescapeMount decodes the octal escapes (\040 for a space, ...) that mountinfo
+// writes into a mount point.
+func unescapeMount(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+3 < len(s) {
+			if n, err := strconv.ParseUint(s[i+1:i+4], 8, 8); err == nil {
+				b.WriteByte(byte(n))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 // tmpfsAt reports whether mountinfo has a tmpfs mounted at dir.
 func tmpfsAt(mountinfo, dir string) bool {
 	for _, line := range strings.Split(mountinfo, "\n") {
@@ -80,7 +110,7 @@ func tmpfsAt(mountinfo, dir string) bool {
 		}
 		f := strings.Fields(before)
 		g := strings.Fields(after)
-		if len(f) > 4 && len(g) > 0 && f[4] == dir && g[0] == "tmpfs" {
+		if len(f) > 4 && len(g) > 0 && unescapeMount(f[4]) == dir && g[0] == "tmpfs" {
 			return true
 		}
 	}
