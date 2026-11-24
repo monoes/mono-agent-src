@@ -33,7 +33,7 @@ type ExportOptions struct {
 	Only []string
 	// Now supplies the archive's timestamp; nil means time.Now.
 	Now func() time.Time
-	// Host is recorded as provenance; empty asks the OS.
+	// Host is recorded as provenance when set; empty records none (an OS host name is not shared by default).
 	Host string
 	// IncludeRecordings also exports browser recordings, which hold typed
 	// values and DOM. Off by default.
@@ -121,16 +121,12 @@ func Export(w io.Writer, opts ExportOptions) (*Manifest, error) {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Dir < rows[j].Dir })
 
-	host := opts.Host
-	if host == "" {
-		host, _ = os.Hostname()
-	}
 	man := &Manifest{
 		Format:    Format,
 		Version:   Version,
 		CreatedAt: now().UTC().Format(time.RFC3339),
 		Tool:      "monoagentcli",
-		Source:    Source{Inbox: inbox, Host: host},
+		Source:    Source{Inbox: filepath.Base(inbox), Host: opts.Host},
 		Count:     len(rows),
 		Bytes:     total,
 		Captures:  rows,
@@ -172,6 +168,7 @@ func Export(w io.Writer, opts ExportOptions) (*Manifest, error) {
 	// everything has been tried. The manifest at the front was written
 	// before any of this, so a capture noted here is listed there and
 	// absent from the archive — which is what this file is for.
+	notes = scrubInboxPath(notes, inbox)
 	man.Skipped = notes
 	if len(notes) > 0 {
 		blob, err := json.MarshalIndent(map[string]any{"skipped": notes}, "", "  ")

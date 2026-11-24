@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/capture"
 )
@@ -112,6 +113,9 @@ type ImportOptions struct {
 	// DryRun reports what would happen and writes nothing — no staging
 	// directory, no artifact, not one byte.
 	DryRun bool
+	// Profile is the profile the imported captures belong to; "" leaves them
+	// unprofiled. The archive's own profile is never trusted (R11-12).
+	Profile string
 }
 
 // Imported is one capture that landed (or would have).
@@ -349,6 +353,11 @@ func (im *importer) finish() error {
 		im.drop(cur, "no readable "+capture.MetaFile)
 		return nil
 	}
+	if cur.dir != "" {
+		if err := im.adoptMeta(cur.dir, meta); err != nil {
+			return err
+		}
+	}
 	total := cur.bytes
 	if cur.dir != "" {
 		if total, err = dirBytes(cur.dir); err != nil {
@@ -378,13 +387,21 @@ func (im *importer) finish() error {
 			im.res.Imported = append(im.res.Imported, entry)
 			return nil
 		}
+		// An overwrite never has a moment with neither copy: the old one is
+		// renamed aside, the new one published, and only then the old one
+		// deleted (R11-11).
+		oldAside := ""
 		if exists && im.mode == CollisionOverwrite && !renamed {
-			if err := os.RemoveAll(dest); err != nil {
+			oldAside = filepath.Join(im.inbox, fmt.Sprintf(".tmp-old-%s-%d", filepath.Base(dest), time.Now().UnixNano()))
+			if err := os.Rename(dest, oldAside); err != nil {
 				return fmt.Errorf("replace %s: %w", dest, err)
 			}
 			entry.Replaced = true
 		}
 		if err := os.Rename(cur.dir, dest); err != nil {
+			if oldAside != "" {
+				_ = os.Rename(oldAside, dest) // put the original back
+			}
 			// Something took the name in the last instant. Ask again —
 			// the answer is different now — rather than fail an import
 			// that has nothing wrong with it.
@@ -395,10 +412,20 @@ func (im *importer) finish() error {
 			}
 			return fmt.Errorf("publish %s: %w", dest, err)
 		}
+		if oldAside != "" {
+			beforeOldRemoved(oldAside)
+			if err := os.RemoveAll(oldAside); err != nil {
+				return fmt.Errorf("remove the replaced %s: %w", oldAside, err)
+			}
+		}
 		im.res.Imported = append(im.res.Imported, entry)
 		return nil
 	}
 }
+
+// beforeOldRemoved runs between publishing an overwrite and deleting the
+// copy it replaced; tests use it to look at that moment.
+var beforeOldRemoved = func(oldPath string) {}
 
 // publishAttempts bounds the re-resolve loop above. Losing the same name
 // three times running is not a race any more, it is a fight.

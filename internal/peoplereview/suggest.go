@@ -110,6 +110,10 @@ func SuggestPerson(ctx context.Context, c *jev.Client, p Person) (Suggestion, er
 	return s, nil
 }
 
+// MaxSuggestionsPerRun caps the fresh (paid) suggestion requests of one
+// WithSuggestions call; the rest wait for the next run.
+const MaxSuggestionsPerRun = 50
+
 // WithSuggestions returns people with their suggestions when the profile
 // enabled surface people_review: the cached one (jevconf suggestion cache,
 // keyed by person id) unless resuggest or the person changed since, else a
@@ -145,6 +149,11 @@ func WithSuggestions(ctx context.Context, db *sql.DB, profileID string, people [
 	}
 	if len(todo) == 0 {
 		return out, warns
+	}
+	if len(todo) > MaxSuggestionsPerRun {
+		warns = append(warns, fmt.Sprintf("asked for %d suggestions; %d more left for the next run (at most %d paid requests per run)",
+			MaxSuggestionsPerRun, len(todo)-MaxSuggestionsPerRun, MaxSuggestionsPerRun))
+		todo = todo[:MaxSuggestionsPerRun]
 	}
 	client, err := jevconf.NewClient(ctx, db, profileID, "", "", jevconf.PeopleReview)
 	if err != nil {

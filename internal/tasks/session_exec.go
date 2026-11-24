@@ -30,10 +30,8 @@ func (s *Store) SessionReady(ctx context.Context, profileID string, sessionID in
 		if err != nil {
 			return err
 		}
-		stale, err := s.idsOf(ctx, x,
-			`SELECT id FROM tasks WHERE session_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
-			   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
-			 ORDER BY claim_until, id`, sessionID, s.now().UTC().Format(timeFmt), MaxEventsToClaim)
+		stale, err := s.idsOf(ctx, x, `SELECT id FROM tasks WHERE `+staleInSession+` ORDER BY claim_until, id`,
+			sessionID, s.now().UTC().Format(timeFmt), MaxEventsToClaim)
 		if err != nil {
 			return err
 		}

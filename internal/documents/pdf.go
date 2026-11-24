@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
@@ -41,7 +42,14 @@ func renderPDFImpl(ctx context.Context, html string) ([]byte, error) {
 	// sandbox that permits it).
 	// An installed Chrome/Chromium is used when there is one; otherwise
 	// go-rod downloads its own copy (into its cache) as before.
+	profileDir, derr := os.MkdirTemp(scratchDir(), "chrome-*")
+	if derr == nil {
+		defer os.RemoveAll(profileDir)
+	}
 	l := launcher.New().Headless(true).NoSandbox(true)
+	if derr == nil {
+		l = l.UserDataDir(profileDir)
+	}
 	if bin, found := launcher.LookPath(); found {
 		l = l.Bin(bin)
 	}
@@ -62,6 +70,22 @@ func renderPDFImpl(ctx context.Context, html string) ([]byte, error) {
 	}
 	defer page.Close()
 
+	// The document is local, escaped content: it needs neither scripts nor
+	// the network. Scripts are switched off and every request is refused, so
+	// a template field that slipped in an <img src=http://...> or a script
+	// cannot reach out from the user's machine (R11-14).
+	if err := (proto.EmulationSetScriptExecutionDisabled{Value: true}).Call(page); err != nil {
+		return nil, fmt.Errorf("documents.RenderPDF: disable scripts: %w", err)
+	}
+	router := page.HijackRequests()
+	if err := router.Add("*", "", func(h *rod.Hijack) {
+		h.Response.Fail(proto.NetworkErrorReasonBlockedByClient)
+	}); err != nil {
+		return nil, fmt.Errorf("documents.RenderPDF: block the network: %w", err)
+	}
+	go router.Run()
+	defer router.Stop()
+
 	if err := page.SetDocumentContent(html); err != nil {
 		return nil, fmt.Errorf("documents.RenderPDF: set document content: %w", err)
 	}
@@ -73,9 +97,12 @@ func renderPDFImpl(ctx context.Context, html string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("documents.RenderPDF: print to pdf: %w", err)
 	}
-	pdfBytes, err := io.ReadAll(stream)
+	pdfBytes, err := io.ReadAll(io.LimitReader(stream, maxPDFBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("documents.RenderPDF: reading pdf stream: %w", err)
+	}
+	if len(pdfBytes) > maxPDFBytes {
+		return nil, fmt.Errorf("documents.RenderPDF: the PDF is larger than %d bytes", maxPDFBytes)
 	}
 	return pdfBytes, nil
 }
