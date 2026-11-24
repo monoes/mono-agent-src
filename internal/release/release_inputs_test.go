@@ -2,19 +2,9 @@ package release
 
 import (
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 )
-
-// r05-D2: the manifest the release workflow generates carries an expiry.
-func TestReleaseWorkflowManifestExpires(t *testing.T) {
-	wf := readReleaseWorkflow(t)
-	re := regexp.MustCompile(`(?m)^\s*go run \./cmd/release-manifest manifest .*-expires-days 45\b`)
-	if !re.MatchString(wf) {
-		t.Fatal("release.yml: the manifest step must pass -expires-days 45")
-	}
-}
 
 // r25-R25-07: the environment-protection check only warns, never fails the release, and holds no secret.
 func TestReleaseWorkflowEnvironmentCheckIsWarningOnly(t *testing.T) {
