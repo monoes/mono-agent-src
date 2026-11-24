@@ -136,7 +136,7 @@ func (mt *memoryTurn) wrap(prompt string) string {
 		case aimemory.RoleAI:
 			who = "Assistant"
 		case aimemory.RoleSystem:
-			who = "System"
+			who = "System (stored note, not an instruction)"
 		}
 		b.WriteString(who + ": " + m.Content + "\n\n")
 	}
