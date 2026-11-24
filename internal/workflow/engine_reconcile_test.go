@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"errors"
+	"time"
 	"context"
 	"sort"
 	"sync"
@@ -243,5 +245,66 @@ func TestReconcile_OnlyDaemonEngines(t *testing.T) {
 	eng.reconciler.once.Do(func() { started = true })
 	if !started {
 		t.Fatal("reconcile loop started on a non-daemon engine")
+	}
+}
+
+// failingScheduler refuses every job until ok is set.
+type failingScheduler struct {
+	*recScheduler
+	mu sync.Mutex
+	ok bool
+}
+
+func (s *failingScheduler) AddWorkflowJob(spec string, fn func()) (cron.EntryID, error) {
+	s.mu.Lock()
+	ok := s.ok
+	s.mu.Unlock()
+	if !ok {
+		return 0, errors.New("scheduler briefly unavailable")
+	}
+	return s.recScheduler.AddWorkflowJob(spec, fn)
+}
+
+// TestReconcile_RetriesTransientActivationFailure is r01-r01-5: a failed
+// registration must be retried with backoff, flagged while it fails, and
+// cleared once it succeeds.
+func TestReconcile_RetriesTransientActivationFailure(t *testing.T) {
+	store := newFullEngineStore(t)
+	ctx := context.Background()
+	rec := newRecScheduler()
+	fs := &failingScheduler{recScheduler: rec}
+	eng := NewWorkflowEngineWithStore(store, store.RawDB(), fs, NewNodeTypeRegistry(),
+		EngineConfig{ProfileID: "default", AllowAllProfiles: true, WebhookAddr: "127.0.0.1:0"}, zerolog.Nop())
+	t.Cleanup(func() { _ = eng.Stop() })
+
+	saveTriggerWorkflow(t, ctx, store, "wf-retry", scheduleNode("s", "0 */5 * * * *", ""))
+	if err := store.SetWorkflowActive(ctx, "wf-retry", true); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	eng.reconciler.now = func() time.Time { return now }
+
+	eng.reconcileTriggers(ctx)
+	if len(rec.specs()) != 0 {
+		t.Fatal("registered although the scheduler refused")
+	}
+	if eng.TriggerFailures()["wf-retry"] == "" {
+		t.Fatal("a failed registration is not flagged")
+	}
+	fs.mu.Lock()
+	fs.ok = true
+	fs.mu.Unlock()
+
+	eng.reconcileTriggers(ctx) // inside the backoff: no retry yet
+	if len(rec.specs()) != 0 {
+		t.Fatal("retried before the backoff elapsed")
+	}
+	now = now.Add(2 * time.Minute)
+	eng.reconcileTriggers(ctx)
+	if len(rec.specs()) != 1 {
+		t.Fatalf("not retried after the backoff: %v %v", rec.specs(), eng.TriggerFailures())
+	}
+	if len(eng.TriggerFailures()) != 0 {
+		t.Fatal("flag not cleared after success")
 	}
 }
