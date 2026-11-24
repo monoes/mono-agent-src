@@ -47,6 +47,19 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
       : { mode: 'visual', fields: parsed.fields, text: '', note: '' }
   })
   const [showPreview, setShowPreview] = useState(true)
+  // What this editor last handed to the parent; a `value` that differs from
+  // it came from outside (another node, an undo) and replaces the drafts.
+  const sent = useRef(JSON.stringify(value ?? null))
+  useEffect(() => {
+    const incoming = JSON.stringify(value ?? null)
+    if (incoming === sent.current) return
+    sent.current = incoming
+    const parsed = parseFormFields(value)
+    setState(parsed.error
+      ? { mode: 'json', fields: [], text: collectionText(value), note: parsed.error }
+      : { mode: 'visual', fields: parsed.fields, text: '', note: '' })
+  }, [value])
+  const commit = v => { sent.current = JSON.stringify(v ?? null); onCommit(v) }
   const focusId = useRef(null)
   const labelRefs = useRef({})
   useEffect(() => {
@@ -61,7 +74,7 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
 
   const update = next => {
     setState(s => ({ ...s, fields: next }))
-    if (Object.keys(validateFormFields(next)).length === 0) onCommit(serializeFormFields(next))
+    if (Object.keys(validateFormFields(next)).length === 0) commit(serializeFormFields(next))
   }
   const patch = (id, changes) => update(fields.map(f => (f.id === id ? { ...f, ...changes } : f)))
 
@@ -99,7 +112,7 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
           aria-label={`${field.label} JSON`}
           rows={field.rows || 10}
           value={text}
-          onChange={e => { setState(s => ({ ...s, text: e.target.value, note: '' })); onCommit(e.target.value) }}
+          onChange={e => { setState(s => ({ ...s, text: e.target.value, note: '' })); commit(e.target.value) }}
           placeholder={field.placeholder || ''}
           spellCheck={false}
           autoComplete="off"
