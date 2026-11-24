@@ -46,6 +46,10 @@ export function loadDismissed(storage = globalThis.localStorage) {
   try { return storage?.getItem(DISMISS_KEY) === '1' } catch { return false }
 }
 
+export function clearDismissed(storage = globalThis.localStorage) {
+  try { storage?.removeItem(DISMISS_KEY) } catch { /* nothing remembered to clear */ }
+}
+
 export function saveDismissed(storage = globalThis.localStorage) {
   try { storage?.setItem(DISMISS_KEY, '1') } catch { /* hidden until the window closes */ }
 }

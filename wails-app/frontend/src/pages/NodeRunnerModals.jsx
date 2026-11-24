@@ -86,6 +86,8 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
   const [execsError, setExecsError] = useState('')
+  const [execsLoading, setExecsLoading] = useState(false)
+  const execsSeq = useRef(0)
   const [templates, setTemplates] = useState([])
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [usingTemplate, setUsingTemplate] = useState(null) // template id being instantiated
@@ -131,8 +133,16 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
   }
 
   const showExecs = async (id) => {
-    setExecsFor(id); setExecsError('')
-    try { setExecs(await GetWorkflowExecutions(id)) } catch (e) { setExecs([]); setExecsError(e?.message || String(e)) }
+    const seq = ++execsSeq.current // two quick clicks: only the last answer lands
+    setExecsFor(id); setExecsError(''); setExecs([]); setExecsLoading(true)
+    try {
+      const rows = await GetWorkflowExecutions(id)
+      if (seq === execsSeq.current) setExecs(rows)
+    } catch (e) {
+      if (seq === execsSeq.current) { setExecs([]); setExecsError(e?.message || String(e)) }
+    } finally {
+      if (seq === execsSeq.current) setExecsLoading(false)
+    }
   }
 
   const errorRow = (msg, onRetry) => (
@@ -187,6 +197,9 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpen
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {execsFor ? (
+            execsLoading ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.loading')}</div>
+            ) :
             execsError ? errorRow(t('nodeRunner.modals.loadExecsFailed', { error: execsError }), () => showExecs(execsFor)) :
             execs.length === 0 ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>{t('nodeRunner.modals.noExecs')}</div>

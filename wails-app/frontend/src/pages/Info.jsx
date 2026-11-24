@@ -133,7 +133,7 @@ export default function Info({ isActive = true }) {
             </div>
           )}
         </div>
-        {loadError && <div className="info-banner is-error" role="alert"><AlertTriangle size={14} color="var(--red)" /><span>{loadError}</span></div>}
+        {loadError && <div className="info-banner is-error" role="alert"><AlertTriangle size={14} color="var(--red)" /><span>{loadError}</span><button type="button" className="btn btn-ghost btn-sm" onClick={load}>{t('nodeRunner.modals.retry')}</button></div>}
         {!catalog && !loadError && <div className="info-lead">{t('info.loading')}</div>}
         {catalog && groups.length === 0 && <div className="info-lead">{t('info.empty')}</div>}
         {groups.map(g => {

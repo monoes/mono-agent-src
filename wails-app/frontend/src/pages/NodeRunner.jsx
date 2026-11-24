@@ -2293,6 +2293,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           onDelete={async (id) => {
             if (!(await confirm(t('nodeRunner.dialogs.deleteConfirm'), { title: t('nodeRunner.dialogs.deleteTitle'), confirmLabel: t('nodeRunner.dialogs.deleteLabel') }))) return false
             await DeleteWorkflow(id)
+            rememberTriggerInput(id, '') // the remembered run input goes with the workflow
             onWorkflowsChanged?.()
             if (id === wfId) {
               stopPolling()

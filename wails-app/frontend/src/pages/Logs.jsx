@@ -40,7 +40,9 @@ export default function Logs({ logs, onClear, onRefresh }) {
     setAutoScroll(nearBottom)
   }
 
-  const filtered = logs.filter(l => {
+  // Keep each line's position in the full list: it is the row key, so
+  // filtering does not remount the rows that stay visible.
+  const filtered = logs.map((l, pos) => ({ l, pos })).filter(({ l }) => {
     if (levelFilter !== 'all') {
       const lvl = (l.level || '').toUpperCase()
       if (lvl !== levelFilter && !(levelFilter === 'WARN' && lvl === 'WARNING')) return false
@@ -54,7 +56,7 @@ export default function Logs({ logs, onClear, onRefresh }) {
       ) return false
     }
     return true
-  })
+  }).map(({ l, pos }) => ({ ...l, _pos: pos }))
 
   return (
     <>
@@ -132,9 +134,9 @@ export default function Logs({ logs, onClear, onRefresh }) {
             className="log-terminal"
             style={{ flex: 1, minHeight: 0 }}
           >
-            {filtered.map((entry, i) => {
+            {filtered.map(entry => {
               const colors = LEVEL_COLORS[entry.level?.toUpperCase()] || LEVEL_COLORS.INFO
-              const key = `${entry.time}-${entry.source}-${i}`
+              const key = `${entry.time}-${entry.source}-${entry._pos}`
               return (
                 <div key={key} className="log-line">
                   <span className="log-time">{entry.time}</span>

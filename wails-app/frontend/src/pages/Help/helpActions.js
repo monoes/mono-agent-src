@@ -2,6 +2,7 @@
 // caller passes App's navigate and the coder bubble store's openNewChat.
 
 import { PAGE_IDS } from '../../lib/pageIds.js'
+import { clearDismissed } from '../dashboard/getStarted.js'
 
 // Page ids App.jsx can route to (its persistentPages keys, minus the
 // conditional controlroom; detail pages need an id so are not link targets).
@@ -34,6 +35,8 @@ export function runHelpAction(action, deps) {
     if (!KNOWN_PAGES.includes(action.target)) return fail(`unknown page: ${String(action.target)}`)
     if (typeof navigate !== 'function') return fail('navigation unavailable')
     if (action.params && (typeof action.params !== 'object' || Array.isArray(action.params))) return fail('invalid params')
+    // The dashboard's get-started checklist can be hidden for good; this link brings it back.
+    if (action.target === 'dashboard' && action.params?.showGetStarted) clearDismissed()
     // A fresh object each time so pages keyed on navData identity re-fire.
     navigate(action.target, action.params ? { ...action.params } : undefined)
     return { ok: true }

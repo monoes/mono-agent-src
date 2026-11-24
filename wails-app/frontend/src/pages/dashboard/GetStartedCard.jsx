@@ -38,7 +38,7 @@ export default function GetStartedCard({ steps, bridge, onNavigate, onSignedIn, 
           <X size={13} />
         </button>
       </div>
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <ol aria-label={t('dashboard.getStarted.title')} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {steps.map(step => {
           const copy = COPY[step.id]
           const pairHere = step.id === 'extension' && bridge === 'unpaired'

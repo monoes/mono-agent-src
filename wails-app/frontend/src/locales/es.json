@@ -3417,5 +3417,11 @@
   },
   "tasksPage": {
     "shellCheckFailed": "Solo lectura: no se pudo comprobar si un agente inició esta app ({{error}}). Reinicia la app para editar el tablero."
+  },
+  "getStartedReopen": {
+    "showAgain": "Mostrar los pasos para empezar"
+  },
+  "agentsChatFallback": {
+    "unavailable": "El chat no se pudo abrir desde aquí. Abre el chat del Coder desde el dock de burbujas."
   }
 }

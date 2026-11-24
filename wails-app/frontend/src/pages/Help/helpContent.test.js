@@ -28,7 +28,7 @@ describe('helpContent', () => {
     }
   })
   it('goto params use only keys the pages accept', () => {
-    const allowed = { settings: ['section'], connections: ['tab', 'automationId'], noderunner: ['openTemplates', 'workflowId', 'executionId'], orgs: ['tab', 'org', 'run'] }
+    const allowed = { dashboard: ['showGetStarted'], settings: ['section'], connections: ['tab', 'automationId'], noderunner: ['openTemplates', 'workflowId', 'executionId'], orgs: ['tab', 'org', 'run'] }
     const sections = ['health', 'jev', 'version']
     for (const t of TOPICS) for (const s of t.steps) {
       const a = s.action
