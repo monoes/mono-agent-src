@@ -33,6 +33,29 @@ func TestDBSchemaCheck(t *testing.T) {
 	}
 }
 
+func TestDBBackupsCheck(t *testing.T) {
+	size := func(n int, b int64, err error) func() (int, int64, error) {
+		return func() (int, int64, error) { return n, b, err }
+	}
+	cases := []struct {
+		name    string
+		env     Env
+		status  Status
+		summary string
+	}{
+		{"no hook", Env{}, StatusSkip, "not available"},
+		{"small", Env{ProfileBackupsSize: size(3, 5<<20, nil)}, StatusOK, "3 snapshot(s), 5.0 MB"},
+		{"large", Env{ProfileBackupsSize: size(9, 2<<30, nil)}, StatusWarn, "9 snapshot(s)"},
+		{"unreadable", Env{ProfileBackupsSize: size(0, 0, errors.New("boom"))}, StatusWarn, "cannot read"},
+	}
+	for _, c := range cases {
+		res := checkDBBackups(context.Background(), &c.env)
+		if res.Status != c.status || !strings.Contains(res.Summary, c.summary) {
+			t.Errorf("%s: %s %q, want %s containing %q", c.name, res.Status, res.Summary, c.status, c.summary)
+		}
+	}
+}
+
 func TestDBSchemaRowIsRegisteredAfterTheDatabase(t *testing.T) {
 	for _, c := range Default().Checks() {
 		if c.ID != CheckDBSchema {

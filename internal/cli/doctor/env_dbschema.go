@@ -10,4 +10,5 @@ import (
 // binary's newest embedded one.
 func addDBSchemaHook(env *health.Env, db *storage.Database) {
 	env.SchemaAhead = db.SchemaAhead
+	env.ProfileBackupsSize = db.ProfileDeleteBackupsSize
 }
