@@ -48,6 +48,11 @@ func (d Deps) newAgentValidateCmd() *cobra.Command {
 			if len(models) > 0 && len(runtimes) != 1 {
 				return d.InvalidInput("--model needs exactly one --runtime")
 			}
+			if !dry && (all || len(runtimes) == 0) {
+				if err := d.refuseUnlessOperatorFor("agent validate of every runtime"); err != nil {
+					return err
+				}
+			}
 			timeout, err := parseDurationFlag(timeoutRaw)
 			if err != nil {
 				return err
