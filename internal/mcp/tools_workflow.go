@@ -241,6 +241,7 @@ func toolWorkflowRun(ctx context.Context, s *Server, args json.RawMessage) (inte
 	if err != nil {
 		return nil, fmt.Errorf("trigger workflow: %w", err)
 	}
+	s.noteStartedRun(execID)
 
 	timeout := clampTimeoutSeconds(a.TimeoutSeconds)
 	var exec *workflow.WorkflowExecution
