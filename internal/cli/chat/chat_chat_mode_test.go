@@ -129,6 +129,10 @@ func TestHistoryCreateSetsTheChatModeWithTheConversation(t *testing.T) {
 	}
 	var c ai.ConversationRecord
 	decodeChatJSON(t, out, &c)
+	// a Mission chat needs Dynamic org: creating one switches it on without --org
+	if got := orgModeOf(t, r.dbPath, c.ID); got != ai.OrgModeDynamic {
+		t.Fatalf("a new Mission chat is org %q", got)
+	}
 	cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default", JSONOutput: true})
 	sout, scode := runSessionsCLI(t, cfg, "settings", "get", c.ID)
 	var v sessionSettingsView
