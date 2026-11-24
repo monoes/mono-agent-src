@@ -320,6 +320,7 @@ func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 		}
 	}
 
+	ranAny := false
 	for _, m := range migrations {
 		if applied[m.version] {
 			continue
@@ -373,6 +374,10 @@ func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 		}
 
 		log.Printf("applied migration %03d (%s)", m.version, m.filename)
+		ranAny = true
+	}
+	if ranAny {
+		logForeignKeyViolations(ctx, conn)
 	}
 	return nil
 }
