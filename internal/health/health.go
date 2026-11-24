@@ -331,7 +331,14 @@ type DaemonInfo struct {
 	// Version is the version the daemon started with, from its heartbeat; ""
 	// for a daemon that predates the field (v0.46.0).
 	Version string
+	// SchedulerAgeMS is how long ago the scheduler loop last ran, from the
+	// heartbeat's scheduler_tick; 0 when the daemon never reported one.
+	SchedulerAgeMS int64
 }
+
+// SchedulerStaleAfter is how old the scheduler's last tick may be before
+// doctor says the daemon looks wedged (its heartbeat ticker runs on its own).
+const SchedulerStaleAfter = 2 * time.Minute
 
 // Report is the `doctor --json` payload.
 type Report struct {

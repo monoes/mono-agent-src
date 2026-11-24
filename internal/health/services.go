@@ -68,6 +68,13 @@ func checkDaemon(ctx context.Context, env *Env) Result {
 		return Result{Status: StatusWarn, Summary: "not running", FixID: FixDaemonStart}
 	}
 	summary := fmt.Sprintf("pid %d, heartbeat %s ago", d.PID, (time.Duration(d.AgeMS) * time.Millisecond).Round(time.Second))
+	if d.SchedulerAgeMS > SchedulerStaleAfter.Milliseconds() {
+		age := (time.Duration(d.SchedulerAgeMS) * time.Millisecond).Round(time.Second)
+		return Result{Status: StatusWarn, Summary: fmt.Sprintf("%s — but its scheduler last ran %s ago", summary, age),
+			Detail: "the heartbeat is written by its own timer, so a daemon whose scheduler loop is stuck still looks alive; " +
+				"scheduled workflows are not firing. Restarting interrupts whatever the daemon is running",
+			FixID: FixDaemonRestart}
+	}
 	if d.APIAddr != "" && env.APIHealth != nil {
 		if err := env.APIHealth(ctx, d.APIAddr); err != nil {
 			return Result{Status: StatusWarn, Summary: summary + " — its HTTP API does not answer", Detail: err.Error()}
