@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
@@ -323,7 +324,20 @@ func (s *Service) currentGrantTier(ctx context.Context, g orggrant.Grant, load o
 // ProcessOrg routes and resolves every pending item of one org once. An
 // item is routed again only when the org's effective level changed since
 // its last routing (a pause, a resume, or an operator raising the level).
+//
+// Only one process processes an org at a time (the CLI's `org process` and
+// the daemon's tick can run together): another process's claim on the org
+// leaves this pass with nothing to decide, so a paid decision is not made
+// twice and monomind is not answered twice.
 func (s *Service) ProcessOrg(ctx context.Context, profileID, root, org string) ([]Decision, error) {
+	release, err := daemonhb.LockFile(processLockPath(root, org))
+	if errors.Is(err, daemonhb.ErrHeld) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("orgdecide: claim %s: %w", org, err)
+	}
+	defer release()
 	a, err := s.Store.Get(ctx, profileID, org)
 	if err != nil {
 		return nil, err
