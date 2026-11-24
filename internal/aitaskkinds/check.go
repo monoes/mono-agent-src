@@ -92,6 +92,13 @@ func checkGeneratedWorkflow(obj map[string]any) error {
 			return fmt.Errorf("workflow: node %q holds a secret-looking value at %q: use REPLACE_ME or a saved connection (credential_id)", n.ID, bad)
 		}
 	}
+	// Everything else the draft carries (settings, connections, names, descriptions) is saved unreviewed by save-draft: scan it too.
+	var whole any
+	if err := json.Unmarshal(raw, &whole); err == nil {
+		if bad := secretIn("workflow", whole); bad != "" {
+			return fmt.Errorf("workflow: a secret-looking value at %q: use REPLACE_ME or a saved connection (credential_id)", bad)
+		}
+	}
 	errs, _ := generate.Validator(workflowfix.NodeTypeKnown)(&wf)
 	if len(errs) > 0 {
 		return fmt.Errorf("the workflow does not pass `workflow validate`:\n- %s", strings.Join(errs, "\n- "))
@@ -100,7 +107,10 @@ func checkGeneratedWorkflow(obj map[string]any) error {
 }
 
 // secretValue returns the path of the first string in m that redaction changes.
-func secretValue(m map[string]any) string {
+func secretValue(m map[string]any) string { return secretIn("config", m) }
+
+// secretIn returns the path of the first string under v that redaction changes.
+func secretIn(root string, v any) string {
 	var walk func(path string, v any) string
 	walk = func(path string, v any) string {
 		switch t := v.(type) {
@@ -123,7 +133,7 @@ func secretValue(m map[string]any) string {
 		}
 		return ""
 	}
-	return walk("config", m)
+	return walk(root, v)
 }
 
 func checkFailedRunFix(ctx context.Context, profile string, raw []byte, obj map[string]any) error {
