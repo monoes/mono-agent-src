@@ -27,7 +27,8 @@ func newExtensionAssignCmd(cfg *Deps) *cobra.Command {
 			"characters) or a label from `extension browsers`. The profile is removed from every\n" +
 			"other browser and added to <browser>; other profiles in <browser> are left alone, so\n" +
 			"several profiles can share one. With no <browser> the profile is removed everywhere,\n" +
-			"i.e. it uses the default browser again. A browser that is not attached cannot be\n" +
+			"i.e. it is bound to no browser and runs in an unbound (\"default\") browser, if one is\n" +
+			"connected; it still acts as that one profile, never as a default profile. A browser that is not attached cannot be\n" +
 			"changed; the bridge reports the browsers that are.\n" + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli extension assign Work \"Edge Work\"\n  monoagentcli extension assign Work",
 		Args:    cobra.RangeArgs(1, 2),
