@@ -1,9 +1,11 @@
 # Mono Agent — Workflow System Architecture
 
+> Historical design record (2026-03-10). Paths and Go version below are from that plan and no longer match the code; current guidance is in AGENTS.md.
+
 **Version:** 1.0
 **Date:** 2026-03-10
 **Module:** `github.com/monoes/mono-agent`
-**Go Version:** 1.24
+**Go Version:** 1.26 (go.mod; the plan was written for 1.24)
 
 ---
 
