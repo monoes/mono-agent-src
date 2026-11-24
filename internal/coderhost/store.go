@@ -659,7 +659,7 @@ func (s *Store) SetRole(profileID, conversationID, role, parent string) error {
 		if p.Role == "child" && ps.MaxChildren == 0 {
 			return errors.New("the master must be a running master session of this profile")
 		}
-		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(ps.MaxDepth, s.depthCeiling(profileID, parent)) {
+		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(s.effectiveMaxDepth(profileID, parent, ps.MaxDepth), s.depthCeiling(profileID, parent)) {
 			return errors.New("the master's max_depth does not allow children")
 		}
 		res, err := s.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = ?, updated_at = ?
