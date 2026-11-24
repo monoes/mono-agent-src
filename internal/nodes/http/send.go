@@ -26,6 +26,9 @@ type clientOptions struct {
 	insecure        bool
 	proxy           *url.URL
 	maxBodyBytes    int64
+	// refuseInternal: the run is an unapproved AI-authored workflow, whose requests do not reach
+	// loopback, private or link-local addresses (SSRF to the user's own services).
+	refuseInternal bool
 }
 
 // parseClientOptions reads timeout (seconds; timeout_seconds is an alias),
@@ -103,6 +106,9 @@ func newHTTPClient(o clientOptions) (*http.Client, func()) {
 	}
 	if o.insecure {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // allow_unauthorized_certs is the user's explicit choice
+	}
+	if o.refuseInternal {
+		transport.DialContext = refuseInternalDial(o.proxy)
 	}
 	var rt http.RoundTripper = transport
 	if o.proxy != nil || o.insecure {
