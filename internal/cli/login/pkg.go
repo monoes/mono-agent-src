@@ -144,7 +144,7 @@ func (d Deps) confirmPackageLogin(ctx context.Context, db *sql.DB, m *automation
 	if err != nil {
 		return fmt.Errorf("reading cookies from login tab: %w", err)
 	}
-	cookies, err := convertExtensionCookies(rawCookies)
+	cookies, err := convertExtensionCookies(rawCookies, m.Site.Domains)
 	if err != nil {
 		return fmt.Errorf("parsing cookies: %w", err)
 	}

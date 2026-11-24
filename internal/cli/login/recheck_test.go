@@ -65,7 +65,10 @@ func (p *tabPage) GetURL() (string, error)             { return p.url, nil }
 func (p *tabPage) WaitLoad() error                     { return nil }
 func (p *tabPage) WaitDOMStable(_ time.Duration) error { return nil }
 func (p *tabPage) GetCookies() (interface{}, error) {
-	return []interface{}{map[string]interface{}{"name": "sid", "value": "v", "domain": "example.com"}}, nil
+	return []interface{}{
+		map[string]interface{}{"name": "sid", "value": "v", "domain": "example.com"},
+		map[string]interface{}{"name": "sid", "value": "v", "domain": ".producthunt.com"},
+	}, nil
 }
 func (p *tabPage) Eval(string, ...interface{}) (*browserpkg.EvalResult, error) {
 	return nil, errors.New("no page script in tests")
