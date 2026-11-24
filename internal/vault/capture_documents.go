@@ -207,6 +207,23 @@ func removeCaptureDir(dir, primary string) error {
 	if filepath.Dir(filepath.Clean(primary)) != clean {
 		return fmt.Errorf("refusing to remove %q: the document's file is not inside it", dir)
 	}
+	// The envelope must be a real directory, not a symlink, and its real location must
+	// still be a direct child of an inbox: a planted link must not turn the recursive
+	// delete into one of whatever it points at.
+	fi, err := os.Lstat(clean)
+	if err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+			return fmt.Errorf("refusing to remove %q: not a plain directory", dir)
+		}
+		real, rerr := filepath.EvalSymlinks(clean)
+		if rerr != nil {
+			return fmt.Errorf("refusing to remove %q: %w", dir, rerr)
+		}
+		if filepath.Base(filepath.Dir(real)) != "inbox" || filepath.Base(real) != filepath.Base(clean) {
+			return fmt.Errorf("refusing to remove %q: it resolves to %q, outside an inbox", dir, real)
+		}
+		clean = real
+	}
 	if _, err := os.Stat(filepath.Join(clean, "meta.json")); err != nil {
 		if os.IsNotExist(err) {
 			if _, dirErr := os.Stat(clean); os.IsNotExist(dirErr) {

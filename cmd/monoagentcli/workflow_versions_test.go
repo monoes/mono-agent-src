@@ -13,7 +13,7 @@ func versionsDoc(id, value string) string {
 	}
 	return `{` + idField + `"name":"versions-e2e","nodes":[
 	  {"id":"vt","node_type":"trigger.manual","name":"T","config":{}},
-	  {"id":"vs","node_type":"core.set","name":"S","config":{"value":"` + value + `"}}],
+	  {"id":"vs","node_type":"core.set","name":"S","config":{"value":"` + value + `","assignments":[{"field":"x","value":"1"}]}}],
 	  "connections":[{"id":"vc","source_node_id":"vt","source_handle":"main","target_node_id":"vs","target_handle":"main"}]}`
 }
 

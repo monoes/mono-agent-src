@@ -16,6 +16,11 @@ type State struct {
 	// it lives in; commands without --tab act on it.
 	TabID    int    `json:"tabId,omitempty"`
 	Instance string `json:"instance,omitempty"`
+	// Profile is the profile that last used TabID. One browser instance can
+	// serve several profiles, so a command naming another profile must not
+	// land on that tab. Files written before this field existed have none
+	// and are not reused for a command that names a profile.
+	Profile string `json:"profile,omitempty"`
 	// Reported is, per tab ("<instance>/<tabId>"), the submit_guard seq of
 	// the last blocked submit already turned into a HIL item.
 	Reported map[string]int `json:"reported,omitempty"`
@@ -55,12 +60,81 @@ func LoadState(key string) State {
 	return st
 }
 
-// SaveState writes key's state (0600, replaced atomically).
+// SaveState writes key's state (0600, replaced atomically) under the
+// session-state lock, replacing what is on disk.
 func SaveState(key string, st State) error {
 	dir, err := StateDir()
 	if err != nil {
 		return err
 	}
+	unlock, err := lockStateDir(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return writeState(dir, key, st)
+}
+
+// SaveStateFrom saves st, the state a command changed, which it loaded as
+// base. Under the lock it re-reads the file and keeps what another command
+// saved meanwhile: a field or map entry this command changed (or deleted)
+// wins, the rest follows the file. Without it two commands of one context
+// lose each other's Reported/Loads/TabID updates.
+func SaveStateFrom(key string, base, st State) error {
+	dir, err := StateDir()
+	if err != nil {
+		return err
+	}
+	unlock, err := lockStateDir(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return writeState(dir, key, mergeState(base, st, LoadState(key)))
+}
+
+// cloneState copies st's maps, so a later change to one is not seen in the other.
+func cloneState(st State) State {
+	out := st
+	out.Reported = mergeMap(nil, st.Reported, nil)
+	out.Loads = mergeMap(nil, st.Loads, nil)
+	return out
+}
+
+// mergeState is the three-way merge of ours and disk against base.
+func mergeState(base, ours, disk State) State {
+	out := disk
+	if ours.TabID != base.TabID || ours.Instance != base.Instance || ours.Profile != base.Profile {
+		out.TabID, out.Instance, out.Profile = ours.TabID, ours.Instance, ours.Profile
+	}
+	out.Reported = mergeMap(base.Reported, ours.Reported, disk.Reported)
+	out.Loads = mergeMap(base.Loads, ours.Loads, disk.Loads)
+	return out
+}
+
+func mergeMap[V comparable](base, ours, disk map[string]V) map[string]V {
+	out := make(map[string]V, len(disk)+len(ours))
+	for k, v := range disk {
+		out[k] = v
+	}
+	for k, v := range ours {
+		if bv, ok := base[k]; !ok || bv != v {
+			out[k] = v
+		}
+	}
+	for k := range base {
+		if _, ok := ours[k]; !ok {
+			delete(out, k)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// writeState writes key's file atomically; the caller holds the lock.
+func writeState(dir, key string, st State) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

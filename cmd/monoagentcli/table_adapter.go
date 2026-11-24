@@ -10,8 +10,9 @@ import (
 // `table` lives in internal/cli/datatablecli; this is its adapter.
 func newTableCmd(cfg *globalConfig) *cobra.Command {
 	return datatablecli.NewCommand(datatablecli.Deps{
-		JSONOutput: func() bool { return cfg.JSONOutput },
-		ProfileID:  func() string { return cfg.ProfileID },
-		OpenDB:     func() (*storage.Database, error) { return initDB(cfg) },
+		JSONOutput:      func() bool { return cfg.JSONOutput },
+		ProfileID:       func() string { return cfg.ProfileID },
+		OpenDB:          func() (*storage.Database, error) { return initDB(cfg) },
+		RequireOperator: cfg.requireOperator,
 	})
 }

@@ -215,39 +215,52 @@ func versionPart(parts []string, i int) int {
 }
 
 func (d Deps) run(cmd *cobra.Command) error {
-	d.Say = func(m string) { fmt.Println(m) }
-	fmt.Println("Checking for updates...")
+	// With --json the result is one document on stdout and every progress line goes to stderr.
+	out := io.Writer(os.Stdout)
+	if d.JSONOutput() {
+		out = cmd.ErrOrStderr()
+	}
+	say := func(m string) { fmt.Fprintln(out, m) }
+	d.Say = say
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	v := d.Version()
+	if IsDevVersion(v) {
+		say("Running a dev build (no embedded version) — skipping update check.")
+		return d.updateResult(cmd, AppResult{Success: true, UpToDate: true})
+	}
+	say("Checking for updates...")
 	force, _ := cmd.Flags().GetBool("force")
 
-	info, err := FetchLatest(context.Background(), d.ReleaseClient(), d.LatestReleaseURL, force)
+	info, err := FetchLatest(ctx, d.ReleaseClient(), d.LatestReleaseURL, force)
 	if err != nil {
 		return withDetail(cmd, err)
 	}
 
-	v := d.Version()
 	latest := strings.TrimPrefix(info.Tag, "v")
 	current := strings.TrimPrefix(v, "v")
 
-	if v == "dev" {
-		fmt.Println("Running a dev build (no embedded version) — skipping update check.")
-		return nil
-	}
 	if latest == current {
-		fmt.Printf("Already on latest version (%s)\n", v)
-		d.printStale(d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPathOrEmpty()), nil))
+		say(fmt.Sprintf("Already on latest version (%s)", v))
+		d.printStale(out, d.staleCLIs(ctx, info.Tag, d.selfSkip(selfPathOrEmpty()), nil))
+		res := AppResult{Success: true, UpToDate: true}
 		// A daemon started before this binary was installed still runs the old code.
-		if du := d.daemonAfterUpdate(cmd.Context(), v); du != nil {
-			fmt.Println(du.Message)
+		if du := d.daemonAfterUpdate(ctx, v); du != nil {
+			say(du.Message)
+			res.Daemon = du
 		}
-		if bu := d.bridgeAfterUpdate(cmd.Context(), v, ""); bu != nil {
-			fmt.Println(bu.Message)
+		if bu := d.bridgeAfterUpdate(ctx, v, ""); bu != nil {
+			say(bu.Message)
+			res.Bridge = bu
 		}
-		return nil
+		return d.updateResult(cmd, res)
 	}
 	if err := release.CheckDowngrade(info.Tag, v, force); err != nil {
 		return fmt.Errorf("%w; the installed binary was kept", err)
 	}
-	fmt.Printf("Update available: %s → %s\n", v, info.Tag)
+	say(fmt.Sprintf("Update available: %s → %s", v, info.Tag))
 
 	assetName := updateAssetName()
 	selfBinary := selfBinaryPath
@@ -281,21 +294,17 @@ func (d Deps) run(cmd *cobra.Command) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Downloading %s...\n", assetName)
-		if data, err = d.ReleaseClient().Download(context.Background(), a); err != nil {
+		say(fmt.Sprintf("Downloading %s...", assetName))
+		if data, err = d.ReleaseClient().Download(ctx, a); err != nil {
 			return fmt.Errorf("%w; the installed binary was kept", err)
 		}
-		fmt.Printf("Signature and checksum verified: %s SHA256 %s\n", assetName, a.SHA256)
+		say(fmt.Sprintf("Signature and checksum verified: %s SHA256 %s", assetName, a.SHA256))
 	} else {
 		if data, err = legacyDownload(info.Legacy, assetName); err != nil {
 			return err
 		}
 	}
 
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	// The new binary must run and say the released version before it takes this one's place, and this one is kept until the
 	// daemon restart below has shown the new one works: if the daemon service starts this very file, a new version that
 	// cannot start is put back like any other.
@@ -308,11 +317,11 @@ func (d Deps) run(cmd *cobra.Command) error {
 		self.runsDaemon = true
 	}
 
-	fmt.Printf("Updated to %s\n", info.Tag)
+	say(fmt.Sprintf("Updated to %s", info.Tag))
 	// Other mono-agent CLIs (the one a daemon service starts, the one on PATH) are still old: the daemon's own is replaced
 	// from the verified asset, so that the restart below starts the new code; the rest is reported with its command.
 	stale := d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data)
-	d.printStale(stale)
+	d.printStale(out, stale)
 	entries := append([]StaleCLI{self}, stale...)
 	du := d.daemonNotReplaced(cmd.Context(), info.Tag, entries, d.selfSkip(selfPath))
 	if du == nil {
@@ -323,15 +332,23 @@ func (d Deps) run(cmd *cobra.Command) error {
 	bu := d.bridgeAfterUpdate(cmd.Context(), info.Tag, bridgeSkipReason(du))
 	d.settleBridge(entries, bu)
 	if du != nil {
-		fmt.Println(du.Message)
+		say(du.Message)
 	}
 	if bu != nil {
-		fmt.Println(bu.Message)
+		say(bu.Message)
 	}
 	if du.Down() {
 		return &clicore.Error{Code: ExitDaemonDown, Msg: "the update is installed but the daemon is down; " + daemonDown}
 	}
-	return nil
+	return d.updateResult(cmd, AppResult{Success: true, NewVersion: info.Tag, Daemon: du, Bridge: bu, StaleCLIs: stale})
+}
+
+// updateResult is the one JSON document of a plain `update --json`; without --json the progress lines said it all.
+func (d Deps) updateResult(cmd *cobra.Command, res AppResult) error {
+	if !d.JSONOutput() {
+		return nil
+	}
+	return d.WriteJSON(cmd.OutOrStdout(), res)
 }
 
 // ExitDaemonDown is the exit code of `update` when the update left no daemon running (see DaemonUpdate.Down).
@@ -479,9 +496,9 @@ func (d Deps) selfSkip(self string) []string {
 	return skip
 }
 
-func (d Deps) printStale(list []StaleCLI) {
+func (d Deps) printStale(w io.Writer, list []StaleCLI) {
 	for _, s := range list {
-		fmt.Println(s.Message)
+		fmt.Fprintln(w, s.Message)
 	}
 }
 
@@ -492,7 +509,13 @@ func (d Deps) say(m string) {
 }
 
 func selfBinaryPath() (string, error) {
-	// Try resolving via argv[0] first (most reliable for installed binaries)
+	// The running executable is the binary an update must replace; argv[0] (resolved through PATH) is only the fallback,
+	// since it can name another file than the one running.
+	if exe, err := os.Executable(); err == nil {
+		if _, err := os.Stat(exe); err == nil {
+			return exe, nil
+		}
+	}
 	arg0 := os.Args[0]
 	if p, err := exec.LookPath(arg0); err == nil {
 		if abs, err := filepath.Abs(p); err == nil {

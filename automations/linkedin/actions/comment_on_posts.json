@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "comment_on_posts",
   "platform": "LINKEDIN",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Comment on LinkedIn posts or reply to a specific comment",
   "sideEffects": "message",
   "metadata": {
@@ -36,6 +36,14 @@
         "default": 5,
         "min": 2,
         "max": 120
+      },
+      {
+        "name": "maxCommentsPerRun",
+        "type": "number",
+        "default": 5,
+        "min": 1,
+        "max": 20,
+        "description": "Limit: max comments in one run (default 5, hard max 20)"
       }
     ]
   },
@@ -72,6 +80,7 @@
     {
       "id": "process_posts",
       "iterator": "selectedListItems",
+      "maxItems": "{{maxCommentsPerRun or 5}}",
       "indexVar": "reachedIndex",
       "steps": ["t1_comment", "wait", "log"]
     }

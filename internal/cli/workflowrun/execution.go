@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
@@ -270,8 +271,9 @@ func cancelExecution(ctx context.Context, db *sql.DB, profileID, executionID str
 		ctx = context.Background()
 	}
 	res := cancelResultJSON{ExecutionID: executionID}
-	err := db.QueryRowContext(ctx, `SELECT workflow_id, status, COALESCE(pid,0) FROM workflow_executions WHERE id = ? AND profile_id = ?`,
-		executionID, profileID).Scan(&res.WorkflowID, &res.PreviousStatus, &res.PID)
+	var startedAt string
+	err := db.QueryRowContext(ctx, `SELECT workflow_id, status, COALESCE(pid,0), COALESCE(started_at,'') FROM workflow_executions WHERE id = ? AND profile_id = ?`,
+		executionID, profileID).Scan(&res.WorkflowID, &res.PreviousStatus, &res.PID, &startedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return res, clicore.NotFound("execution %q not found", executionID)
 	}
@@ -285,7 +287,7 @@ func cancelExecution(ctx context.Context, db *sql.DB, profileID, executionID str
 	}
 
 	if res.PID > 0 && res.PID != os.Getpid() && !isDaemonPID(res.PID) {
-		signalled, err := signalWorkflowPID(res.PID)
+		signalled, err := signalWorkflowPIDStartedAt(res.PID, parseStoredTime(startedAt))
 		if err != nil {
 			return res, err
 		}
@@ -327,4 +329,15 @@ func isDaemonPID(pid int) bool {
 		return true
 	}
 	return isMonoagentDaemonProcess(pid)
+}
+
+// parseStoredTime reads a started_at column (SQLite CURRENT_TIMESTAMP is UTC
+// "2006-01-02 15:04:05"); an unreadable value is the zero time.
+func parseStoredTime(s string) time.Time {
+	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339Nano, "2006-01-02T15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }

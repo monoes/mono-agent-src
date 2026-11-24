@@ -83,8 +83,10 @@ func (g *Gateway) handleImages(p Policy) func(http.ResponseWriter, *http.Request
 				fail(errBusy())
 				return
 			}
-			status = http.StatusAccepted
-			go g.runImageJob(job, pr, begin, model, autoBy, eff, m, slot, release, n, size, req.Prompt)
+			status, detail = http.StatusAccepted, "job accepted "+job.id
+			jctx, jcancel := context.WithCancel(g.shutdownCtx)
+			g.jobs.attach(job, jcancel)
+			go g.runImageJob(jctx, jcancel, job, pr, begin, model, autoBy, eff, m, slot, release, n, size, req.Prompt)
 			release = func() {} // the job gives the slot back, not this handler
 			writeJobAccepted(w, job)
 			return

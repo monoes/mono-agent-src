@@ -56,6 +56,32 @@ func TestHilToolsRefuseWhatOnlyTheOperatorDecides(t *testing.T) {
 	}
 }
 
+// An agent that started a run with workflow_run cannot approve that run's own
+// Human-in-Loop gate (r08-D02); another run's gate is decided as before.
+func TestHilApproveRefusesARunThisSessionStarted(t *testing.T) {
+	testhome.SetHome(t, t.TempDir())
+	s := newTestServerAllowMutations(t, true)
+	rt, err := s.runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, ctx := rt.db.DB, context.Background()
+	for _, row := range [][2]string{{"own-1", "ex-own"}, {"other-1", "ex-other"}} {
+		if _, err := db.Exec(`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, node_config, profile_id)
+			VALUES (?, ?, 'wf-1', 'n', 'Review', 'pending', '{"outbound":false}', ?)`, row[0], row[1], testProfile); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.noteStartedRun("ex-own")
+	_, err = callToolDefault(ctx, s, "hil_approve", json.RawMessage(`{"id":"own-1"}`))
+	if err == nil || !strings.Contains(err.Error(), "started") || hilStatus(t, db, "own-1") != "pending" {
+		t.Errorf("own run's gate: %v, %s", err, hilStatus(t, db, "own-1"))
+	}
+	if _, err := callToolDefault(ctx, s, "hil_approve", json.RawMessage(`{"id":"other-1"}`)); err != nil || hilStatus(t, db, "other-1") != "approved" {
+		t.Errorf("another run's gate: %v, %s", err, hilStatus(t, db, "other-1"))
+	}
+}
+
 func hilStatus(t *testing.T, db *sql.DB, id string) string {
 	t.Helper()
 	var st string

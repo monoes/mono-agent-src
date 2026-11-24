@@ -157,6 +157,10 @@ func (s *Summarizer) Enqueue(dir string, meta capture.Meta, kind string) error {
 	if req.Runtime != "" {
 		st.Runtime = req.Runtime
 	}
+	if why := refusal(meta); why != "" {
+		st.Status, st.Runtime, st.Model, st.Error, st.FinishedAt = StateError, "", "", why, st.RequestedAt
+		return errors.Join(errors.New(why), writeStatus(dir, st))
+	}
 	if IsDisabled(s.Runtime) {
 		st.Status, st.Runtime, st.Model = StateError, "", ""
 		st.Error = "summaries are turned off on this bridge (MONOAGENT_SUMMARY_RUNTIME / --summary-runtime)"
@@ -221,6 +225,9 @@ func (s *Summarizer) Summarize(ctx context.Context, dir string, meta capture.Met
 		return st
 	}
 
+	if why := refusal(meta); why != "" {
+		return fail(errors.New(why))
+	}
 	target, err := s.resolve(ctx, req)
 	if err != nil {
 		return fail(err)

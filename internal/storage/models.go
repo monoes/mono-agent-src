@@ -122,17 +122,6 @@ type SocialListItem struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
-// Thread represents a row in the threads table.
-type Thread struct {
-	ID           string    `json:"id"`
-	SocialUserID string    `json:"social_user_id"`
-	Platform     string    `json:"platform"`
-	Metadata     string    `json:"metadata,omitempty"`
-	Messages     string    `json:"messages,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
 // Template represents a row in the templates table.
 type Template struct {
 	ID        int       `json:"id"`

@@ -105,6 +105,7 @@ type Session struct {
 	db      *sql.DB
 	key     string
 	state   State
+	base    State // state as last loaded or saved: what saveState merges against
 	profile string
 	tabID   int
 	url     string
@@ -144,6 +145,7 @@ func Open(o Options) (*Session, error) {
 		pinOrigin: o.PinOrigin,
 	}
 	s.state = LoadState(s.key)
+	s.base = cloneState(s.state)
 	if err := s.route(o); err != nil {
 		return nil, err
 	}
@@ -214,7 +216,7 @@ func (s *Session) pickTab(explicit int) error {
 	if explicit > 0 {
 		return s.UseTab(explicit)
 	}
-	if s.state.TabID > 0 && s.state.Instance == s.info.Instance {
+	if s.state.TabID > 0 && s.state.Instance == s.info.Instance && (s.profile == "" || s.state.Profile == s.profile) {
 		if err := s.UseTab(s.state.TabID); err == nil || refusedSite(err) {
 			return err // a refusal is the agent's to read, not a reason to act elsewhere
 		}
@@ -272,7 +274,7 @@ func (s *Session) UseTab(id int) error {
 		return err
 	}
 	s.tabID, s.url, s.blankTab = id, u, isBlank
-	s.state.TabID, s.state.Instance = id, s.info.Instance
+	s.state.TabID, s.state.Instance, s.state.Profile = id, s.info.Instance, s.profile
 	return s.saveState()
 }
 
@@ -301,7 +303,14 @@ func (s *Session) Refresh() (string, error) {
 	return s.url, nil
 }
 
-func (s *Session) saveState() error { return SaveState(s.key, s.state) }
+func (s *Session) saveState() error {
+	if err := SaveStateFrom(s.key, s.base, s.state); err != nil {
+		return err
+	}
+	s.state = LoadState(s.key) // what the merge left on disk, other commands' updates included
+	s.base = cloneState(s.state)
+	return nil
+}
 
 // Page is the session's tab as an extension page (CDP, EvalCDP, …). The
 // policy was checked when the tab was chosen, and an agent's commands

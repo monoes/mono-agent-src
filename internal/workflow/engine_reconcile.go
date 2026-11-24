@@ -24,6 +24,38 @@ type triggerReconciler struct {
 	keys map[string]string // workflowID → change key last reconciled
 	// disarmed: the account was locked and every trigger was disarmed (account_triggers.go).
 	disarmed bool
+	// failures: workflows whose triggers failed to register and are being retried (or gave up).
+	failures map[string]*triggerFailure
+	now      func() time.Time // a test clock; nil is time.Now
+}
+
+// triggerFailure is the retry state of one workflow whose registration failed.
+type triggerFailure struct {
+	attempts int
+	next     time.Time
+	err      string
+}
+
+const maxTriggerRetries = 5
+
+func (r *triggerReconciler) clock() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
+}
+
+// TriggerFailures reports, per workflow ID, the last error of a trigger
+// registration the daemon's reconcile could not complete.
+func (e *WorkflowEngine) TriggerFailures() map[string]string {
+	r := &e.reconciler
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]string, len(r.failures))
+	for id, f := range r.failures {
+		out[id] = f.err
+	}
+	return out
 }
 
 // startTriggerReconcile runs the reconcile loop for the engine's lifetime.
@@ -102,13 +134,28 @@ func (e *WorkflowEngine) reconcileTriggers(ctx context.Context) {
 			delete(r.keys, id)
 		}
 	}
+	for id := range r.failures {
+		if !seen[id] {
+			delete(r.failures, id)
+		}
+	}
 }
 
 // reconcileWorkflow reconciles one listed workflow. It returns false when the
 // workflow could not be loaded, so the next tick tries again.
 func (e *WorkflowEngine) reconcileWorkflow(ctx context.Context, listed *Workflow) bool {
 	current, registered := e.triggerMgr.Fingerprint(listed.ID)
+	r := &e.reconciler
+	if f := r.failures[listed.ID]; f != nil && listed.IsActive {
+		if f.attempts < maxTriggerRetries && r.clock().Before(f.next) {
+			return false // backing off
+		}
+		if f.attempts >= maxTriggerRetries {
+			f.attempts = 0 // the workflow changed since we gave up: start over
+		}
+	}
 	if !listed.IsActive {
+		delete(r.failures, listed.ID)
 		if registered {
 			e.triggerMgr.DeactivateWorkflow(listed.ID)
 			e.logger.Info().Str("workflow_id", listed.ID).Msg("engine: trigger reconcile: workflow deactivated elsewhere; triggers removed")
@@ -132,12 +179,25 @@ func (e *WorkflowEngine) reconcileWorkflow(ctx context.Context, listed *Workflow
 	}
 	if err := e.triggerMgr.ActivateWorkflow(ctx, full); err != nil {
 		// All or nothing, as ActivateWorkflow does; the is_active flag
-		// belongs to whoever set it, so it is left alone. The next edit
-		// (a new change key) tries again.
+		// belongs to whoever set it, so it is left alone. The failure is
+		// retried with a doubling backoff (1m, 2m, ...) up to
+		// maxTriggerRetries times; after that only an edit tries again.
 		e.triggerMgr.DeactivateWorkflow(listed.ID)
-		e.logger.Error().Err(err).Str("workflow_id", listed.ID).Msg("engine: trigger reconcile: registering triggers failed")
-		return true
+		if r.failures == nil {
+			r.failures = map[string]*triggerFailure{}
+		}
+		f := r.failures[listed.ID]
+		if f == nil {
+			f = &triggerFailure{}
+			r.failures[listed.ID] = f
+		}
+		f.attempts++
+		f.err = err.Error()
+		f.next = r.clock().Add(time.Minute << (f.attempts - 1))
+		e.logger.Error().Err(err).Str("workflow_id", listed.ID).Int("attempt", f.attempts).Msg("engine: trigger reconcile: registering triggers failed")
+		return f.attempts >= maxTriggerRetries
 	}
+	delete(r.failures, listed.ID)
 	if registered {
 		e.logger.Info().Str("workflow_id", listed.ID).Msg("engine: trigger reconcile: triggers changed elsewhere; re-registered")
 	} else {

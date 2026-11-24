@@ -99,6 +99,9 @@ type loweredEffects struct {
 	WorkersDropped bool       `json:"workers_dropped"` // its kept org workers were forgotten
 	TaskRevoked    bool       `json:"task_revoked"`    // its open AI task's token was replaced
 	SessionRevoked bool       `json:"session_revoked"` // the session token of its running turn was dropped
+	// TurnStillRunning: a turn that began at the old level is still running and keeps that level until it ends
+	// (lowering takes effect from the next turn); stop it with the chat stop commands if that matters.
+	TurnStillRunning bool `json:"turn_still_running"`
 }
 
 // lowerAccessEffects takes the privileges of a conversation that now has less
@@ -282,6 +285,7 @@ func newChatHistorySetAccessCmd(cfg *Deps) *cobra.Command {
 					if err != nil {
 						return err
 					}
+					eff.TurnStillRunning = turnStillRunning(cfg, store, profileID, id)
 					out.Lowered = &eff
 				}
 			}
@@ -293,6 +297,9 @@ func newChatHistorySetAccessCmd(cfg *Deps) *cobra.Command {
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "conversation %s: access %s (was %s)\n", id, conv.EffectiveAccess(), prev)
 				if out.Lowered != nil {
+					if out.Lowered.TurnStillRunning {
+						fmt.Fprintln(cmd.OutOrStdout(), "  turn_still_running: a turn started at the old level is still running and keeps it until it ends")
+					}
 					for _, sv := range out.Lowered.Survivors {
 						fmt.Fprintf(cmd.OutOrStdout(), "  still running: %d %s: %s\n", sv.Pid, sv.Command, sv.Reason)
 					}
@@ -331,4 +338,19 @@ func raisedFolder(cmd *cobra.Command, cfg *Deps, conv ai.Conversation, folder co
 		return "", err
 	}
 	return coderFolder(cmd, cfg, folder, conv.RuntimeID)
+}
+
+// turnStillRunning reports whether the conversation has a turn that is active and whose process is not known to be gone:
+// it began at the level that was just lowered and runs on at it.
+func turnStillRunning(cfg *Deps, store *ai.AIStore, profileID, conversationID string) bool {
+	turns, _, err := store.ListTurns(conversationID, profileID, "", 50)
+	if err != nil {
+		return false
+	}
+	for _, t := range turns {
+		if t.Status == turnActive && !turnProcessGone(agentControlDir(cfg, t.ID)) {
+			return true
+		}
+	}
+	return false
 }

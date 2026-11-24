@@ -62,7 +62,6 @@ export function AddOrgSection(arg1:string,arg2:string,arg3:string):Promise<strin
 
 export function AddDocumentTag(arg1:string,arg2:string):Promise<main.TagInfo>;
 
-export function AddPersonMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<void>;
 
 export function AddPersonStatus(arg1:string,arg2:string):Promise<main.PersonStatusUpdate>;
 
@@ -110,7 +109,6 @@ export function AssignBrowser(arg1:string,arg2:string):Promise<main.AssignReport
 
 export function AssignOrgRole(arg1:string,arg2:string,arg3:string):Promise<string>;
 
-export function BindBrowser(arg1:string,arg2:string):Promise<main.BrowserRow>;
 
 export function BrowserPermissions():Promise<string>;
 
@@ -252,7 +250,6 @@ export function EnableAutomation(arg1:string):Promise<string>;
 
 export function EvaluateApplication(arg1:string,arg2:string):Promise<main.FitVerdictInfo>;
 
-export function EvaluatePendingApplications(arg1:string,arg2:number):Promise<main.EvaluateBatchResult>;
 
 export function ExportAction(arg1:string,arg2:string):Promise<string>;
 
@@ -262,7 +259,6 @@ export function ExportData():Promise<main.ExportResult>;
 
 export function ExportVaultAll():Promise<main.VaultExportResult>;
 
-export function ExportWorkflow(arg1:string):Promise<string>;
 
 export function GateApproveOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
 
@@ -277,6 +273,8 @@ export function GetActiveProfile():Promise<main.ProfileInfo>;
 export function GetAgentRuntimeModels(arg1:string,arg2:string):Promise<string>;
 
 export function GetAllPersonMessages(arg1:number):Promise<Array<main.PersonMessageWithPerson>>;
+
+export function GetAllPersonMessagesFiltered(arg1:number,arg2:string,arg3:string,arg4:boolean):Promise<Array<main.PersonMessageWithPerson>>;
 
 export function GetAllProfilesRecentExecutions(arg1:number):Promise<Array<main.WorkflowExecutionSummary>>;
 
@@ -479,7 +477,6 @@ export function HilSendShow(arg1:string):Promise<string>;
 
 export function ImportVaultAll(arg1:string,arg2:string):Promise<main.VaultImportResult>;
 
-export function ImportWorkflow(arg1:string):Promise<main.WorkflowImportResult>;
 
 export function ImportWorkflowFull(arg1:string,arg2:string):Promise<string>;
 
@@ -559,7 +556,6 @@ export function ListChatConversations(arg1:string,arg2:number):Promise<string>;
 
 export function ListConnections(arg1:string):Promise<Array<connections.SafeConnection>>;
 
-export function ListCredentialsForNode(arg1:string):Promise<Array<main.CredentialOption>>;
 
 export function ListExcludedDocuments():Promise<Array<main.ExcludedDocument>>;
 
@@ -769,7 +765,6 @@ export function ScanAgentRuntimes():Promise<string>;
 
 export function SearchProfileKnowledge(arg1:string):Promise<Array<main.KnowledgeSearchResult>>;
 
-export function SearchVaultImages(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function SendApplication(arg1:string,arg2:string):Promise<void>;
 
@@ -854,7 +849,6 @@ export function StreamOrgEvents(arg1:string,arg2:string):Promise<string>;
 
 export function SwitchProfile(arg1:string):Promise<void>;
 
-export function TagApplication(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function TaskAdd(arg1:string):Promise<string>;
 

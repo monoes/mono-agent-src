@@ -3,7 +3,9 @@
 package proctree
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -42,5 +44,49 @@ func TestKillEndsTheWholeGroup(t *testing.T) {
 			t.Fatalf("grandchild %d survived", grandchild)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// r01-3: a child started without Setpgid has no group of its own; Kill must
+// still end it.
+func TestKillEndsAChildWithoutItsOwnGroup(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	Kill(cmd)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Kill did not end a child that has no process group of its own")
+	}
+}
+
+// r01-4: SIGTERM is given time to be handled before SIGKILL.
+func TestKillLetsTheChildHandleSIGTERM(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "term-handled")
+	script := "trap 'echo ok > " + marker + "; exit 0' TERM; echo ready; while :; do sleep 0.02; done"
+	cmd := exec.Command("sh", "-c", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = out.Read(make([]byte, 6)) // the trap is installed once it prints
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	Kill(cmd)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Kill did not end the child")
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the child was killed before it could handle SIGTERM: %v", err)
 	}
 }

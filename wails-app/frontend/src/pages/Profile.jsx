@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft, ExternalLink, CheckCircle, Globe, Mail, MapPin,
@@ -9,28 +9,32 @@ import {
 } from 'lucide-react'
 import { isUnread, UnreadDot } from '../lib/unread.jsx'
 import { api, PLATFORM_COLORS, STATE_COLORS } from '../services/api.js'
+import { confirm } from '../components/ConfirmDialog.jsx'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
 import StatusHistoryModal from '../components/StatusHistoryModal.jsx'
 import { ExperienceSection, EducationSection, ProfileDetailsSection } from '../components/ProfileDetails.jsx'
 
 // Map action types to icons + labels
 const ACTION_META = {
-  like_posts:            { icon: Heart,         label: 'Liked Posts' },
-  comment_on_posts:      { icon: MessageSquare, label: 'Commented' },
-  like_comments_on_posts:{ icon: Heart,         label: 'Liked Comment' },
-  send_dms:              { icon: Send,          label: 'Sent DM' },
-  auto_reply_dms:        { icon: Send,          label: 'Replied to DM' },
-  follow_users:          { icon: UserPlus,      label: 'Followed' },
-  unfollow_users:        { icon: UserMinus,     label: 'Unfollowed' },
-  watch_stories:         { icon: Eye,           label: 'Watched Stories' },
-  scrape_profile_info:   { icon: Search,        label: 'Scraped Profile' },
-  export_followers:      { icon: Users,         label: 'Exported Followers' },
-  engage_with_posts:     { icon: Zap,           label: 'Engaged with Posts' },
-  engage_user_posts:     { icon: Zap,           label: 'Engaged User Posts' },
-  find_by_keyword:       { icon: Search,        label: 'Found via Keyword' },
-  extract_post_data:     { icon: FileText,      label: 'Extracted Post Data' },
-  publish_post:          { icon: Send,          label: 'Published Post' },
+  like_posts:            { icon: Heart },
+  comment_on_posts:      { icon: MessageSquare },
+  like_comments_on_posts:{ icon: Heart },
+  send_dms:              { icon: Send },
+  auto_reply_dms:        { icon: Send },
+  follow_users:          { icon: UserPlus },
+  unfollow_users:        { icon: UserMinus },
+  watch_stories:         { icon: Eye },
+  scrape_profile_info:   { icon: Search },
+  export_followers:      { icon: Users },
+  engage_with_posts:     { icon: Zap },
+  engage_user_posts:     { icon: Zap },
+  find_by_keyword:       { icon: Search },
+  extract_post_data:     { icon: FileText },
+  publish_post:          { icon: Send },
 }
+
+// Label of an action type; types without a translation show the raw name.
+const actionLabel = (t, type) => (ACTION_META[type] ? t(`profileBody.action_${type}`) : type)
 
 const PLATFORM_PROFILE_URL = {
   INSTAGRAM: (u) => `https://www.instagram.com/${u}/`,
@@ -59,9 +63,9 @@ function actionTypeSuffix(nodeType) {
 }
 
 function InteractionRow({ item }) {
+  const { t } = useTranslation()
   const suffix = actionTypeSuffix(item.node_type)
-  const meta = ACTION_META[suffix] || { icon: Zap, label: suffix }
-  const Icon = meta.icon
+  const Icon = (ACTION_META[suffix] || { icon: Zap }).icon
   const stateColor = STATE_COLORS[item.status] || '#94a3b8'
   const ts = item.last_interacted_at || item.created_at
   const date = ts ? ts.slice(0, 10) : '—'
@@ -74,9 +78,9 @@ function InteractionRow({ item }) {
       </div>
       <div className="interaction-body">
         <div className="interaction-top">
-          <span className="interaction-type">{meta.label}</span>
+          <span className="interaction-type">{actionLabel(t, suffix)}</span>
           {item.node_name && (
-            <span className="interaction-action-title">via "{item.node_name}"</span>
+            <span className="interaction-action-title">{t('profileBody.via', { name: item.node_name })}</span>
           )}
           <span
             className="interaction-status"
@@ -135,13 +139,15 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
   const [posts, setPosts]       = useState([])
   const [open, setOpen]         = useState(false)
   const [loading, setLoading]   = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const { t } = useTranslation()
 
   useEffect(() => {
     api.getPersonPosts(personId).then(data => {
       const rows = data || []
       setPosts(rows)
       if (rows.length > 0) setOpen(true)
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch(e => setLoadError(e?.message || String(e))).finally(() => setLoading(false))
   }, [personId])
 
   return (
@@ -160,7 +166,7 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
           : <ChevronRight size={13} style={{ color: 'var(--text-muted)' }} />
         }
         <span className="profile-section-title" style={{ margin: 0 }}>
-          Posts
+          {t('profileBody.posts')}
           <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
             {loading ? '…' : posts.length}
           </span>
@@ -174,12 +180,16 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
             <div style={{ padding: '12px 0', textAlign: 'center' }}>
               <div className="spinner" style={{ width: 14, height: 14, margin: '0 auto' }} />
             </div>
+          ) : loadError ? (
+            <div role="alert" style={{ padding: '12px 0', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)' }}>
+              {t('profilePage.loadFailed', { error: loadError })}
+            </div>
           ) : posts.length === 0 ? (
             <div style={{
               padding: '16px 0', textAlign: 'center',
               color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11,
             }}>
-              No posts scraped yet — run list_user_posts to populate
+              {t('profileBody.noPosts')}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -241,7 +251,7 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
                       color: '#00b4d8', fontSize: 9,
                       fontFamily: 'var(--font-mono)',
                     }}>
-                      ♥ liked
+                      {t('profileBody.liked')}
                     </span>
                   )}
                   {post.we_commented && (
@@ -252,7 +262,7 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
                       color: '#a855f7', fontSize: 9,
                       fontFamily: 'var(--font-mono)',
                     }}>
-                      💬 commented
+                      {t('profileBody.commented')}
                     </span>
                   )}
                 </div>
@@ -278,6 +288,9 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(null) // 'send' | 'draft'
   const [composeError, setComposeError] = useState(null)
+  const [draftError, setDraftError] = useState(null) // Send/Discard fail with the compose panel closed
+  const [loadError, setLoadError] = useState('')
+  const { t } = useTranslation()
   const [draftActionId, setDraftActionId] = useState(null) // message id being sent/rejected
   const [directionFilter, setDirectionFilter] = useState('all') // 'all' | 'inbound' | 'outbound'
 
@@ -292,7 +305,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   useEffect(() => {
     reload()
       .then(list => { if (list.some(isUnread)) api.markPersonMessagesRead(personId) })
-      .catch(() => {})
+      .catch(e => setLoadError(e?.message || String(e)))
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId])
@@ -308,6 +321,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
 
   const handleCompose = async (asDraft) => {
     if (!connectionId || !body.trim()) return
+    if (!asDraft && !(await confirm(t('profilePage.confirmSend'), { confirmLabel: t('profilePage.send') }))) return
     setSending(asDraft ? 'draft' : 'send')
     setComposeError(null)
     try {
@@ -325,12 +339,15 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   }
 
   const handleSendDraft = async (id) => {
+    // Sending is a real email: the drafted text goes out as it stands.
+    if (!(await confirm(t('profilePage.confirmSend'), { confirmLabel: t('profilePage.send') }))) return
     setDraftActionId(id)
+    setDraftError(null)
     try {
       await api.sendDraftPersonMessage(id)
       await reload()
     } catch (e) {
-      setComposeError(e?.message || String(e))
+      setDraftError(e?.message || String(e))
     } finally {
       setDraftActionId(null)
     }
@@ -338,11 +355,12 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
 
   const handleRejectDraft = async (id) => {
     setDraftActionId(id)
+    setDraftError(null)
     try {
       await api.rejectDraftPersonMessage(id)
       await reload()
     } catch (e) {
-      setComposeError(e?.message || String(e))
+      setDraftError(e?.message || String(e))
     } finally {
       setDraftActionId(null)
     }
@@ -364,7 +382,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
             : <ChevronRight size={13} style={{ color: 'var(--text-muted)' }} />
           }
           <span className="profile-section-title" style={{ margin: 0 }}>
-            Messages
+            {t('profileBody.messages')}
             <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
               {loading ? '…' : messages.length}
             </span>
@@ -380,7 +398,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
               border: '1px solid rgba(0,180,216,0.3)', color: '#00b4d8',
             }}
           >
-            {composeOpen ? 'Cancel' : 'Compose'}
+            {composeOpen ? t('profileBody.cancel') : t('profileBody.compose')}
           </button>
         )}
       </div>
@@ -393,7 +411,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
         }}>
           {connections.length === 0 ? (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-              No Outlook account connected. Connect one under Connections first.
+              {t('profileBody.noOutlook')}
             </div>
           ) : (
             <>
@@ -404,18 +422,18 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                   className="select-compact"
                   style={{ fontSize: 11 }}
                 >
-                  <option value="">Select account…</option>
+                  <option value="">{t('profileBody.selectAccount')}</option>
                   {connections.map(c => <option key={c.id} value={c.id}>{c.label || c.account_id || c.id}</option>)}
                 </select>
               )}
               <input
-                placeholder="Subject"
+                placeholder={t('profileBody.subject')}
                 value={subject}
                 onChange={e => setSubject(e.target.value)}
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '6px 8px', borderRadius: 4, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
               />
               <textarea
-                placeholder="Write a message…"
+                placeholder={t('profileBody.writeMessage')}
                 value={body}
                 onChange={e => setBody(e.target.value)}
                 rows={4}
@@ -429,12 +447,12 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                   onClick={() => handleCompose(true)}
                   disabled={!!sending || !connectionId || !body.trim()}
                   style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, padding: '5px 12px', borderRadius: 5, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text-secondary)', opacity: sending && sending !== 'draft' ? 0.5 : 1 }}
-                >{sending === 'draft' ? 'Saving…' : 'Save as Draft'}</button>
+                >{sending === 'draft' ? t('profileBody.saving') : t('profileBody.saveDraft')}</button>
                 <button
                   onClick={() => handleCompose(false)}
                   disabled={!!sending || !connectionId || !body.trim()}
                   style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, padding: '5px 14px', borderRadius: 5, cursor: 'pointer', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981', opacity: sending && sending !== 'send' ? 0.5 : 1 }}
-                >{sending === 'send' ? 'Sending…' : 'Send'}</button>
+                >{sending === 'send' ? t('profileBody.sending') : t('profilePage.send')}</button>
               </div>
             </>
           )}
@@ -444,9 +462,9 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
       {open && !loading && messages.length > 0 && (
         <div style={{ display: 'flex', gap: 4, marginTop: 10 }}>
           {[
-            { key: 'all', label: `All (${messages.length})` },
-            { key: 'inbound', label: `Received (${messages.length - sentCount})` },
-            { key: 'outbound', label: `Sent (${sentCount})` },
+            { key: 'all', label: t('profileBody.filterAll', { count: messages.length }) },
+            { key: 'inbound', label: t('profileBody.filterReceived', { count: messages.length - sentCount }) },
+            { key: 'outbound', label: t('profileBody.filterSent', { count: sentCount }) },
           ].map(f => (
             <button
               key={f.key}
@@ -469,12 +487,16 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
             <div style={{ padding: '12px 0', textAlign: 'center' }}>
               <div className="spinner" style={{ width: 14, height: 14, margin: '0 auto' }} />
             </div>
+          ) : loadError ? (
+            <div role="alert" style={{ padding: '12px 0', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)' }}>
+              {t('profilePage.loadFailed', { error: loadError })}
+            </div>
           ) : visibleMessages.length === 0 ? (
             <div style={{
               padding: '16px 0', textAlign: 'center',
               color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11,
             }}>
-              {messages.length === 0 ? 'No messages synced yet' : 'No messages in this view'}
+              {messages.length === 0 ? t('profileBody.noMessagesYet') : t('profileBody.noMessagesView')}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -492,10 +514,10 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                   border: '1px solid var(--border)',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {isUnread(msg) && <UnreadDot title="New" />}
+                    {isUnread(msg) && <UnreadDot title={t('profileBody.new')} />}
                     {msg.direction === 'outbound'
-                      ? <ArrowUpRight size={11} style={{ color: '#10b981', flexShrink: 0 }} title="Sent" />
-                      : <ArrowDownLeft size={11} style={{ color: 'var(--text-muted)', flexShrink: 0 }} title="Received" />
+                      ? <ArrowUpRight size={11} style={{ color: '#10b981', flexShrink: 0 }} title={t('profileBody.sentTitle')} />
+                      : <ArrowDownLeft size={11} style={{ color: 'var(--text-muted)', flexShrink: 0 }} title={t('profileBody.receivedTitle')} />
                     }
                     <span style={{
                       padding: '1px 6px', borderRadius: 4,
@@ -514,7 +536,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                         color: '#f59e0b', fontSize: 9,
                         fontFamily: 'var(--font-mono)', flexShrink: 0,
                       }}>
-                        DRAFT
+                        {t('profileBody.draftBadge')}
                       </span>
                     )}
                     <span style={{
@@ -522,7 +544,7 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                       color: 'var(--text)', fontWeight: 500,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {msg.subject || '(no subject)'}
+                      {msg.subject || t('profileBody.noSubject')}
                     </span>
                     <span style={{
                       marginLeft: 'auto', flexShrink: 0,
@@ -548,18 +570,19 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                         onClick={e => { e.stopPropagation(); handleRejectDraft(msg.id) }}
                         disabled={draftActionId === msg.id}
                         style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}
-                      >{draftActionId === msg.id ? '…' : 'Discard'}</button>
+                      >{draftActionId === msg.id ? '…' : t('profilePage.discard')}</button>
                       <button
                         onClick={e => { e.stopPropagation(); handleSendDraft(msg.id) }}
                         disabled={draftActionId === msg.id}
                         style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}
-                      >{draftActionId === msg.id ? '…' : 'Send'}</button>
+                      >{draftActionId === msg.id ? '…' : t('profilePage.send')}</button>
                     </div>
                   )}
                 </div>
               ))}
             </div>
           )}
+          {draftError && <div role="alert" data-testid="draft-error" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#ef4444', marginTop: 6 }}>{draftError}</div>}
         </div>
       )}
 
@@ -582,6 +605,8 @@ function StatusSection({ personId, platformColor }) {
   const [loading, setLoading] = useState(true)
   const [text, setText]       = useState('')
   const [posting, setPosting] = useState(false)
+  const [postError, setPostError] = useState('')
+  const { t } = useTranslation()
   const [historyOpen, setHistoryOpen] = useState(false)
 
   const reload = () => api.getLatestPersonStatus(personId).then(setLatest)
@@ -596,12 +621,17 @@ function StatusSection({ personId, platformColor }) {
     const value = text.trim()
     if (!value || posting) return
     setPosting(true)
+    setPostError('')
     try {
       const created = await api.addPersonStatus(personId, value)
       if (created) {
         setLatest(created)
         setText('')
+      } else {
+        setPostError(t('profilePage.statusNotSaved'))
       }
+    } catch (e) {
+      setPostError(e?.message || String(e))
     } finally {
       setPosting(false)
     }
@@ -614,27 +644,28 @@ function StatusSection({ personId, platformColor }) {
       {latest ? (
         <p className="profile-status-quote">&ldquo;{latest.text}&rdquo;</p>
       ) : (
-        <p className="profile-status-empty">No status yet</p>
+        <p className="profile-status-empty">{t('profileBody.noStatus')}</p>
       )}
       <div className="profile-status-meta">
         {latest && <span>{latest.created_at.slice(0, 16).replace('T', ' ')}</span>}
         <button className="profile-status-history-link" onClick={() => setHistoryOpen(true)}>
-          History →
+          {t('profileBody.history')}
         </button>
       </div>
       <div className="profile-status-form">
         <input
           className="profile-status-input"
-          placeholder="Post a status update…"
+          placeholder={t('profileBody.statusPlaceholder')}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') post() }}
           disabled={posting}
         />
         <button className="btn btn-secondary btn-sm" onClick={post} disabled={posting || !text.trim()}>
-          Post
+          {t('profileBody.post')}
         </button>
       </div>
+      {postError && <div role="alert" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#ef4444', marginTop: 6 }}>{postError}</div>}
 
       {historyOpen && (
         <StatusHistoryModal personId={personId} onClose={() => setHistoryOpen(false)} />
@@ -657,21 +688,25 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
   const [error, setError] = useState(null)
   const [filterType, setFilterType] = useState('')
 
+  const loadSeq = useRef(0)
   const load = async () => {
     if (!id) return
-    setLoading(true)
+    const seq = ++loadSeq.current
+    // Refresh keeps the page (and its open sections and drafts) on screen.
+    if (!person || person.id !== id) setLoading(true)
     try {
       setError(null)
       const [p, i] = await Promise.all([
         api.getPersonDetail(id),
         api.getPersonInteractions(id),
       ])
+      if (seq !== loadSeq.current) return
       setPerson(p)
       setInteractions(i || [])
     } catch (e) {
-      setError(e?.message || 'Failed to load profile')
+      if (seq === loadSeq.current) setError(e?.message || t('profileBody.loadProfileFailed'))
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }
 
@@ -690,7 +725,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
       <div className="empty-state" style={{ height: '100%' }}>
         <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 'var(--radius)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 12 }}>{error}</div>
         <button className="btn btn-secondary btn-sm" onClick={onBack} style={{ marginTop: 12 }}>
-          <ArrowLeft size={13} /> Back
+          <ArrowLeft size={13} /> {t('profileBody.back')}
         </button>
       </div>
     )
@@ -699,9 +734,9 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
   if (!person) {
     return (
       <div className="empty-state" style={{ height: '100%' }}>
-        <div className="empty-state-title">Profile not found</div>
+        <div className="empty-state-title">{t('profileBody.notFound')}</div>
         <button className="btn btn-secondary btn-sm" onClick={onBack} style={{ marginTop: 12 }}>
-          <ArrowLeft size={13} /> Back
+          <ArrowLeft size={13} /> {t('profileBody.back')}
         </button>
       </div>
     )
@@ -725,7 +760,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
       <div className="page-header">
         <div className="page-header-left">
           <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ gap: 6 }}>
-            <ArrowLeft size={13} /> People
+            <ArrowLeft size={13} /> {t('profileBody.people')}
           </button>
           <div className="page-subtitle" style={{ margin: '0 4px', color: 'var(--text-dim)' }}>/</div>
           {profileUrl ? (
@@ -737,12 +772,12 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
           )}
         </div>
         <div className="page-header-right">
-          <button className="btn btn-ghost btn-sm" onClick={load} style={{ gap: 5 }}>
-            <RefreshCw size={12} /> Refresh
+          <button className="btn btn-ghost btn-sm" onClick={() => load()} style={{ gap: 5 }}>
+            <RefreshCw size={12} /> {t('profileBody.refresh')}
           </button>
           {profileUrl && (
             <button className="btn btn-secondary btn-sm" onClick={() => onOpenURL(profileUrl)} style={{ gap: 6 }}>
-              <ExternalLink size={12} /> Open on {person.platform}
+              <ExternalLink size={12} /> {t('profileBody.openOn', { platform: person.platform })}
             </button>
           )}
         </div>
@@ -813,10 +848,10 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
 
           {/* Stats row */}
           <div className="profile-stats">
-            <StatPill label="Followers"  value={person.follower_count}  icon={Users} />
-            <StatPill label="Following"  value={person.following_count || null} icon={Users} />
-            <StatPill label="Posts"      value={person.content_count || null}   icon={FileText} />
-            <StatPill label="Interactions" value={interactions.length || null}  icon={Zap} />
+            <StatPill label={t('profileBody.followers')}  value={person.follower_count}  icon={Users} />
+            <StatPill label={t('profileBody.following')}  value={person.following_count || null} icon={Users} />
+            <StatPill label={t('profileBody.statPosts')}      value={person.content_count || null}   icon={FileText} />
+            <StatPill label={t('profileBody.interactions')} value={interactions.length || null}  icon={Zap} />
           </div>
         </div>
 
@@ -827,11 +862,10 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
               className={`summary-chip ${!filterType ? 'active' : ''}`}
               onClick={() => setFilterType('')}
             >
-              All <span>{interactions.length}</span>
+              {t('profileBody.all')} <span>{interactions.length}</span>
             </button>
             {Object.entries(summary).sort((a,b) => b[1]-a[1]).map(([type, count]) => {
-              const meta = ACTION_META[type] || { icon: Zap, label: type }
-              const Icon = meta.icon
+              const Icon = (ACTION_META[type] || { icon: Zap }).icon
               return (
                 <button
                   key={type}
@@ -839,7 +873,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
                   onClick={() => setFilterType(filterType === type ? '' : type)}
                 >
                   <Icon size={11} />
-                  {meta.label} <span>{count}</span>
+                  {actionLabel(t, type)} <span>{count}</span>
                 </button>
               )
             })}
@@ -864,15 +898,15 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
         {/* ── Interaction history ── */}
         <div className="profile-section">
           <div className="profile-section-title">
-            Interaction History
+            {t('profileBody.interactionHistory')}
             <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
-              {filtered.length} event{filtered.length !== 1 ? 's' : ''}
+              {t('profileBody.events', { count: filtered.length })}
             </span>
           </div>
 
           {filtered.length === 0 ? (
             <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              No interactions recorded yet
+              {t('profileBody.noInteractions')}
             </div>
           ) : (
             <div className="interaction-list">
@@ -885,11 +919,11 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
 
         {/* ── Meta footer ── */}
         <div style={{ display: 'flex', gap: 20, padding: '4px 0 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)' }}>
-          <span>Added {person.created_at?.slice(0, 10) || '—'}</span>
+          <span>{t('profileBody.added', { date: person.created_at?.slice(0, 10) || '—' })}</span>
           {person.updated_at && person.updated_at !== person.created_at && (
-            <span>Updated {person.updated_at.slice(0, 10)}</span>
+            <span>{t('profileBody.updated', { date: person.updated_at.slice(0, 10) })}</span>
           )}
-          <span style={{ marginLeft: 'auto' }}>ID {person.id}</span>
+          <span style={{ marginLeft: 'auto' }}>{t('profileBody.idLabel', { id: person.id })}</span>
         </div>
       </div>
     </div>

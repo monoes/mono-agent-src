@@ -496,6 +496,15 @@ func (r queueRunner) Wait(ctx context.Context, taskID string) (string, error) {
 	}
 }
 
+// Cancel stops a fill's task that outlived the queue's ceiling.
+func (r queueRunner) Cancel(_ context.Context, taskID string) error {
+	svc := &aitask.Service{Store: r.tasks}
+	if _, err := svc.Cancel(taskID); err != nil && !hasCode(err, aitask.CodeTaskClosed) && !hasCode(err, aitask.CodeNotFound) {
+		return err
+	}
+	return nil
+}
+
 func (r queueRunner) Finalize(ctx context.Context, id string) error {
 	t, err := r.tasks.ForApplication(id)
 	if err != nil {

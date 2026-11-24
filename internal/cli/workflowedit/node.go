@@ -43,6 +43,12 @@ func (d Deps) newNodeAddCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := args[0]
+			if hint, deprecated := workflow.IsDeprecatedNodeType(nodeType); deprecated {
+				return d.InvalidInput("node type %q is deprecated: %s", nodeType, hint)
+			}
+			if d.KnownNodeType != nil && !d.KnownNodeType(nodeType) {
+				return d.InvalidInput("unknown node type %q (see `monoagentcli node list`)", nodeType)
+			}
 
 			db, err := d.OpenDB()
 			if err != nil {

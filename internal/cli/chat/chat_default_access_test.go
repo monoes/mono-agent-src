@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
@@ -143,5 +145,29 @@ func TestUnsetDefaultAccessIsFullOnlyForTheOperatorWithCoderOn(t *testing.T) {
 	setCoderSettings(t, r.dbPath, coderSettings{Enabled: false})
 	if out, code = createAs(t, r.dbPath, true); code != 0 || accessOf(t, out) != ai.AccessScoped {
 		t.Fatalf("coder off, unset (exit %d) = %s, want scoped", code, out)
+	}
+}
+
+// R09-11 (printing part): a create that takes the default level says which level it took.
+func TestDefaultAccessIsPrintedOnCreate(t *testing.T) {
+	r := newAccessRig(t, true)
+	setCoderSettings(t, r.dbPath, coderSettings{Enabled: true, DefaultAccess: ai.AccessWorkspace})
+	run := func(args ...string) string {
+		cfg := testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default", JSONOutput: true})
+		var stderr bytes.Buffer
+		captureStdout(t, func() {
+			cmd := newChatCmd(cfg)
+			cmd.SetErr(&stderr)
+			cmd.SetArgs(append([]string{"history", "create", "--runtime", "claude"}, args...))
+			cmd.SilenceErrors, cmd.SilenceUsage = true, true
+			_ = cmd.Execute()
+		})
+		return stderr.String()
+	}
+	if got := run("--new-workspace"); !strings.Contains(got, `"workspace"`) {
+		t.Fatalf("a default-level create printed %q, want the level named", got)
+	}
+	if got := run("--access", "scoped"); got != "" {
+		t.Fatalf("an explicit level printed %q", got)
 	}
 }

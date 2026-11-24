@@ -242,6 +242,10 @@ func toolHilApprove(ctx context.Context, s *Server, args json.RawMessage) (inter
 	if err := operator.ItemRefusal(ctx, rt.db.DB, profileOf(ctx), a.ID); err != nil {
 		return nil, err
 	}
+	var execID string
+	if err := rt.db.DB.QueryRowContext(ctx, `SELECT execution_id FROM hil_pending WHERE id = ? AND profile_id = ?`, a.ID, profileOf(ctx)).Scan(&execID); err == nil && s.startedRun(execID) {
+		return nil, fmt.Errorf("HIL item %s belongs to a run this session started with workflow_run: the user approves it in their own terminal (`monoagentcli hil approve %s`) or on the Human in Loop page", a.ID, a.ID)
+	}
 	res, err := rt.db.DB.ExecContext(ctx,
 		`UPDATE hil_pending SET status='approved', edited_data=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id=? AND status='pending' AND profile_id = ?`,

@@ -4,12 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 )
 
 const blobPrefix = "vaultenc:v1:"
+
+// ErrPlaintextBlob is DecryptBlob's refusal of a value without the vaultenc prefix once
+// RejectPlaintextBlobs is on: a writer to the database could otherwise plant plaintext where
+// a ciphertext belongs.
+var ErrPlaintextBlob = errors.New("secrets: stored value is not encrypted (no vaultenc prefix); refusing to treat it as a secret")
+
+var rejectPlaintext atomic.Bool
+
+// RejectPlaintextBlobs switches DecryptBlob from accepting an unprefixed value as plaintext (the
+// rows from before encryption shipped) to refusing it. Startup turns it on once
+// `secret encrypt-connections` (connections.MigrateConnectionsToVault) has left no plaintext row;
+// it is off by default so that the migration itself can still read the old rows. Process-wide.
+// Sealing with additional authenticated data (kv=2) is for the next vault migration.
+func RejectPlaintextBlobs(on bool) { rejectPlaintext.Store(on) }
 
 // EncryptBlob encrypts an arbitrary byte blob (e.g. a connections.data JSON
 // document) under profileID's DEK and returns a self-describing string safe
@@ -37,6 +53,9 @@ func EncryptBlob(ctx context.Context, db *sql.DB, profileID string, plaintext []
 
 func DecryptBlob(ctx context.Context, db *sql.DB, profileID, encoded string) ([]byte, error) {
 	if !strings.HasPrefix(encoded, blobPrefix) {
+		if encoded != "" && rejectPlaintext.Load() {
+			return nil, ErrPlaintextBlob
+		}
 		if encoded != "" {
 			fmt.Fprintf(os.Stderr, "warning: secrets.DecryptBlob: %d-byte blob lacks the %q prefix — plaintext value not yet migrated; run `monoagentcli secret encrypt-connections`\n", len(encoded), blobPrefix)
 		}

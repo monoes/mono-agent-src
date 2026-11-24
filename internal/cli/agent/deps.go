@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/agentinstall"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -104,4 +105,14 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// refuseUnlessOperatorFor is the user's-own check of what installs vendor code
+// or spends money on model calls (install --yes, a bare or --all validate,
+// auto-revalidate on): an agent, the chat or a workflow is refused.
+func (d Deps) refuseUnlessOperatorFor(what string) error {
+	if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+		return clicore.OperatorOnly("%s is the user's own (it runs vendor code or spends money on model calls), so only the user can run it: %s; run it yourself in your terminal or the app", what, why)
+	}
+	return nil
 }

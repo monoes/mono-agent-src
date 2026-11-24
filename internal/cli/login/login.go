@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,39 +73,22 @@ func readLoginTabID(profileID, platform string) (int, error) {
 }
 
 // convertExtensionCookies converts the raw chrome.cookies.getAll() result
-// returned by the extension bridge (fields: name, value, domain, path,
-// secure, httpOnly, expirationDate, ...) into chromecookies.Cookie — the
-// shape cliSessionProvider.GetPage already expects when restoring a saved
-// session (it json.Unmarshals cookies_json into []*proto.NetworkCookieParam,
-// which uses these same field names).
-func convertExtensionCookies(raw interface{}) ([]chromecookies.Cookie, error) {
-	if raw == nil {
-		return nil, nil
+// returned by the extension bridge into chromecookies.Cookie, keeping only the
+// cookies of the platform's domains and carrying hostOnly/sameSite (see
+// chromecookies.FromExtension). The result is the shape cliSessionProvider.GetPage
+// expects when restoring a saved session.
+func convertExtensionCookies(raw interface{}, domains []string) ([]chromecookies.Cookie, error) {
+	return chromecookies.FromExtension(raw, domains)
+}
+
+// platformCookieDomains is the domain a platform's session cookies belong to:
+// the host of its login URL without a leading "www.".
+func platformCookieDomains(loginURL string) []string {
+	u, err := url.Parse(loginURL)
+	if err != nil || u.Hostname() == "" {
+		return nil
 	}
-	items, ok := raw.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("unexpected cookies payload type %T", raw)
-	}
-	cookies := make([]chromecookies.Cookie, 0, len(items))
-	for _, item := range items {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		c := chromecookies.Cookie{
-			Name:     stringField(m, "name"),
-			Value:    stringField(m, "value"),
-			Domain:   stringField(m, "domain"),
-			Path:     stringField(m, "path"),
-			Secure:   boolField(m, "secure"),
-			HTTPOnly: boolField(m, "httpOnly"),
-		}
-		if exp, ok := m["expirationDate"].(float64); ok {
-			c.Expires = exp
-		}
-		cookies = append(cookies, c)
-	}
-	return cookies, nil
+	return []string{strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")}
 }
 
 func stringField(m map[string]interface{}, key string) string {
@@ -300,7 +284,7 @@ func (d Deps) newLoginConfirmCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("reading cookies from login tab: %w", err)
 			}
-			cookies, err := convertExtensionCookies(rawCookies)
+			cookies, err := convertExtensionCookies(rawCookies, platformCookieDomains(bot.PlatformRegistry[platform]().LoginURL()))
 			if err != nil {
 				return fmt.Errorf("parsing cookies: %w", err)
 			}

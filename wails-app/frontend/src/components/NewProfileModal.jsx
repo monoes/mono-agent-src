@@ -4,6 +4,7 @@ import { FolderOpen } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { iconUrl } from './orgdesigner/roleIcons.js'
 import IconPickerModal from './orgdesigner/IconPickerModal.jsx'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 const CreateProfile = WailsApp.CreateProfile ?? (async () => {})
 const ChooseProfileFolder = WailsApp.ChooseProfileFolder ?? (async () => '')
@@ -42,15 +43,11 @@ export default function NewProfileModal({ open, onClose, onCreated }) {
     setError('')
     setBusy(false)
     ListMonomindProjects().then(list => setProjects(Array.isArray(list) ? list : [])).catch(() => setProjects([]))
-    setTimeout(() => nameRef.current?.focus(), 30)
+    const focusTimer = setTimeout(() => nameRef.current?.focus(), 30)
+    return () => clearTimeout(focusTimer)
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e) => { if (e.key === 'Escape' && !iconPickerOpen) onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, iconPickerOpen, onClose])
+  useEscapeClose(() => { if (!iconPickerOpen) onClose?.() }, open)
 
   if (!open) return null
 

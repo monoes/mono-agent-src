@@ -27,5 +27,8 @@ func TestMain(m *testing.M) {
 	// The live signed manifest is published now; tests that exercise the
 	// updaters must not reach it.
 	releaseClient = func() *release.Client { return &release.Client{} }
+	// The legacy GitHub update path is off in shipped builds (release.AllowLegacyGitHubUpdates); the
+	// updater tests that drive it opt in, as in internal/appupdate and internal/cli/update.
+	release.AllowLegacyGitHubUpdates = true
 	testhome.Main(m)
 }

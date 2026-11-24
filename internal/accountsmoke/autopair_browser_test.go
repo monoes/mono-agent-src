@@ -63,7 +63,7 @@ func TestExtensionPairsItselfInARealBrowser(t *testing.T) {
 			t.Fatalf("autopair_e2e.mjs %s: %v\nstdout: %s\nstderr: %s\nbridge log: %s", mode, err, out.String(), stderr.String(), log)
 		}
 		if strings.HasPrefix(out.String(), "SKIP") {
-			t.Skip(strings.TrimSpace(out.String()))
+			t.Skipf("e2e helper reported SKIP: %s", strings.TrimSpace(out.String()))
 		}
 		if !strings.Contains(out.String(), "OK\n") {
 			t.Fatalf("autopair_e2e.mjs %s did not finish: %s %s", mode, out.String(), stderr.String())

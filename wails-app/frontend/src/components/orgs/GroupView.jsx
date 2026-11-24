@@ -6,6 +6,7 @@ import { Play, Square, RefreshCw, Boxes, ExternalLink } from 'lucide-react'
 import { api, notify, onOrgEvent } from '../../services/api.js'
 import { acquireOrgEvents } from '../../lib/orgEventStreams.js'
 import { confirm } from '../ConfirmDialog.jsx'
+import i18n from '../../i18n.js'
 import { initialGroupTraffic, applyGroupEvent, recentArcs, arcPath, ARC_RECENT_MS } from './groupTraffic.js'
 import { Card, Chip, mono, mutedText, sectionLabel, smallBtn } from './ui.jsx'
 
@@ -130,7 +131,7 @@ export default function GroupView({ holding, onOpenOrg }) {
 
   const run = async (verb) => {
     if (verb === 'stop') {
-      const ok = await confirm(`Stop ${holding} and the children started with it?`, { title: 'Stop group', confirmLabel: 'Stop', danger: true })
+      const ok = await confirm(i18n.t('orgConfirm.stopGroupBody', { holding }), { title: i18n.t('orgConfirm.stopGroupTitle'), confirmLabel: i18n.t('orgConfirm.stopGroupConfirm'), danger: true })
       if (!ok) return
     }
     setBusy(true)

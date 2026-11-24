@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { FileText, X } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { isImage, formatBytes, imagePathsInResult, baseName } from './chatAttachments.js'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 // The images and files of a coder chat (C4): the composer's attachment
 // chips, the thumbnails under a sent message, and the images a tool result
@@ -33,11 +34,7 @@ function loadWorkspaceImage(conversationId, path) {
 }
 
 export function ImageLightbox({ src, alt, onClose }) {
-  useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={alt} data-testid="image-lightbox" onClick={onClose} style={{
       position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(2,5,9,0.88)',
@@ -194,14 +191,24 @@ export function AttachmentChips({ attachments, onRemove }) {
 // MessageAttachments are the thumbnails under a sent message: the images in
 // memory for a message just sent, or read from the chat's folder (the
 // copies `turn.started` lists) for one loaded from history.
+// A stable key: the attachment's own id/path/name, plus which repeat of that
+// identity it is, so removing one entry never re-keys the others.
+export function attachmentKey(list, a, i) {
+  const base = a.id ?? a.path ?? a.name ?? 'attachment'
+  let nth = 0
+  for (let j = 0; j < i; j++) if ((list[j].id ?? list[j].path ?? list[j].name ?? 'attachment') === base) nth++
+  return `${base}#${nth}`
+}
+
 export function MessageAttachments({ attachments, conversationId }) {
   if (!attachments?.length) return null
   return (
     <div data-testid="message-attachments" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, margin: '-4px 0 8px' }}>
       {attachments.map((a, i) => {
-        if (isImage(a.mime) && a.dataUrl) return <Thumb key={i} src={a.dataUrl} alt={a.name} maxHeight={72} testId="message-image" />
-        if (isImage(a.mime) && a.path && conversationId) return <WorkspaceImage key={i} conversationId={conversationId} path={a.path} maxHeight={72} />
-        return <FileChip key={i} name={a.name} size={a.size} />
+        const key = attachmentKey(attachments, a, i)
+        if (isImage(a.mime) && a.dataUrl) return <Thumb key={key} src={a.dataUrl} alt={a.name} maxHeight={72} testId="message-image" />
+        if (isImage(a.mime) && a.path && conversationId) return <WorkspaceImage key={key} conversationId={conversationId} path={a.path} maxHeight={72} />
+        return <FileChip key={key} name={a.name} size={a.size} />
       })}
     </div>
   )

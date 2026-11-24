@@ -96,7 +96,7 @@ func checkMCPRuntimes(rts []MCPRuntime) Result {
 			broken = append(broken, rt.Label)
 			child.Status, child.Summary = StatusWarn, "config cannot be read: "+rt.Err
 		case rt.Current:
-			child.Status, child.Summary = StatusOK, rt.Where
+			child.Status, child.Summary = StatusOK, "mutations ON: "+rt.Where
 		case rt.Registered:
 			outdated = append(outdated, rt.Label)
 			child.Status, child.Summary = StatusWarn, "outdated: registered without --allow-mutations ("+rt.Where+")"
@@ -114,7 +114,7 @@ func checkMCPRuntimes(rts []MCPRuntime) Result {
 	case len(missing) > 0:
 		res.Status, res.Summary, res.FixID = StatusInfo, "not registered with "+strings.Join(missing, ", ")+" (optional)", FixMCPRegister
 	default:
-		res.Status, res.Summary = StatusOK, fmt.Sprintf("registered with %d coding agent(s)", len(rts))
+		res.Status, res.Summary = StatusOK, fmt.Sprintf("registered with %d coding agent(s), mutations ON (they can run workflows, approve and create or delete secrets, people, orgs and API keys)", len(rts))
 	}
 	return res
 }

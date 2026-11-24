@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Code2, FolderOpen } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
 import FixMonomindButton from '../FixMonomindButton.jsx'
@@ -35,13 +36,14 @@ export const CODER_RISK_TITLE = 'Turn on Coder mode?'
 
 // The confirm dialog's body: what the agent can do once this is on.
 export function CoderRiskText() {
+  const { t } = useTranslation()
   return (
     <div data-testid="coder-risk-text">
-      <p style={{ margin: '0 0 8px' }}>In a Coder chat, the coding agent you pick (Claude Code, Codex, OpenCode, …) works on your computer with no approval prompts:</p>
+      <p style={{ margin: '0 0 8px' }}>{t('coderMode.riskIntro')}</p>
       <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <li>It can run any command, read and change any file your user account can, and install software.</li>
-        <li>Web pages and files in the chosen folder can contain instructions that steer it. Only point it at folders and repos you trust.</li>
-        <li>It loads that agent&apos;s normal setup: instructions files (CLAUDE.md, AGENTS.md, GEMINI.md), skills, hooks and MCP servers.</li>
+        <li>{t('coderMode.riskCommands')}</li>
+        <li>{t('coderMode.riskSteer')}</li>
+        <li>{t('coderMode.riskSetup')}</li>
       </ul>
     </div>
   )
@@ -58,6 +60,7 @@ function formFrom(st) {
 }
 
 export default function CoderModeSection() {
+  const { t } = useTranslation()
   const [status, setStatus] = useState(null)
   const [loadErr, setLoadErr] = useState('')
   const [form, setForm] = useState(formFrom(null))
@@ -79,7 +82,7 @@ export default function CoderModeSection() {
 
   const toggle = async (on) => {
     if (on) {
-      const ok = await confirm(<CoderRiskText />, { title: CODER_RISK_TITLE, confirmLabel: 'Turn on Coder mode', danger: true })
+      const ok = await confirm(<CoderRiskText />, { title: t('coderMode.riskTitle'), confirmLabel: t('coderMode.confirmOn'), danger: true, defaultCancel: true })
       if (!ok) return
       await run('enable', async () => apply(await api.coderEnable()))
     } else {
@@ -95,10 +98,10 @@ export default function CoderModeSection() {
   const save = () => run('save', async () => {
     const maxTurns = parseInt(form.maxTurns, 10)
     const budget = form.budgetUsd.trim() === '' ? 0 : Number(form.budgetUsd)
-    if (form.maxTurns && !(maxTurns > 0)) throw new Error('Max turns must be a positive number')
-    if (!(budget >= 0)) throw new Error('Budget must be a number of dollars, or empty for none')
+    if (form.maxTurns && !(maxTurns > 0)) throw new Error(t('coderMode.maxTurnsInvalid'))
+    if (!(budget >= 0)) throw new Error(t('coderMode.budgetInvalid'))
     apply(await api.coderSet({ workspaceRoot: form.workspaceRoot.trim(), maxTurns: maxTurns || 0, timeout: form.timeout.trim(), budgetUsd: budget }))
-    setNote('Saved. New coder chats use these settings.')
+    setNote(t('coderMode.saved'))
   })
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))

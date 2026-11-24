@@ -20,6 +20,7 @@ import (
 
 func (d Deps) newSecretExportCmd() *cobra.Command {
 	var output string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export the vault to an encrypted file, protected by a freshly generated passphrase",
@@ -46,6 +47,11 @@ func (d Deps) newSecretExportCmd() *cobra.Command {
 				path = fmt.Sprintf("vault-export-%s.json.enc", time.Now().UTC().Format("20060102-150405"))
 			}
 
+			if !force {
+				if _, err := os.Lstat(path); err == nil {
+					return clicore.InvalidInput("%s already exists; pass --force to overwrite it or name another --output", path)
+				}
+			}
 			passphrase, err := secrets.GenerateExportPassword()
 			if err != nil {
 				return fmt.Errorf("generating export passphrase: %w", err)
@@ -54,8 +60,8 @@ func (d Deps) newSecretExportCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("exporting vault: %w", err)
 			}
-			if err := os.WriteFile(path, data, 0o600); err != nil {
-				return fmt.Errorf("writing export file: %w", err)
+			if err := writeExportFile(path, data, force); err != nil {
+				return err
 			}
 
 			fmt.Fprintf(os.Stderr, "Vault exported to %s\n", path)
@@ -70,8 +76,33 @@ func (d Deps) newSecretExportCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite the output file when it already exists")
 	cmd.Flags().StringVar(&output, "output", "", "Output file path (default: vault-export-<timestamp>.json.enc in the current directory)")
 	return cmd
+}
+
+// writeExportFile writes the encrypted export 0600. An existing file is left alone
+// unless force: the O_EXCL create also holds against one that appeared since the check.
+func writeExportFile(path string, data []byte, force bool) error {
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if force {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	f, err := os.OpenFile(path, flags, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return clicore.InvalidInput("%s already exists; pass --force to overwrite it or name another --output", path)
+		}
+		return fmt.Errorf("writing export file: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("writing export file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("writing export file: %w", err)
+	}
+	return nil
 }
 
 func (d Deps) newSecretImportCmd() *cobra.Command {

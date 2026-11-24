@@ -72,7 +72,11 @@ func printPaired(out io.Writer, asJSON bool, rows []pairedRow, waiting int) erro
 		tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tLABEL\tBROWSER\tPAIRED\tMAY RUN")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%q\t%q\t%s\t%s\n", r.ID, r.Label, r.Agent, r.PairedAt, mayRun(r))
+			may := mayRun(r)
+			if !r.Restricted {
+				may += " [UNRESTRICTED: can claim any profile; limit it with `extension browsers allow`]"
+			}
+			fmt.Fprintf(tw, "%s\t%q\t%q\t%s\t%s\n", r.ID, r.Label, r.Agent, r.PairedAt, may)
 		}
 		if err := tw.Flush(); err != nil {
 			return err
@@ -103,7 +107,8 @@ func newExtensionBrowsersAllowCmd(cfg *Deps) *cobra.Command {
 		Long: "<id> is an id (or its first 4+ characters) from `extension browsers list`; each profile is a profile\n" +
 			"id or name. The browser can then claim only those profiles: a binding that names another is refused,\n" +
 			"and a connected browser running one that is no longer allowed is disconnected within seconds. With no\n" +
-			"profile the browser may run nothing (it is no default browser either); `--any` lifts the limit.\n" +
+			"profile the browser may run no profile at all (and is no unbound \"default\" browser either);\n" +
+			"`--any` lifts the limit.\n" +
 			"Browsers paired before this limit existed are not limited until you set one. The shared\n" +
 			"extension.token is never limited. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli extension browsers allow 3f2a9c Work Personal\n  monoagentcli extension browsers allow 3f2a9c --any",

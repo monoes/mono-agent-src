@@ -1159,24 +1159,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class CredentialOption {
-	    id: string;
-	    label: string;
-	    platform: string;
-	    method: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CredentialOption(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.label = source["label"];
-	        this.platform = source["platform"];
-	        this.method = source["method"];
-	    }
-	}
 	export class CurlImport {
 	    config: Record<string, any>;
 	    notes: string[];
@@ -1266,20 +1248,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class EvaluateBatchResult {
-	    evaluated: number;
-	    verdicts: Record<string, number>;
-	
-	    static createFrom(source: any = {}) {
-	        return new EvaluateBatchResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.evaluated = source["evaluated"];
-	        this.verdicts = source["verdicts"];
-	    }
 	}
 	export class ExcludedDocument {
 	    path: string;
@@ -3490,22 +3458,6 @@ export namespace main {
 	        this.created_at = source["created_at"];
 	        this.profile_id = source["profile_id"];
 	        this.profile_name = source["profile_name"];
-	    }
-	}
-	export class WorkflowImportResult {
-	    id: string;
-	    name: string;
-	    status?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new WorkflowImportResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.status = source["status"];
 	    }
 	}
 	

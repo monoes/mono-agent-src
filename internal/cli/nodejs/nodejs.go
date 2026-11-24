@@ -11,6 +11,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/doctor"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/nodemgr"
 )
 
@@ -177,8 +178,17 @@ func (d Deps) newNodejsRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remove [version]",
 		Short: "Remove the managed Node.js (one version, or everything incl. packages installed with it)",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Removes one managed Node.js version, or all of it with every npm package installed with it " +
+			"(monomind included). " + clicore.OperatorOnlyHelp,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			refusal := d.Refusal
+			if refusal == nil {
+				refusal = opgate.Refusal
+			}
+			if why := clicore.OperatorRefusal(refusal); why != "" {
+				return clicore.OperatorOnly("nodejs remove deletes the managed Node.js and the packages installed with it, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			m := nodemgr.New()
 			version := ""
 			what := "the managed Node.js and every package installed with it (" + m.Root + ", " + m.NpmRoot + ")"

@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "stitch_video",
   "platform": "TIKTOK",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Open TikTok's stitch creator for videos (nothing is recorded or published; finishing the stitch needs a person). Opening a video page may count as a view.",
   "sideEffects": "write",
   "visibility": ["video_view_counted"],
@@ -27,6 +27,14 @@
         "min": 2,
         "max": 60,
         "description": "Seconds to wait between videos"
+      },
+      {
+        "name": "maxStitchesPerRun",
+        "type": "number",
+        "default": 10,
+        "min": 1,
+        "max": 50,
+        "description": "Limit: max stitches in one run (default 10, hard max 50)"
       }
     ]
   },
@@ -72,6 +80,7 @@
     {
       "id": "process_videos",
       "iterator": "selectedListItems",
+      "maxItems": "{{maxStitchesPerRun or 10}}",
       "indexVar": "reachedIndex",
       "steps": [
         "t1_stitch_video",

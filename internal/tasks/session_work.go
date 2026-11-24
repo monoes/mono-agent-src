@@ -28,6 +28,14 @@ const readyInSession = `session_id = ? AND kind <> 'epic' AND blocked = 0 AND st
 	AND NOT EXISTS (SELECT 1 FROM task_deps d JOIN tasks p ON p.id = d.depends_on_task_id WHERE d.task_id = tasks.id AND NOT ` + depSettledSQL + `)
 	AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?`
 
+// staleInSession is the condition of an In progress task whose lease ended and that may be
+// re-offered: the same rules as readyInSession (not an epic, not blocked, dependencies done,
+// room left in its history).
+const staleInSession = `session_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
+	AND kind <> 'epic' AND blocked = 0
+	AND NOT EXISTS (SELECT 1 FROM task_deps d JOIN tasks p ON p.id = d.depends_on_task_id WHERE d.task_id = tasks.id AND NOT ` + depSettledSQL + `)
+	AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?`
+
 // pickSessionNext is the id of the task SessionNext would take at now: the top of the
 // session's Ready tasks whose dependencies are done, else the stale claim whose lease ended
 // first. 0 means there is none.
@@ -40,10 +48,8 @@ func (s *Store) pickSessionNext(ctx context.Context, x dbx, session int64, now t
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("tasks: picking the next task: %w", err)
 	}
-	err = x.QueryRowContext(ctx,
-		`SELECT id FROM tasks WHERE session_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
-		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
-		 ORDER BY claim_until, id LIMIT 1`, session, now.Format(timeFmt), MaxEventsToClaim).Scan(&id)
+	err = x.QueryRowContext(ctx, `SELECT id FROM tasks WHERE `+staleInSession+` ORDER BY claim_until, id LIMIT 1`,
+		session, now.Format(timeFmt), MaxEventsToClaim).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}

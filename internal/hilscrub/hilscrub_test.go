@@ -245,6 +245,7 @@ func TestEveryRawReaderOfMessagesIsAccountedFor(t *testing.T) {
 		"internal/commsync/queue.go":                 "writer; reads ids",
 		"internal/commsync/status.go":                "card-joined status machinery; reads ids and metadata",
 		"internal/commsync/stale.go":                 "doctor's stale-sending list; reads ids, hil_ref, metadata timestamps and created_at, no message text",
+		"internal/commsync/multinode.go":             "multi-node send bookkeeping; reads only the metadata JSON (target and finished nodes) by hil_ref, no message text",
 		"internal/summary/inbox.go":                  "counts only",
 		"internal/peopledupes/peopledupes.go":        "storage.EnsureMessagesScrubbed before the undo file reads a message; re-pointed messages are saved without text",
 		"internal/hilscrub/hilscrub.go":              "the scrub itself",

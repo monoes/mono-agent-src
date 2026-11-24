@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "send_dms",
   "platform": "LINKEDIN",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Send direct messages to a list of LinkedIn members (only through their Message option — never a connection request). Visiting a profile shows you in that member's \"Who viewed your profile\"; LinkedIn only hides this when you switch to private mode in LinkedIn's settings (Visibility > Profile viewing options).",
   "sideEffects": "message",
   "visibility": ["profile_view_visible_to_owner"],
@@ -31,6 +31,14 @@
         "default": 10,
         "min": 1,
         "max": 600
+      },
+      {
+        "name": "maxMessagesPerRun",
+        "type": "number",
+        "default": 5,
+        "min": 1,
+        "max": 20,
+        "description": "Limit: max messages in one run (default 5, hard max 20)"
       }
     ]
   },
@@ -77,6 +85,7 @@
     {
       "id": "process_recipients",
       "iterator": "selectedListItems",
+      "maxItems": "{{maxMessagesPerRun or 5}}",
       "indexVar": "reachedIndex",
       "steps": [
         "send_message",

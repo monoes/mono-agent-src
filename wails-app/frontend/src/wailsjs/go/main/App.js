@@ -118,10 +118,6 @@ export function AddDocumentTag(arg1, arg2) {
   return window['go']['main']['App']['AddDocumentTag'](arg1, arg2);
 }
 
-export function AddPersonMessage(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
-  return window['go']['main']['App']['AddPersonMessage'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
-}
-
 export function AddPersonStatus(arg1, arg2) {
   return window['go']['main']['App']['AddPersonStatus'](arg1, arg2);
 }
@@ -212,10 +208,6 @@ export function AssignBrowser(arg1, arg2) {
 
 export function AssignOrgRole(arg1, arg2, arg3) {
   return window['go']['main']['App']['AssignOrgRole'](arg1, arg2, arg3);
-}
-
-export function BindBrowser(arg1, arg2) {
-  return window['go']['main']['App']['BindBrowser'](arg1, arg2);
 }
 
 export function BrowserPermissions() {
@@ -498,10 +490,6 @@ export function EvaluateApplication(arg1, arg2) {
   return window['go']['main']['App']['EvaluateApplication'](arg1, arg2);
 }
 
-export function EvaluatePendingApplications(arg1, arg2) {
-  return window['go']['main']['App']['EvaluatePendingApplications'](arg1, arg2);
-}
-
 export function ExportAction(arg1, arg2) {
   return window['go']['main']['App']['ExportAction'](arg1, arg2);
 }
@@ -516,10 +504,6 @@ export function ExportData() {
 
 export function ExportVaultAll() {
   return window['go']['main']['App']['ExportVaultAll']();
-}
-
-export function ExportWorkflow(arg1) {
-  return window['go']['main']['App']['ExportWorkflow'](arg1);
 }
 
 export function GateApproveOrgAction(arg1, arg2, arg3) {
@@ -548,6 +532,10 @@ export function GetAgentRuntimeModels(arg1, arg2) {
 
 export function GetAllPersonMessages(arg1) {
   return window['go']['main']['App']['GetAllPersonMessages'](arg1);
+}
+
+export function GetAllPersonMessagesFiltered(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetAllPersonMessagesFiltered'](arg1, arg2, arg3, arg4);
 }
 
 export function GetAllProfilesRecentExecutions(arg1) {
@@ -954,10 +942,6 @@ export function ImportVaultAll(arg1, arg2) {
   return window['go']['main']['App']['ImportVaultAll'](arg1, arg2);
 }
 
-export function ImportWorkflow(arg1) {
-  return window['go']['main']['App']['ImportWorkflow'](arg1);
-}
-
 export function ImportWorkflowFull(arg1, arg2) {
   return window['go']['main']['App']['ImportWorkflowFull'](arg1, arg2);
 }
@@ -1112,10 +1096,6 @@ export function ListChatConversations(arg1, arg2) {
 
 export function ListConnections(arg1) {
   return window['go']['main']['App']['ListConnections'](arg1);
-}
-
-export function ListCredentialsForNode(arg1) {
-  return window['go']['main']['App']['ListCredentialsForNode'](arg1);
 }
 
 export function ListExcludedDocuments() {
@@ -1534,10 +1514,6 @@ export function SearchProfileKnowledge(arg1) {
   return window['go']['main']['App']['SearchProfileKnowledge'](arg1);
 }
 
-export function SearchVaultImages(arg1) {
-  return window['go']['main']['App']['SearchVaultImages'](arg1);
-}
-
 export function SendApplication(arg1, arg2) {
   return window['go']['main']['App']['SendApplication'](arg1, arg2);
 }
@@ -1704,10 +1680,6 @@ export function StreamOrgEvents(arg1, arg2) {
 
 export function SwitchProfile(arg1) {
   return window['go']['main']['App']['SwitchProfile'](arg1);
-}
-
-export function TagApplication(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TagApplication'](arg1, arg2, arg3);
 }
 
 export function TaskAdd(arg1) {

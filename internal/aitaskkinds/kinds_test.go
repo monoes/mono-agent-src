@@ -138,6 +138,8 @@ func TestWorkflowGenerateRecomputesTheVerdict(t *testing.T) {
 		"missing required field": `{"name":"n","nodes":[{"id":"t","type":"trigger.manual","name":"T","config":{}},{"id":"h","type":"http.request","name":"H","config":{}}],"connections":[{"source":"t","target":"h","source_handle":"main","target_handle":"main"}]}`,
 		"no trigger":             `{"name":"n","nodes":[{"id":"s","type":"core.set","name":"S","config":{"assignments":"a=1"}}]}`,
 		"dangling connection":    `{"name":"n","nodes":[{"id":"t","type":"trigger.manual","name":"T","config":{}}],"connections":[{"source":"t","target":"zz","source_handle":"main","target_handle":"main"}]}`,
+		"secret in settings":     `{"name":"n","settings":{"note":"https://u:pw12345678@h.test/x"},"nodes":[{"id":"t","type":"trigger.manual","name":"T","config":{}}]}`,
+		"secret in description":  `{"name":"n","description":"key https://u:pw12345678@h.test/x","nodes":[{"id":"t","type":"trigger.manual","name":"T","config":{}}]}`,
 		"secret value":           `{"name":"n","nodes":[{"id":"t","type":"trigger.manual","name":"T","config":{}},{"id":"h","type":"http.request","name":"H","config":{"url":"https://u:pw12345678@h.test/x","method":"GET"}}],"connections":[{"source":"t","target":"h","source_handle":"main","target_handle":"main"}]}`,
 	} {
 		raw := `{"summary":"s","workflow":` + wf + `,"validation":{"valid":true,"errors":[]}}`

@@ -96,8 +96,11 @@ func homeRule(ctx context.Context, p, r string, write bool) error {
 	if err != nil {
 		return refuse("%s: no home folder to check against (%v)", p, err)
 	}
-	if procSecret(resolved) {
+	if procSecret(resolved) || procSecret(filepath.Clean(abs)) {
 		return refuse("%s is a process's environment, command line or memory, where keys can be", p)
+	}
+	if systemSecret(resolved) {
+		return refuse("%s is a system credential file (root's home, the password or sudo files)", p)
 	}
 	// $HOME can be overridden (a scratch HOME, a launcher, injected env); the account's own home
 	// is guarded all the same.
@@ -395,10 +398,11 @@ func procSecret(p string) bool {
 		return false
 	}
 	switch filepath.Base(p) {
-	case "environ", "cmdline", "mem":
+	case "environ", "cmdline", "mem", "maps", "smaps":
 		return true
 	}
-	return false
+	// /proc/<pid>/fd/<n> opens whatever the process has open.
+	return strings.Contains(p, "/fd/") || strings.HasSuffix(p, "/fd")
 }
 
 // inGitDir reports a hook or config of a git directory whatever its name: a

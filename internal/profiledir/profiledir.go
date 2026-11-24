@@ -8,6 +8,7 @@ package profiledir
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,10 +68,52 @@ func Root(db *sql.DB, profileID string) string {
 	if db != nil {
 		var override string
 		if err := db.QueryRow(`SELECT root_dir FROM profiles WHERE id = ?`, profileID).Scan(&override); err == nil && override != "" {
+			if verr := ValidateRootDir(override); verr != nil {
+				// A row written before the check existed: use the default folder
+				// rather than hand every consumer a folder that is too wide.
+				log.Printf("warning: profile %s: stored folder %q is not usable (%v); using the default folder", profileID, override, verr)
+				return defaultRoot(profileID)
+			}
 			return override
 		}
 	}
 	return defaultRoot(profileID)
+}
+
+// ValidateRootDir reports why dir cannot be a profile's folder: it must be
+// absolute and clean, not the filesystem root, not the home folder or one of
+// its ancestors, and not a hidden folder (or inside one). Everything that
+// belongs to the profile (the vault, the project trust zone, the layout) is
+// created under it, so a folder that is too wide widens all of that.
+func ValidateRootDir(dir string) error {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return fmt.Errorf("folder path must be absolute: %q", dir)
+	}
+	if filepath.Clean(dir) != dir {
+		return fmt.Errorf("folder path must be clean (no ., .. or doubled separators): %q", dir)
+	}
+	if filepath.Dir(dir) == dir {
+		return fmt.Errorf("the filesystem root cannot be a profile folder")
+	}
+	rel := strings.TrimPrefix(dir, filepath.VolumeName(dir))
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		home = filepath.Clean(home)
+		if dir == home {
+			return fmt.Errorf("the home folder cannot be a profile folder: choose a folder inside it")
+		}
+		if r, err := filepath.Rel(dir, home); err == nil && r != "." && !strings.HasPrefix(r, "..") {
+			return fmt.Errorf("%q contains the home folder; choose a folder inside it", dir)
+		}
+		if r, err := filepath.Rel(home, dir); err == nil && !strings.HasPrefix(r, "..") {
+			rel = r
+		}
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if strings.HasPrefix(part, ".") {
+			return fmt.Errorf("a hidden folder (%q) cannot be a profile folder", part)
+		}
+	}
+	return nil
 }
 
 // IsDefaultManaged reports whether profileID currently resolves to the

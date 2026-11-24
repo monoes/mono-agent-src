@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -299,85 +297,6 @@ func workflowSummaryOf(wf *workflow.Workflow) WorkflowSummary {
 // ─────────────────────────────────────────────────────────────────────────────
 // Workflow import/export
 // ─────────────────────────────────────────────────────────────────────────────
-
-// WorkflowImportResult is the {id, name} pair `workflow import --json` emits.
-type WorkflowImportResult struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	// Status is the CLI's import outcome: "created", "updated" (the same
-	// workflow was imported before and changed) or "unchanged".
-	Status string `json:"status,omitempty"`
-}
-
-// ExportWorkflow returns `monoagentcli workflow export <id>` verbatim: the
-// documented WorkflowFile JSON that `workflow import` reads back.
-func (a *App) ExportWorkflow(workflowID string) (string, error) {
-	if err := a.signedOut(); err != nil {
-		return "", err
-	}
-	var file json.RawMessage
-	if err := a.runMonoCLI("", &file, "workflow", "export", workflowID); err != nil {
-		return "", err
-	}
-	var head struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	_ = json.Unmarshal(file, &head)
-	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Exported workflow: %s [%s]", head.Name, head.ID))
-	return string(file), nil
-}
-
-// ImportWorkflow imports a workflow from raw WorkflowFile JSON (never a file
-// path: the frontend must not make this read local files), by feeding it to `monoagentcli workflow import` on stdin (the
-// CLI import reads stdin when --file is absent) — the same path a CLI import
-// takes, including legacy-format normalization and node-id collision
-// remapping. Returns the imported workflow's {id, name}.
-func (a *App) ImportWorkflow(jsonOrPath string) (*WorkflowImportResult, error) {
-	if err := a.signedOut(); err != nil {
-		return nil, err
-	}
-	jsonOrPath = strings.TrimSpace(jsonOrPath)
-	if jsonOrPath == "" {
-		return nil, fmt.Errorf("import input is empty — pass workflow JSON")
-	}
-	// Raw JSON only: a path from the frontend is never read from disk here.
-	raw := []byte(jsonOrPath)
-	if !json.Valid(raw) {
-		return nil, fmt.Errorf("import input is not valid workflow JSON")
-	}
-
-	cliBin, err := findMonoAgentCLI()
-	if err != nil {
-		return nil, err
-	}
-
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	importArgs, err := a.scopedArgs("workflow", "import")
-	if err != nil {
-		return nil, err
-	}
-	cmd := exec.CommandContext(ctx, cliBin, importArgs...)
-	suppressConsole(cmd)
-	cmd.Stdin = bytes.NewReader(raw)
-	out, err := cmd.Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && cliStderr(ee.Stderr) != "" {
-			return nil, fmt.Errorf("workflow import failed: %s", cliStderr(ee.Stderr))
-		}
-		return nil, fmt.Errorf("workflow import failed: %w", err)
-	}
-	var res WorkflowImportResult
-	if err := json.Unmarshal(out, &res); err != nil {
-		return nil, fmt.Errorf("unexpected workflow import output: %w", err)
-	}
-	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Imported workflow (%s): %s [%s]", res.Status, res.Name, res.ID))
-	return &res, nil
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Workflow execution (subprocess)

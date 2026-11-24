@@ -2,6 +2,8 @@ package agentinstall
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -81,6 +83,78 @@ func TestInstallScriptRunsDownloadedInstaller(t *testing.T) {
 	log := strings.Join(lines, "\n")
 	if !strings.Contains(log, "sha256") || !strings.Contains(log, "installing") {
 		t.Errorf("log should show the installer's hash and output:\n%s", log)
+	}
+}
+
+// serveInstaller serves body over TLS as an allowed installer host.
+func serveInstaller(t *testing.T, body string) (*Installer, string) {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
+	t.Cleanup(srv.Close)
+	in := New()
+	in.HTTP = srv.Client()
+	u, _ := url.Parse(srv.URL)
+	ScriptHosts[u.Host] = true
+	t.Cleanup(func() { delete(ScriptHosts, u.Host) })
+	return in, srv.URL + "/install.sh"
+}
+
+// The recipe's sha256 is what was reviewed: a script that hashes differently
+// is not run (r08-D03).
+func TestInstallScriptRefusesAHashMismatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	marker := filepath.Join(t.TempDir(), "ran")
+	body := "touch " + marker + "\n"
+	in, u := serveInstaller(t, body)
+	r := Recipe{Kind: KindScript, ScriptURL: u, Shell: "sh", ScriptSHA256: strings.Repeat("ab", 32)}
+	err := in.Install(context.Background(), r, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Fatalf("mismatch: err = %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the mismatching installer ran")
+	}
+	sum := sha256.Sum256([]byte(body))
+	r.ScriptSHA256 = strings.ToUpper(hex.EncodeToString(sum[:]))
+	if err := in.Install(context.Background(), r, func(string) {}); err != nil {
+		t.Fatalf("matching hash: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("the matching installer did not run")
+	}
+}
+
+// The installer script sees a scrubbed environment, not the caller's tokens (r08-D03).
+func TestInstallScriptEnvIsScrubbed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	t.Setenv("MONOAGENT_API_TOKEN", "tok-secret")
+	t.Setenv("GITHUB_TOKEN", "gh-secret")
+	out := filepath.Join(t.TempDir(), "env")
+	in, u := serveInstaller(t, "env > "+out+"\n")
+	if err := in.Install(context.Background(), Recipe{Kind: KindScript, ScriptURL: u, Shell: "sh"}, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(out)
+	if strings.Contains(string(b), "secret") || !strings.Contains(string(b), "PATH=") {
+		t.Errorf("installer env:\n%s", b)
+	}
+}
+
+func TestForEntryCarriesSha256AndIgnoreScripts(t *testing.T) {
+	e := monomind.ScanEntry{Install: &monomind.InstallRecipe{Kind: "npm", Packages: []string{"@openai/codex@1.2.3"}, IgnoreScripts: true}}
+	if r := ForEntry(e); !r.IgnoreScripts || r.Kind != KindNpm {
+		t.Errorf("npm: %+v", r)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	e = monomind.ScanEntry{Install: &monomind.InstallRecipe{Kind: "script", URL: "https://antigravity.google/install.sh", Shell: "bash", SHA256: "AB"}}
+	if r := ForEntry(e); r.ScriptSHA256 != "AB" {
+		t.Errorf("script: %+v", r)
 	}
 }
 

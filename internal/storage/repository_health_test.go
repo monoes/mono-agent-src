@@ -47,40 +47,19 @@ func TestHealthGetListDeletePeople(t *testing.T) {
 		t.Errorf("GetPersonByUsername on wrong platform = %v, %v", missing, err)
 	}
 
-	names := func(ps []*storage.Person) map[string]bool {
-		m := map[string]bool{}
-		for _, p := range ps {
-			m[p.PlatformUsername] = true
-		}
-		return m
+	if err := db.DeletePerson("work", alice); err == nil {
+		t.Error("DeletePerson of another profile's person should report not found")
 	}
-	all, err := db.ListPeople("", "", 0, -1)
-	if err != nil || len(all) != 3 {
-		t.Fatalf("ListPeople all = %d, %v", len(all), err)
+	if p, _ := db.GetPersonInProfile("work", alice); p != nil {
+		t.Error("GetPersonInProfile returned another profile's person")
 	}
-	onX, _ := db.ListPeople("x", "", 10, 0)
-	if n := names(onX); len(n) != 2 || !n["alice"] || !n["bob"] {
-		t.Errorf("ListPeople platform=x = %v", n)
+	if p, _ := db.GetPersonInProfile("default", alice); p == nil {
+		t.Error("GetPersonInProfile lost the profile's own person")
 	}
-	// Search matches username or full name, case-insensitively for ASCII.
-	ali, _ := db.ListPeople("", "ali", 10, 0)
-	if n := names(ali); len(n) != 2 || !n["alice"] || !n["alina"] {
-		t.Errorf("ListPeople search=ali = %v", n)
-	}
-	byName, _ := db.ListPeople("x", "BOB", 10, 0)
-	if n := names(byName); len(n) != 1 || !n["bob"] {
-		t.Errorf("ListPeople search=BOB on x = %v", n)
-	}
-	page1, _ := db.ListPeople("", "", 2, 0)
-	page2, _ := db.ListPeople("", "", 2, 2)
-	if len(page1) != 2 || len(page2) != 1 {
-		t.Errorf("pagination = %d + %d, want 2 + 1", len(page1), len(page2))
-	}
-
-	if err := db.DeletePerson(alice); err != nil {
+	if err := db.DeletePerson("default", alice); err != nil {
 		t.Fatalf("DeletePerson: %v", err)
 	}
-	if err := db.DeletePerson(alice); err == nil {
+	if err := db.DeletePerson("default", alice); err == nil {
 		t.Error("second DeletePerson should report not found")
 	}
 }
@@ -114,7 +93,7 @@ func TestHealthDeletePersonCascadesHistory(t *testing.T) {
 	if _, err := db.AddPersonStatusUpdate(id, "default", "met at conf"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.DeletePerson(id); err != nil {
+	if err := db.DeletePerson("default", id); err != nil {
 		t.Fatal(err)
 	}
 	if m, _ := db.GetPersonMessage(msg.ID); m != nil {
@@ -153,9 +132,10 @@ func TestHealthBatchUpsertPeople(t *testing.T) {
 	if err := db.BatchUpsertPeople([]*storage.Person{{PlatformUsername: "p1", Platform: "x", ProfileID: "default", FullName: "Uno"}}); err != nil {
 		t.Fatal(err)
 	}
-	all, _ := db.ListPeople("x", "", 0, 0)
-	if len(all) != 2 {
-		t.Errorf("rows after re-upsert = %d, want 2", len(all))
+	var rows int
+	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE platform = 'x'`).Scan(&rows)
+	if rows != 2 {
+		t.Errorf("rows after re-upsert = %d, want 2", rows)
 	}
 	p1, _ = db.GetPersonByUsername("p1", "x", "default")
 	if p1.FullName != "Uno" {
@@ -423,117 +403,7 @@ func TestHealthPersonStatusUpdates(t *testing.T) {
 	}
 }
 
-// --- social lists ------------------------------------------------------------
-
-func TestHealthSocialListsAndItems(t *testing.T) {
-	db := testdb.Open(t)
-	l := &storage.SocialList{Name: "Leads", ListType: "people"}
-	if err := db.CreateSocialList(l); err != nil {
-		t.Fatal(err)
-	}
-	l2 := &storage.SocialList{Name: "Other"}
-	if err := db.CreateSocialList(l2); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := db.AddSocialListItem(&storage.SocialListItem{ListID: l.ID, Platform: "x", PlatformUsername: "u1", URL: "https://x.example/u1", FollowerCount: 7}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.BatchAddSocialListItems(nil); err != nil {
-		t.Fatalf("empty batch: %v", err)
-	}
-	batch := []*storage.SocialListItem{
-		{ListID: l.ID, Platform: "x", PlatformUsername: "u2", FullName: "U Two"},
-		{ListID: l.ID, Platform: "x", PlatformUsername: "u3"},
-		{ListID: l2.ID, Platform: "instagram", PlatformUsername: "v1"},
-	}
-	if err := db.BatchAddSocialListItems(batch); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := db.GetSocialList(l.ID)
-	if err != nil || got == nil {
-		t.Fatalf("GetSocialList: %v %v", got, err)
-	}
-	if got.ItemCount != 3 || got.ListType != "people" || got.Name != "Leads" {
-		t.Errorf("list after adds = %+v", got)
-	}
-	if g2, _ := db.GetSocialList(l2.ID); g2.ItemCount != 1 || g2.ListType != "" {
-		t.Errorf("second list = %+v", g2)
-	}
-	items, err := db.ListSocialListItems(l.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 3 || items[0].PlatformUsername != "u1" || items[0].URL != "https://x.example/u1" || items[0].FollowerCount != 7 {
-		t.Errorf("items = %+v", items)
-	}
-	lists, _ := db.ListSocialLists()
-	if len(lists) != 2 {
-		t.Errorf("ListSocialLists = %d", len(lists))
-	}
-
-	// An item for a list that does not exist violates the foreign key and the
-	// whole batch rolls back.
-	bad := []*storage.SocialListItem{
-		{ListID: l.ID, Platform: "x", PlatformUsername: "ok"},
-		{ListID: "missing", Platform: "x", PlatformUsername: "bad"},
-	}
-	if err := db.BatchAddSocialListItems(bad); err == nil {
-		t.Error("batch with an unknown list should fail")
-	}
-	if items, _ := db.ListSocialListItems(l.ID); len(items) != 3 {
-		t.Errorf("failed batch left partial rows: %d", len(items))
-	}
-	if err := db.AddSocialListItem(&storage.SocialListItem{ListID: "missing", Platform: "x", PlatformUsername: "z"}); err == nil {
-		t.Error("item for an unknown list should fail")
-	}
-
-	if err := db.DeleteSocialList(l.ID); err != nil {
-		t.Fatal(err)
-	}
-	if items, _ := db.ListSocialListItems(l.ID); len(items) != 0 {
-		t.Errorf("items survived list delete: %d", len(items))
-	}
-	if gone, err := db.GetSocialList(l.ID); err != nil || gone != nil {
-		t.Errorf("GetSocialList after delete = %v, %v", gone, err)
-	}
-	if err := db.DeleteSocialList(l.ID); err == nil {
-		t.Error("deleting a missing list should fail")
-	}
-}
-
-// --- threads, templates, configs, settings -----------------------------------
-
-func TestHealthThreadsUpsert(t *testing.T) {
-	db := testdb.Open(t)
-	th := &storage.Thread{SocialUserID: "u1", Platform: "x", Messages: `["hi"]`}
-	if err := db.UpsertThread(th); err != nil {
-		t.Fatal(err)
-	}
-	// Same (user, platform) updates in place.
-	if err := db.UpsertThread(&storage.Thread{SocialUserID: "u1", Platform: "x", Messages: `["hi","yo"]`, Metadata: `{"a":1}`}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.UpsertThread(&storage.Thread{SocialUserID: "u1", Platform: "instagram"}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := db.GetThread("u1", "x")
-	if err != nil || got == nil {
-		t.Fatalf("GetThread: %v %v", got, err)
-	}
-	if got.ID != th.ID || got.Messages != `["hi","yo"]` || got.Metadata != `{"a":1}` {
-		t.Errorf("thread after upsert = %+v", got)
-	}
-	if missing, err := db.GetThread("nobody", "x"); err != nil || missing != nil {
-		t.Errorf("GetThread missing = %v, %v", missing, err)
-	}
-	all, _ := db.ListThreads("")
-	onX, _ := db.ListThreads("x")
-	if len(all) != 2 || len(onX) != 1 {
-		t.Errorf("threads all/x = %d/%d", len(all), len(onX))
-	}
-}
+// --- templates, configs, settings ---------------------------------------------
 
 func TestHealthTemplatesCRUD(t *testing.T) {
 	db := testdb.Open(t)

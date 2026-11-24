@@ -91,7 +91,7 @@ func TestBind_SymlinkIsTheSameInstall(t *testing.T) {
 	}
 	link := filepath.Join(dir, "link")
 	if err := os.Symlink(real, link); err != nil {
-		t.Skip(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	db2 := openAt(t, filepath.Join(link, "monoagent.db"))
 	got, err := getOrCreateDEK(ctx, db2.DB, "p1")

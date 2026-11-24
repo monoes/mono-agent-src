@@ -242,12 +242,31 @@ func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Acto
 	err := s.snapshot(ctx, func(x dbx) error {
 		var err error
 		out, err = s.queryTasks(ctx, x, q, args...)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.markStuckClaims(ctx, x, out)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// markStuckClaims sets ClaimStuck on the held tasks whose history has reached
+// MaxEventsToClaim events.
+func (s *Store) markStuckClaims(ctx context.Context, x dbx, ts []Task) error {
+	for i := range ts {
+		if ts[i].Status != StatusInProgress || ts[i].Claim == nil {
+			continue
+		}
+		var n int
+		if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_events WHERE task_id = ?`, ts[i].ID).Scan(&n); err != nil {
+			return fmt.Errorf("tasks: counting the events of #%d: %w", ts[i].ID, err)
+		}
+		ts[i].ClaimStuck = n >= MaxEventsToClaim
+	}
+	return nil
 }
 
 // Board returns the whole board in one snapshot: the revision, the counts and

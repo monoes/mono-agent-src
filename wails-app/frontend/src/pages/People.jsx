@@ -142,6 +142,12 @@ function TagEditor({ personId, username, fullName, onClose }) {
   const [editingColorTagId, setEditingColorTagId] = useState(null)
   const inputRef = useRef(null)
   const rootRef  = useRef(null)
+  const [tagError, setTagError] = useState('')
+  // A failed write must say so; the optimistic change is not applied then.
+  const guarded = (fn) => async (...args) => {
+    setTagError('')
+    try { return await fn(...args) } catch (e) { setTagError(e?.message || String(e)) }
+  }
 
   // Load person's current tags + all global tags
   useEffect(() => {
@@ -151,8 +157,8 @@ function TagEditor({ personId, username, fullName, onClose }) {
     ]).then(([pt, at]) => {
       setTags(pt || [])
       setAllTags(at || [])
-      setLoading(false)
-    })
+    }).catch(e => setTagError(e?.message || String(e)))
+      .finally(() => setLoading(false))
   }, [personId])
 
   // Update suggestions when input changes
@@ -178,7 +184,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  const addExisting = async (tag) => {
+  const addExisting = guarded(async (tag) => {
     if (tags.length >= 10) return
     const result = await api.addPersonTag(personId, tag.name, tag.color)
     if (result) {
@@ -187,9 +193,9 @@ function TagEditor({ personId, username, fullName, onClose }) {
     setInput('')
     setSuggestions([])
     inputRef.current?.focus()
-  }
+  })
 
-  const toggleSuggestedTag = async (sTag) => {
+  const toggleSuggestedTag = guarded(async (sTag) => {
     const existing = tags.find(t => t.name.toLowerCase() === sTag.name.toLowerCase())
     if (existing) {
       await api.removePersonTag(personId, existing.id)
@@ -205,9 +211,9 @@ function TagEditor({ personId, username, fullName, onClose }) {
         setAllTags(prev => prev.some(t => t.id === result.id) ? prev : [...prev, result])
       }
     }
-  }
+  })
 
-  const addNew = async () => {
+  const addNew = guarded(async () => {
     const name = input.trim()
     if (!name || tags.length >= 10) return
     const exact = allTags.find(t => t.name.toLowerCase() === name.toLowerCase())
@@ -220,20 +226,20 @@ function TagEditor({ personId, username, fullName, onClose }) {
     setInput('')
     setSuggestions([])
     inputRef.current?.focus()
-  }
+  })
 
-  const remove = async (tagId) => {
+  const remove = guarded(async (tagId) => {
     await api.removePersonTag(personId, tagId)
     setTags(prev => prev.filter(t => t.id !== tagId))
     if (editingColorTagId === tagId) setEditingColorTagId(null)
-  }
+  })
 
-  const changeTagColor = async (tagId, newColor) => {
+  const changeTagColor = guarded(async (tagId, newColor) => {
     await api.updateTagColor(tagId, newColor)
     setTags(prev => prev.map(t => t.id === tagId ? { ...t, color: newColor } : t))
     setAllTags(prev => prev.map(t => t.id === tagId ? { ...t, color: newColor } : t))
     setEditingColorTagId(null)
-  }
+  })
 
   const isNewTag = input.trim() && !allTags.some(t =>
     t.name.toLowerCase() === input.trim().toLowerCase()
@@ -347,6 +353,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
               )}
             </div>
 
+            {tagError && <div role="alert" data-testid="tag-error" style={{ fontSize: 11, color: 'var(--red)', marginBottom: 6 }}>{tagError}</div>}
             {loading ? (
               <div style={{ height: 32, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12 }}>
                 <div className="spinner" style={{ width: 14, height: 14 }} /> Loading tags…
@@ -851,7 +858,9 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
     return () => clearTimeout(debounceRef.current)
   }, [search])
 
+  const loadSeq = useRef(0)
   const load = useCallback(async (opts) => {
+    const seq = ++loadSeq.current // only the newest request may write
     if (opts?.silent !== true) setLoading(true)
     try {
       setError(null)
@@ -859,6 +868,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
         api.getPeople(platform, debouncedSearch, LIMIT, offset),
         api.getPeopleCount(platform, debouncedSearch),
       ])
+      if (seq !== loadSeq.current) return
       const rows = data || []
       setPeople(rows)
       setCount(total || 0)
@@ -874,9 +884,9 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
       }
     } catch (e) {
       // Signed out: the account gate (watching every binding) takes over.
-      if (!loginRequiredInError(e)) setError(e?.message || 'Failed to load people')
+      if (seq === loadSeq.current && !loginRequiredInError(e)) setError(e?.message || 'Failed to load people')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [platform, debouncedSearch, offset])
 
@@ -939,7 +949,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
               <Trash2 size={12} /> Delete ({selected.size})
             </button>
           )}
-          <button className="btn btn-ghost btn-sm" onClick={load} style={{ gap: 5 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => load()} style={{ gap: 5 }}>
             <RefreshCw size={12} /> Refresh
           </button>
         </div>

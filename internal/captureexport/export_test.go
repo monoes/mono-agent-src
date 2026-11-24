@@ -100,7 +100,7 @@ func TestExportArchiveLayout(t *testing.T) {
 	if man.Format != Format || man.Version != Version {
 		t.Errorf("manifest = %s v%d", man.Format, man.Version)
 	}
-	if man.Source.Inbox != inbox || man.Source.Host != "testhost" {
+	if man.Source.Inbox != filepath.Base(inbox) || man.Source.Host != "testhost" { // R11-10: basename, not the absolute path
 		t.Errorf("manifest source = %+v", man.Source)
 	}
 

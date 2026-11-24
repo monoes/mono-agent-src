@@ -35,6 +35,11 @@ func WriteFile(path string, data []byte) error {
 	if err := MkdirAll(filepath.Dir(path)); err != nil {
 		return err
 	}
+	// The mode is fixed before the content goes in: writing first and chmodding after left the new
+	// content in a group- or world-readable file for a moment.
+	if err := os.Chmod(path, FilePerm); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	if err := os.WriteFile(path, data, FilePerm); err != nil {
 		return err
 	}

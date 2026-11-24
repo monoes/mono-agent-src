@@ -131,9 +131,10 @@ func inAttachments(p string) bool {
 }
 
 type pending struct {
-	name string
-	src  string
-	size int64
+	name  string
+	class string
+	src   string
+	size  int64
 }
 
 // WriteContext copies sources (files and folders) into <cwd>/ContextDir/<taskID>/
@@ -185,6 +186,10 @@ func WriteContext(cwd, taskID string, sources []ContextSource, redact func(strin
 			}
 		} else if !allowedBinary(b) {
 			return nil, errf(CodeContextInvalid, "%s is neither text nor a PNG, JPEG, WebP, GIF or PDF", f.src)
+		} else if redact != nil && f.class != SourceDocument {
+			// Redaction is text only: an image or PDF would reach the model with any secret in it, so while secrets are in scope
+			// only a document registered to the profile may be one.
+			return nil, errf(CodeContextInvalid, "%s: an image or PDF is only taken from a registered document (class %s) because secrets are not redacted out of one", f.src, SourceDocument)
 		}
 		if err := os.WriteFile(target, b, 0o644); err != nil {
 			return nil, err
@@ -204,7 +209,7 @@ func collect(sources []ContextSource) ([]pending, error) {
 	var files []pending
 	seen := map[string]string{}
 	var total int64
-	add := func(name, src string, size int64) error {
+	add := func(name, class, src string, size int64) error {
 		if strings.ContainsAny(name, "\x00\r\n") {
 			return errf(CodeContextInvalid, "%q can't be a context file name", name)
 		}
@@ -219,7 +224,7 @@ func collect(sources []ContextSource) ([]pending, error) {
 			return errf(CodeContextInvalid, "the context holds more than %d MB or %d files", MaxContextTotalBytes>>20, MaxContextFiles)
 		}
 		seen[name] = src
-		files = append(files, pending{name: name, src: src, size: size})
+		files = append(files, pending{name: name, class: class, src: src, size: size})
 		return nil
 	}
 	for _, cs := range sources {
@@ -236,7 +241,7 @@ func collect(sources []ContextSource) ([]pending, error) {
 		case fi.Mode()&fs.ModeSymlink != 0:
 			return nil, errf(CodeContextInvalid, "%s is a symbolic link: name the file itself", src)
 		case fi.Mode().IsRegular():
-			if err := add(cs.Class+"/"+filepath.Base(abs), abs, fi.Size()); err != nil {
+			if err := add(cs.Class+"/"+filepath.Base(abs), cs.Class, abs, fi.Size()); err != nil {
 				return nil, err
 			}
 		case fi.IsDir():
@@ -270,7 +275,7 @@ func collect(sources []ContextSource) ([]pending, error) {
 					return err
 				}
 				rel, _ := filepath.Rel(abs, p)
-				return add(cs.Class+"/"+base+"/"+filepath.ToSlash(rel), p, info.Size())
+				return add(cs.Class+"/"+base+"/"+filepath.ToSlash(rel), cs.Class, p, info.Size())
 			})
 			if err != nil {
 				var ae *Error

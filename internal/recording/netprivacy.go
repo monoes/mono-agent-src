@@ -44,9 +44,17 @@ var (
 	schemeRe      = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,19}$`)
 	methodRe      = regexp.MustCompile(`^[A-Z]{1,16}$`)
 	cardRe        = regexp.MustCompile(`\d(?:[ -]?\d){12,18}`)
-	bodySecretRe  = regexp.MustCompile(`(?i)pass|pwd|token|secret|signature|session|cookie|credential|private|auth($|[^o])|api_?key|(^|[^a-z])(pin|cvv|cvc|csc|otp|ssn|2fa|mfa|key|code)([^a-z]|$)`)
+	bodySecretRe  = regexp.MustCompile(`(?i)pass|pwd|token|secret|card|iban|routing|bearer|signature|session|cookie|credential|private|auth($|[^o])|api_?key|(^|[^a-z])(pin|cvv|cvc|csc|otp|ssn|2fa|mfa|key|code)([^a-z]|$)`)
 	headerValueRe = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 )
+
+var camelBoundaryRe = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// secretBodyKey matches a body key against bodySecretRe after splitting
+// camelCase, so "accessKey" reads as "access_Key" and its Key counts.
+func secretBodyKey(key string) bool {
+	return bodySecretRe.MatchString(key) || bodySecretRe.MatchString(camelBoundaryRe.ReplaceAllString(key, "${1}_${2}"))
+}
 
 // credentialValue reports a header value that is a credential whatever the
 // header is called: a JWT or an auth scheme followed by a token.
@@ -151,7 +159,7 @@ func RedactBody(body, contentType string) string {
 }
 
 func redactJSON(v any, key string) any {
-	if key != "" && bodySecretRe.MatchString(key) {
+	if key != "" && secretBodyKey(key) {
 		if _, isArr := v.([]any); !isArr {
 			return Redacted
 		}
@@ -197,7 +205,7 @@ func redactForm(raw string) string {
 		if err != nil {
 			val = v
 		}
-		if bodySecretRe.MatchString(key) || sensitiveParam(key) || credentialValue(val) {
+		if secretBodyKey(key) || sensitiveParam(key) || credentialValue(val) {
 			parts[i] = k + "=" + Redacted
 			continue
 		}

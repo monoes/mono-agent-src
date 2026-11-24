@@ -10,6 +10,7 @@ import {
   tierForClass, effectiveLevel, routeFor, routeLabel, needsDecisionToApproval, approvalToNeedsDecision,
 } from '../orgs/autonomyModel.js'
 import { TierChip, mono, mutedText } from '../orgs/ui.jsx'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 export const GRANT_DEFAULTS = { mode: 'run', wait: true, timeout_seconds: 600, max_calls_per_run: 20 }
 
@@ -51,6 +52,7 @@ function num(v, fallback) {
 }
 
 export default function GrantDialog({ open, orgName, role, automation, grant, autonomy, onClose, onSaved, onDenyBash }) {
+  useEscapeClose(onClose, !!open)
   const { t } = useTranslation()
   const [mode, setMode] = useState(GRANT_DEFAULTS.mode)
   const [wait, setWait] = useState(GRANT_DEFAULTS.wait)

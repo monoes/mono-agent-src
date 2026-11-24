@@ -69,9 +69,16 @@ export default function Info({ isActive = true }) {
     setAiBusy(true); setAiResult(null)
     try {
       const res = await WailsApp.AIFillProfileInfo('', '')
-      const fresh = await loadEntries()
-      const empty = leftEmpty(catalog, fresh, profileType(fresh))
       const n = res?.filled?.length || 0
+      let fresh
+      try {
+        fresh = await loadEntries()
+      } catch {
+        // The fill itself worked: do not tell the user to run it again.
+        setAiResult({ ok: true, text: t('infoPage.filledReloadFailed', { count: n }) })
+        return
+      }
+      const empty = leftEmpty(catalog, fresh, profileType(fresh))
       setAiResult({ ok: true, text: n > 0 ? t('info.aiDone', { count: n, empty }) : t('info.aiNothing', { empty }) })
     } catch (e) {
       setAiResult({ ok: false, text: t('info.aiFailed', { message: errorText(e) }) })
@@ -126,7 +133,7 @@ export default function Info({ isActive = true }) {
             </div>
           )}
         </div>
-        {loadError && <div className="info-banner is-error" role="alert"><AlertTriangle size={14} color="var(--red)" /><span>{loadError}</span></div>}
+        {loadError && <div className="info-banner is-error" role="alert"><AlertTriangle size={14} color="var(--red)" /><span>{loadError}</span><button type="button" className="btn btn-ghost btn-sm" onClick={load}>{t('nodeRunner.modals.retry')}</button></div>}
         {!catalog && !loadError && <div className="info-lead">{t('info.loading')}</div>}
         {catalog && groups.length === 0 && <div className="info-lead">{t('info.empty')}</div>}
         {groups.map(g => {

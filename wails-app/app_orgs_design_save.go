@@ -71,18 +71,19 @@ func (a *App) saveOrgDoc(root string, d *orgdesign.Doc, signNew bool) (sha strin
 	// Decided before the first write: whether this save may be re-signed.
 	sig := a.orgSignBefore(root, d, signNew)
 
-	if _, err := a.writeOrgDoc(root, d); err != nil {
+	written, err := a.writeOrgDoc(root, d)
+	if err != nil {
 		return "", err
 	}
 	if cliErr := a.cliValidate(root, d.Name); cliErr != nil {
-		a.rollbackOrgDoc(root, d.Name, preImage)
+		a.rollbackOrgDoc(root, d.Name, preImage, written)
 		return "", fmt.Errorf("monomind rejected this change: %s", cliErr.Error())
 	}
 
 	// Only now touch rows — and write the document again, since reconcile
 	// rewrites the display copies it just matched against them.
 	if err := a.reconcileOrgDoc(root, d, preImage == nil); err != nil {
-		a.rollbackOrgDoc(root, d.Name, preImage)
+		a.rollbackOrgDoc(root, d.Name, preImage, written)
 		return "", err
 	}
 	if sha, err = a.writeOrgDoc(root, d); err != nil {
@@ -114,7 +115,7 @@ func (a *App) keepOrgSignature(root string, sig orgsign.Pre, name, sha string) {
 		slog.Warn("org was not re-signed after this change", "org", name, "err", err)
 		return
 	}
-	out := a.rawCLI(orgCLITimeout, orgSignArgs(root, name, "--yes", "--expect-hash", want)...)
+	out := a.rawCLI(orgCLITimeout, orgSignArgs(root, name, orgSignYesArgs(name, want)...)...)
 	var res struct {
 		Error string `json:"error"`
 		Code  string `json:"code"`
@@ -140,12 +141,21 @@ func (a *App) writeOrgDoc(root string, d *orgdesign.Doc) (string, error) {
 // rollbackOrgDoc restores the pre-write bytes — never leave a config on disk
 // that monomind's own schema rejects, even transiently. A save that created
 // the file (no pre-image) removes it instead.
-func (a *App) rollbackOrgDoc(root, name string, preImage *orgdesign.Doc) {
+func (a *App) rollbackOrgDoc(root, name string, preImage *orgdesign.Doc, written string) {
 	if preImage == nil {
 		_ = orgdesign.Delete(root, name)
 		return
 	}
-	if sha, err := orgdesign.Save(root, preImage); err == nil && a.orgWatcher != nil {
+	// The pre-image remembers the bytes it was loaded from, which this save has since overwritten: the
+	// undo expects the bytes this save wrote (written), so an edit made by someone else in between is
+	// still not clobbered.
+	preImage.ExpectSHA(written)
+	sha, err := orgdesign.Save(root, preImage)
+	if err != nil {
+		slog.Warn("org config was not restored after a rejected save", "org", name, "err", err)
+		return
+	}
+	if a.orgWatcher != nil {
 		a.orgWatcher.MarkSelfWrite(name, sha)
 	}
 }

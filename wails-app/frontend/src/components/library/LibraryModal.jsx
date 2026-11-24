@@ -11,6 +11,7 @@ import { X, Search, Library } from 'lucide-react'
 import { library, isLoginRequired, LIBRARY_TABS } from '../../services/library.js'
 import LogInToMonoesButton from './LogInToMonoesButton.jsx'
 import LibraryItemCard from './LibraryItemCard.jsx'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 const mono = { fontFamily: 'var(--font-mono)', fontSize: 11 }
 const PER_PAGE = 20
@@ -112,11 +113,7 @@ export default function LibraryModal({ kind, onClose, onInstalled }) {
     setItems(prev => [...prev, ...more]); setPage(page + 1)
   }, [kind, tab, search, page, sessionExpired])
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   const installed = (item, res) => {
     // Show the new installed state on the card without a round trip.

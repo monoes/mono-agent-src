@@ -22,6 +22,8 @@ type opRow struct {
 // guards.
 func operatorOnlyRows() []opRow {
 	return append(append(append(append(append(append(operatorOnlyRowsPR2(), operatorOnlyRowsPR3()...), operatorOnlyRowsPR4()...), operatorOnlyRowsPR5()...), operatorOnlyRowsPR6()...), operatorOnlyRowsOrgProposal()...), []opRow{
+		{path: "hil expire", build: newHILCmd, args: []string{"expire", "no-such-send"}},
+		{path: "nodejs remove", build: newNodejsCmd, args: []string{"remove", "--yes"}},
 		{path: "api key create", build: newAPICmd, args: []string{"key", "create", "--name", "x"}},
 		{path: "api key update", build: newAPICmd, args: []string{"key", "update", "k1", "--name", "y"}},
 		{path: "api key revoke", build: newAPICmd, args: []string{"key", "revoke", "k1", "--yes"}},

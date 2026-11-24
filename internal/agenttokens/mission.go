@@ -49,6 +49,9 @@ type MissionBinding struct {
 // Verifier reports whether the role is the verifier's.
 func (m MissionBinding) Verifier() bool { return m.Role == RoleVerifier }
 
+// MaxMissionTTL is the longest a mission token lives: a longer ttl is shortened to it.
+const MaxMissionTTL = 24 * time.Hour
+
 // ErrMission means a mission binding that is not complete.
 var ErrMission = errors.New("a mission token needs a session, a task, a role (worker or verifier), an actor name and an owner")
 
@@ -61,6 +64,9 @@ func (s *Store) CreateMission(ctx context.Context, profileID string, b MissionBi
 	if b.Session <= 0 || b.Task <= 0 || (b.Role != RoleWorker && b.Role != RoleVerifier) ||
 		strings.TrimSpace(b.Actor) == "" || b.Owner == "" || ttl <= 0 {
 		return Token{}, "", ErrMission
+	}
+	if ttl > MaxMissionTTL {
+		ttl = MaxMissionTTL
 	}
 	secret, err := generate()
 	if err != nil {

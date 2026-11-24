@@ -124,6 +124,13 @@ func (e *libEnv) resolveItem(ctx context.Context, c *library.Client, kind, ref s
 // install downloads it (sha256-checked) and hands it to the kind's
 // installer.
 func (e *libEnv) install(ctx context.Context, c *library.Client, it *library.Item, o libInstallOptions) (*InstallResult, error) {
+	// An API package may replace a built-in app.* node and an automation is code the
+	// engine runs: only the user installs those (a dry run changes nothing).
+	if !o.dryRun && (it.Kind == library.KindAPI || it.Kind == library.KindAutomation) {
+		if why := clicore.OperatorRefusal(e.deps.Refusal); why != "" {
+			return nil, clicore.OperatorOnly("library install of a %s package installs code the engine runs, which only the user decides: %s; run it yourself in your terminal or the app (--dry-run shows what it would install)", it.Kind, why)
+		}
+	}
 	data, sum, err := c.Download(ctx, it)
 	if err != nil {
 		return nil, e.deps.Err(err)

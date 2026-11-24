@@ -242,3 +242,17 @@ func TestAMarkedAgentRunOfAnApprovedWorkflowSendWaits(t *testing.T) {
 		}
 	}
 }
+
+// A process with no marker of its own that runs under an agent (env -u + node run) is judged by
+// the operator's ancestor check, so its send waits like the agent's (R10-13).
+func TestUnmarkedProcessUnderAnAgentWaits(t *testing.T) {
+	asOperator(t)
+	AncestorCheck = func() string { return "a parent process's CLAUDECODE marks it" }
+	t.Cleanup(func() { AncestorCheck = nil })
+	db := testDB(t)
+	sent, _ := runEmailWorkflow(t, db, true, nil)
+	items := sendItems(t, db)
+	if len(sent) != 0 || len(items) != 1 || items[0].PreparedBy.AgentID != UnmarkedAgentID {
+		t.Fatalf("sent %d, queued %d (%+v)", len(sent), len(items), items)
+	}
+}

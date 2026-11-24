@@ -15,10 +15,9 @@ package httpnodes
 //     the handshake, opening the session and its environment request, all
 //     together) and then, again, how long the remote command may run before
 //     the node cancels it and returns an error.
-//   - "known_hosts" switches host key verification from
-//     ssh.InsecureIgnoreHostKey() (the fallback, which logs a WARNING) to a
-//     real known_hosts file check. Security-relevant and previously
-//     unreachable from the UI.
+//   - "known_hosts" switches host key verification from trust on first use
+//     (~/.monoagent/known_hosts) to a real known_hosts file check.
+//     "allow_unknown_host_key" turns the check off (ssh.InsecureIgnoreHostKey).
 type SSHNodeSchema struct {
 	Host string `json:"host" schema:"label=SSH Host,type=text,required"`
 
@@ -32,7 +31,9 @@ type SSHNodeSchema struct {
 
 	Passphrase string `json:"passphrase" schema:"label=Key Passphrase,type=password"`
 
-	KnownHosts string `json:"known_hosts" schema:"label=Known Hosts File,type=text,help=Path to a known_hosts file used to verify the server's host key. If left blank， host key verification is disabled (insecure) and a warning is logged."`
+	KnownHosts string `json:"known_hosts" schema:"label=Known Hosts File,type=text,help=Path to a known_hosts file used to verify the server's host key. If left blank， the key a host shows the first time is remembered in ~/.monoagent/known_hosts and a different key later is refused."`
+
+	AllowUnknownHostKey bool `json:"allow_unknown_host_key" schema:"label=Allow Unknown Host Key,type=boolean,help=Turns host key verification off when no Known Hosts File is set (insecure: credentials go to whichever host answers)."`
 
 	Resource string `json:"resource" schema:"label=Resource,type=select,options=command|file,default=command,help=command runs a shell command; file uploads or downloads a file over SFTP."`
 

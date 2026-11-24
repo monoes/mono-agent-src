@@ -34,6 +34,7 @@ func (d Deps) newHILCmd() *cobra.Command {
 		d.newHILRejectCmd(),
 		d.newHILResolveCmd(), d.newHILSendsCmd(), d.newHILShowCmd(), d.newHILEditCmd(),
 		d.newHILAttachmentCmd(), d.newHILRecipientCmd(), d.newHILAllowCmd(),
+		d.newHILExpireCmd(),
 	)
 	return cmd
 }
@@ -73,7 +74,11 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			"its probability p, and a low/medium/high risk). A suggestion stored on the item (by the " +
 			"node's auto_decide, or by an earlier --suggest) is reused; a missing one is computed — one " +
 			"request per item — and stored, when the profile enabled the surface (jev enable hil) and " +
-			"a key resolves. --resuggest recomputes. Suggestions never approve or reject anything.",
+			"a key resolves. --resuggest recomputes. Suggestions never approve or reject anything.\n\n" +
+			"Privacy: Jev is not local. An item's field text (at most 8000 characters in all, 2000 per field) is " +
+			"sent to the decision provider the profile uses, TypeSafe's hosted service unless another provider was " +
+			"added, so an item that holds email or DM text leaves this machine. `jev enable hil` is the operator's " +
+			"consent for that, it is off by default, and only the operator can switch it on.",
 		Example: `  monoagentcli hil list
   monoagentcli --json hil list
   monoagentcli --json hil list --suggest`,
@@ -172,6 +177,9 @@ func (d Deps) newHILListCmd() *cobra.Command {
 				table.Append(row)
 			}
 			table.Render()
+			if n := waitingNote(items[0].CreatedAt, time.Now()); n != "" { // oldest first
+				fmt.Fprintf(os.Stderr, "\nThe oldest item (%s) is %s. Nothing is decided on its own: approve or reject it.\n", items[0].ID, n)
+			}
 			fmt.Fprintf(os.Stderr, "\nTotal: %d pending item(s). Approve with `hil approve <id>` or reject with `hil reject <id>`.\n", len(items))
 			return nil
 		},

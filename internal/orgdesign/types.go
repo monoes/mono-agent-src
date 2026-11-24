@@ -63,6 +63,11 @@ type Doc struct {
 // as, or "" when d did not come from an org file.
 func (d *Doc) LoadedSHA() string { return d.loadedSHA }
 
+// ExpectSHA sets the file bytes (by sha256) the next Save must find on disk: Save refuses with
+// ErrConcurrentEdit over any other. A caller that has just written the file itself and is about to
+// undo that write expects the sha of what it wrote, not the sha of the bytes it first loaded.
+func (d *Doc) ExpectSHA(sha string) { d.loadedSHA = sha }
+
 // docKnownKeys lists the JSON keys handled by named Doc fields, used by
 // UnmarshalJSON to compute Extra and by MarshalJSON to avoid emitting a key
 // twice.

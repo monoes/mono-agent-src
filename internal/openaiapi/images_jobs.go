@@ -3,12 +3,15 @@ package openaiapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/apikeys"
 )
 
 // Image jobs: a client that cannot hold a connection open for as long as a runtime
@@ -16,7 +19,13 @@ import (
 // the answer later. POST /v1/images/generations with the header "Prefer: respond-async"
 // is answered at once, 202 with a job id; GET /v1/images/jobs/{id} says whether the
 // turn is still running and, when it is over, holds what the request would have been
-// answered with. A job belongs to the key that made it.
+// answered with. A job belongs to the key that made it. DELETE on the same URL ends a running job and
+// forgets a finished one; the turn of a job also ends when its key is revoked.
+//
+// Usage: a finished job's answer carries its usage (tokens, cost) on every read. It is
+// the usage of the job, not of the poll: a client or billing tool that sums poll
+// responses must count each job id once. A turn that ended without the runtime
+// reporting its usage (cancelled, timed out) reports none, so cost can under-count.
 const (
 	// maxImageJobs bounds the jobs kept, finished ones and running ones together.
 	maxImageJobs = 64
@@ -24,7 +33,17 @@ const (
 	// rest is this plus the newest job (4 images of 20 MiB), and while turns run the
 	// images they are about to hand over come on top (MaxConcurrent of those).
 	maxJobBytes = 128 << 20
+	// maxJobsPerKey is how many jobs one key may have kept before its own oldest finished
+	// ones are dropped to make room. Under count or byte pressure the keys over it lose
+	// theirs first, so a key that keeps submitting cannot push another key's results out
+	// before their TTL while that key stays within its share.
+	maxJobsPerKey = 16
 )
+
+// keyCheckEvery is how often a running job looks whether its key was revoked (the revoke
+// is made by another process, the CLI, so there is nothing to be told). A variable so a
+// test can shorten it.
+var keyCheckEvery = 10 * time.Second
 
 // imageJobTTL is how long a finished job is kept for its client to fetch. A variable
 // so a test can shorten it.
@@ -39,6 +58,7 @@ type imageJob struct {
 	images    [][]byte
 	usage     *usage // the turn's tokens and cost, when the runtime reported them; also for a failed job
 	err       *apiError
+	cancel    context.CancelFunc // ends the turn; nil until the runner attaches it
 }
 
 func (j *imageJob) bytes() (n int) {
@@ -85,6 +105,7 @@ func (s *imageJobs) add(keyID string) (*imageJob, bool) {
 			delete(s.jobs, id)
 		}
 	}
+	s.trimKey(keyID) // before failStuck: a job failed just now is for its client to read
 	s.failStuck(now)
 	s.trim(nil, 1)
 	if len(s.jobs) >= maxImageJobs {
@@ -93,6 +114,28 @@ func (s *imageJobs) add(keyID string) (*imageJob, bool) {
 	j := &imageJob{id: newRequestID("imgjob_"), keyID: keyID, created: now.Unix(), started: now}
 	s.jobs[j.id] = j
 	return j, true
+}
+
+// trimKey drops the oldest finished jobs of key while it holds maxJobsPerKey or more, so
+// that the new job fits inside its share. The caller holds the lock.
+func (s *imageJobs) trimKey(keyID string) {
+	for {
+		held := 0
+		var oldest *imageJob
+		for _, j := range s.jobs {
+			if j.keyID != keyID {
+				continue
+			}
+			held++
+			if j.done && (oldest == nil || j.finished.Before(oldest.finished)) {
+				oldest = j
+			}
+		}
+		if held < maxJobsPerKey || oldest == nil { // room, or all of them running
+			return
+		}
+		delete(s.jobs, oldest.id)
+	}
 }
 
 // failStuck ends the running jobs that have outlived stuckAfter. Their turn is past its
@@ -114,14 +157,25 @@ func (s *imageJobs) failStuck(now time.Time) {
 // jobs or the images held are too many bytes. The caller holds the lock.
 func (s *imageJobs) trim(keep *imageJob, room int) {
 	held := 0
+	perKey := map[string]int{}
 	var finished []*imageJob
 	for _, j := range s.jobs {
 		held += j.bytes()
+		perKey[j.keyID]++
 		if j.done && j != keep {
 			finished = append(finished, j)
 		}
 	}
-	slices.SortFunc(finished, func(a, b *imageJob) int { return a.finished.Compare(b.finished) })
+	// The jobs of keys over their share go first, each group oldest first.
+	slices.SortFunc(finished, func(a, b *imageJob) int {
+		if oa, ob := perKey[a.keyID] > maxJobsPerKey, perKey[b.keyID] > maxJobsPerKey; oa != ob {
+			if oa {
+				return -1
+			}
+			return 1
+		}
+		return a.finished.Compare(b.finished)
+	})
 	for _, j := range finished {
 		if len(s.jobs)+room <= maxImageJobs && held <= maxJobBytes {
 			break
@@ -154,6 +208,29 @@ func (s *imageJobs) get(keyID, id string) (snapshot imageJob, ok bool) {
 	return *j, true
 }
 
+// attach gives j the function that ends its turn.
+func (s *imageJobs) attach(j *imageJob, cancel context.CancelFunc) {
+	s.mu.Lock()
+	j.cancel = cancel
+	s.mu.Unlock()
+}
+
+// remove deletes the job of key with id, ending its turn when it still runs; it reports
+// whether there was one and whether it was running.
+func (s *imageJobs) remove(keyID, id string) (found, wasRunning bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.jobs[id]
+	if j == nil || j.keyID != keyID {
+		return false, false
+	}
+	delete(s.jobs, id)
+	if !j.done && j.cancel != nil {
+		j.cancel()
+	}
+	return true, !j.done
+}
+
 func writeJobAccepted(w http.ResponseWriter, j *imageJob) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Location", "/v1/images/jobs/"+j.id)
@@ -164,9 +241,14 @@ func writeJobAccepted(w http.ResponseWriter, j *imageJob) {
 
 // runImageJob is the turn of an accepted request, run on its own: the request has been
 // answered, and the turn ends at the turn timeout or when the server stops.
-func (g *Gateway) runImageJob(j *imageJob, pr Principal, begin time.Time, model, autoBy string, eff Policy, m ModelInfo, slot int, release func(), n int, size, prompt string) {
-	ctx, cancel := context.WithCancel(g.shutdownCtx)
+//
+// Its log line is the outcome: the request id of the accepting request appears twice, on
+// the 202 line written when the job was accepted (ms is the accept only) and here, with
+// the whole duration and the job's end state. Count requests from the lines whose detail
+// starts "job accepted" and outcomes from those whose detail starts "job <id>".
+func (g *Gateway) runImageJob(ctx context.Context, cancel context.CancelFunc, j *imageJob, pr Principal, begin time.Time, model, autoBy string, eff Policy, m ModelInfo, slot int, release func(), n int, size, prompt string) {
 	defer cancel()
+	go g.cancelWhenRevoked(ctx, cancel, pr)
 	status, detail := http.StatusOK, ""
 	defer func() { g.logRequest(pr, begin, model, status, "", autoBy, "job "+j.id+detail) }()
 	// This goroutine has no net/http recover above it: a panic here would end the
@@ -189,6 +271,42 @@ func (g *Gateway) runImageJob(j *imageJob, pr Principal, begin time.Time, model,
 		detail = " " + note
 	}
 	g.jobs.finish(j, imgs, e, usageFrom(res))
+}
+
+// cancelWhenRevoked ends the turn of a job whose key has been revoked, so it stops
+// spending the runtime's quota for a caller that is no longer allowed.
+func (g *Gateway) cancelWhenRevoked(ctx context.Context, cancel context.CancelFunc, pr Principal) {
+	t := time.NewTicker(keyCheckEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			k, err := g.deps.Keys.Get(ctx, pr.ProfileID, pr.KeyID)
+			if errors.Is(err, apikeys.ErrNotFound) || (err == nil && k.RevokedAt != nil) {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// handleImageJobDelete is DELETE /v1/images/jobs/{id}: it ends the job's turn when it is
+// still running and forgets the job. Only the key that made the job may.
+func (g *Gateway) handleImageJobDelete() func(http.ResponseWriter, *http.Request, Principal) {
+	return func(w http.ResponseWriter, r *http.Request, pr Principal) {
+		id := r.PathValue("id")
+		found, running := g.jobs.remove(pr.KeyID, id)
+		if !found {
+			writeError(w, &apiError{Status: http.StatusNotFound, Type: "invalid_request_error", Code: "job_not_found", Param: "id",
+				Message: "No such image job for this key."})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprintf(w, `{"id":%q,"object":"image.job","deleted":true,"cancelled":%t}`+"\n", id, running)
+	}
 }
 
 // handleImageJob is GET /v1/images/jobs/{id}.

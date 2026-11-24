@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "like_posts",
   "platform": "LINKEDIN",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "React to LinkedIn posts (Like, Celebrate, Support, Love, Insightful, Funny)",
   "sideEffects": "write",
   "metadata": {
@@ -31,6 +31,14 @@
         "default": 3,
         "min": 1,
         "max": 60
+      },
+      {
+        "name": "maxLikesPerRun",
+        "type": "number",
+        "default": 10,
+        "min": 1,
+        "max": 50,
+        "description": "Limit: max likes in one run (default 10, hard max 50)"
       }
     ]
   },
@@ -67,6 +75,7 @@
     {
       "id": "process_posts",
       "iterator": "selectedListItems",
+      "maxItems": "{{maxLikesPerRun or 10}}",
       "indexVar": "reachedIndex",
       "steps": ["t1_like_post", "wait", "log"]
     }

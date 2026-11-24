@@ -149,7 +149,11 @@ export function TaskBoard({ isActive = true, switcher = null, session = null, se
     const timer = setInterval(() => setNow(Date.now()), 30000)
     return () => clearInterval(timer)
   }, [isActive, visible])
-  useEffect(() => { tasksApi.agentShell().then(v => setShell(v || '')) }, [])
+  // A failed check keeps the board locked (fail closed) and says why.
+  const [shellError, setShellError] = useState('')
+  useEffect(() => {
+    tasksApi.agentShell().then(v => setShell(v || '')).catch(e => setShellError(e?.message || String(e)))
+  }, [])
   const agentLocked = shell === null || !!shell
   // Only a running session's board takes moves; the others are read until the operator acts in the header.
   const readOnly = agentLocked || !boardEditable(session)
@@ -306,7 +310,9 @@ export function TaskBoard({ isActive = true, switcher = null, session = null, se
       {switcher}
       {sessionHeader}
       {!session && <CaptureHelp t={t} />}
-      {agentLocked && <div role="note">{t('tasks.readOnly')}</div>}
+      {shellError
+        ? <div role="alert" data-testid="tb-shell-error">{t('tasksPage.shellCheckFailed', { error: shellError })}</div>
+        : agentLocked && <div role="note">{t('tasks.readOnly')}</div>}
       {b.error && <div role="alert">{t('tasks.loadError')}: {b.error}</div>}
       {b.notice && (
         <div role="alert" onClick={b.clearNotice}>{t('tasks.refused', { error: b.notice.error })}</div>

@@ -7,6 +7,7 @@ import { AlertTriangle } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { fullAutoImpact } from './autonomyModel.js'
 import { mono, mutedText } from './ui.jsx'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 function itemsOf(payload, key) {
   if (!payload || payload.error) return []
@@ -16,6 +17,7 @@ function itemsOf(payload, key) {
 }
 
 export default function FullAutoConfirm({ open, orgName, autonomy, deciderKind, onConfirm, onCancel }) {
+  useEscapeClose(onCancel, !!open)
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [impact, setImpact] = useState(null)

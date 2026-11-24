@@ -17,7 +17,7 @@ import (
 // sensitiveNameRe matches field names and labels that announce a secret.
 // Deliberately broad: masking a harmless field costs a manual input at
 // review time, missing a secret costs the secret.
-var sensitiveNameRe = regexp.MustCompile(`(?i)pass|pwd|token|secret|(^|[^a-z])(pin|cvv|cvc|csc|otp|ssn|2fa|mfa)([^a-z]|$)`)
+var sensitiveNameRe = regexp.MustCompile(`(?i)pass|pwd|token|secret|card|iban|routing|credential|api.?key|bearer|cookie|(^|[^a-z])(pin|cvv|cvc|csc|otp|ssn|2fa|mfa)([^a-z]|$)`)
 
 // SensitiveTarget reports whether a fingerprint names a field whose value
 // must never be stored: the recorder flagged it, it is a password or hidden
@@ -259,7 +259,7 @@ func ScrubHTML(src string, allValues bool) string {
 		if skip != "" {
 			if tt == html.EndTagToken && tok.Data == skip {
 				skip = ""
-				if tok.Data != "script" {
+				if tok.Data != "script" && tok.Data != "style" {
 					out.WriteString(tok.String())
 				}
 			}
@@ -267,9 +267,9 @@ func ScrubHTML(src string, allValues bool) string {
 		}
 		switch tt {
 		case html.StartTagToken, html.SelfClosingTagToken:
-			if tok.Data == "script" {
+			if tok.Data == "script" || tok.Data == "style" {
 				if tt == html.StartTagToken {
-					skip = "script"
+					skip = tok.Data
 				}
 				continue
 			}
@@ -279,6 +279,8 @@ func ScrubHTML(src string, allValues bool) string {
 			if tok.Data == "textarea" && sensitive && tt == html.StartTagToken {
 				skip = "textarea"
 			}
+		case html.CommentToken:
+			// Comments can carry anything a page author or template left in.
 		default:
 			out.WriteString(tok.String())
 		}
@@ -335,8 +337,15 @@ func scrubAttrs(tok html.Token, sensitive bool) []html.Attribute {
 			key = strings.ToLower(a.Namespace) + ":" + key
 		}
 		switch {
-		case strings.HasPrefix(key, "data-"), strings.HasPrefix(key, "on"):
+		case strings.HasPrefix(key, "data-"), strings.HasPrefix(key, "on"), key == "style":
 			continue
+		case key == "srcset":
+			a.Val = sanitizeSrcset(a.Val)
+		case key == "poster" || key == "data" || key == "ping" || key == "cite" || key == "background":
+			if scriptURL(a.Val) {
+				continue
+			}
+			a.Val = SanitizeURL(a.Val)
 		case key == "value" && sensitive:
 			continue
 		case key == "href" || key == "src" || key == "action" || key == "formaction" || key == "xlink:href":

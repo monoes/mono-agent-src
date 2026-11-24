@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/hilsend"
@@ -118,6 +119,13 @@ func (d Deps) resolveSend(cmd *cobra.Command, st hilsend.Store, id string, appro
 	if err := clicore.RequireOperator(d.RequireOperator, "approve or reject a send"); err != nil {
 		return err
 	}
+	if approve {
+		if before, err := st.Get(cmd.Context(), id); err == nil {
+			if w := staleWarning(before, time.Now()); w != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), w)
+			}
+		}
+	}
 	p, err := hilsend.Resolve(cmd.Context(), st, id, approve, edit, always, d.SendRunner())
 	if err != nil {
 		return d.hilSendError(err)
@@ -174,7 +182,14 @@ func (d Deps) newHILSendsCmd() *cobra.Command {
 		Short: "List send items (every state, oldest first)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return d.withSendDB(func(_ *sql.DB, st hilsend.Store) error {
+			return d.withSendDB(func(db *sql.DB, st hilsend.Store) error {
+				if d.JSONOutput() {
+					if !hilsend.Enabled(db) {
+						fmt.Fprintln(cmd.ErrOrStderr(), SendApprovalOffWarning)
+					}
+				} else {
+					printSendsHeader(cmd.OutOrStdout(), db)
+				}
 				var states []hilsend.State
 				if state != "" {
 					states = append(states, hilsend.State(state))
@@ -186,8 +201,15 @@ func (d Deps) newHILSendsCmd() *cobra.Command {
 				if d.JSONOutput() {
 					return d.WriteJSON(cmd.OutOrStdout(), items)
 				}
+				now := time.Now()
 				for _, p := range items {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s  %-8s %-8s %-10s %s\n", p.ID, p.State, p.Action, p.Channel, p.Recipient.Name)
+					note := ""
+					if p.State == hilsend.StatePending {
+						if n := waitingNote(p.CreatedAt, now); n != "" {
+							note = "  (" + n + ")"
+						}
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "%s  %-8s %-8s %-10s %s%s\n", p.ID, p.State, p.Action, p.Channel, p.Recipient.Name, note)
 				}
 				return nil
 			})

@@ -40,6 +40,11 @@ With --json, progress is streamed as NDJSON like ` + "`doctor fix`" + `.`,
   monoagentcli agent install antigravity --yes --json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if yes || approveScript != "" {
+				if err := d.refuseUnlessOperatorFor("agent install with --yes or --approve-script"); err != nil {
+					return err
+				}
+			}
 			out := cmd.OutOrStdout()
 			progress := d.ProgressWriter(out, d.JSONOutput())
 			confirmScript := scriptConsent(yes, approveScript, !d.JSONOutput() && d.StdinIsTerminal(), cmd.InOrStdin(), out)
@@ -47,8 +52,8 @@ With --json, progress is streamed as NDJSON like ` + "`doctor fix`" + `.`,
 			return d.FinishStreamed(out, d.JSONOutput(), err, msg)
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "Run vendor install scripts without asking")
-	cmd.Flags().StringVar(&approveScript, "approve-script", "", "Run the vendor install script only if it is this exact URL (what the person was shown)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Run vendor install scripts without asking (the user's own: refused for an agent)")
+	cmd.Flags().StringVar(&approveScript, "approve-script", "", "Run the vendor install script only if it is this exact URL (what the person was shown; the user's own: refused for an agent)")
 	cmd.Flags().BoolVar(&force, "force", false, "Install even if the runtime is already installed (upgrade)")
 	return cmd
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -42,6 +43,10 @@ type testConfig struct {
 	DBPath     string
 	ProfileID  string
 	JSONOutput bool
+
+	// mu guards ProfileID inside testDeps: concurrent commands of one test share this config, and OpenDB
+	// resolves ProfileID while another command's ProfileID closure reads it.
+	mu sync.Mutex
 }
 
 // cliError is the fake of the CLI's exit-code error: 2 not found, 3
@@ -86,21 +91,32 @@ func testDeps(cfg *testConfig) Deps {
 				db.Close()
 				return nil, err
 			}
-			if cfg.ProfileID == "" {
+			cfg.mu.Lock()
+			want := cfg.ProfileID
+			cfg.mu.Unlock()
+			if want == "" {
 				// Test helper: a bare config acts on the seeded 'default' profile; the
 				// real CLI has no such fallback (the profile gate refuses first).
+				cfg.mu.Lock()
 				cfg.ProfileID = "default"
+				cfg.mu.Unlock()
 				return db, nil
 			}
 			var id string
-			if err := db.DB.QueryRow(`SELECT id FROM profiles WHERE id = ? OR name = ? ORDER BY id = ? DESC LIMIT 1`, cfg.ProfileID, cfg.ProfileID, cfg.ProfileID).Scan(&id); err != nil {
+			if err := db.DB.QueryRow(`SELECT id FROM profiles WHERE id = ? OR name = ? ORDER BY id = ? DESC LIMIT 1`, want, want, want).Scan(&id); err != nil {
 				db.Close()
-				return nil, &cliError{code: 3, msg: fmt.Sprintf("profile %q not found (checked both id and name)", cfg.ProfileID)}
+				return nil, &cliError{code: 3, msg: fmt.Sprintf("profile %q not found (checked both id and name)", want)}
 			}
+			cfg.mu.Lock()
 			cfg.ProfileID = id
+			cfg.mu.Unlock()
 			return db, nil
 		},
-		ProfileID:         func() string { return cfg.ProfileID },
+		ProfileID: func() string {
+			cfg.mu.Lock()
+			defer cfg.mu.Unlock()
+			return cfg.ProfileID
+		},
 		OpenWorkflowStore: openTestWorkflowStore,
 		JSONOutput:        func() bool { return cfg.JSONOutput },
 		NotFound: func(format string, a ...interface{}) error {

@@ -21,6 +21,13 @@ const (
 	RoleSystem = "system"
 )
 
+// MaxMessageBytes caps one stored message (longer content is cut, with a marker), and MaxSessionMessages caps a
+// session (the oldest messages go first): memory is replayed to a model, so what it holds is bounded.
+const (
+	MaxMessageBytes    = 32 << 10
+	MaxSessionMessages = 1000
+)
+
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
 // Message is one stored message of a session.
@@ -89,11 +96,19 @@ func insert(ctx context.Context, x execer, profile, session string, m NewMessage
 	_, err = x.ExecContext(ctx, `INSERT INTO chat_memory_messages (profile_id, session_key, seq, role, content, created_at)
 		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?
 		FROM chat_memory_messages WHERE profile_id = ? AND session_key = ?`,
-		profile, session, role, m.Content, time.Now().UTC().Format(timeLayout), profile, session)
+		profile, session, role, capContent(m.Content), time.Now().UTC().Format(timeLayout), profile, session)
 	if err != nil {
 		return fmt.Errorf("chat memory: append: %w", err)
 	}
 	return nil
+}
+
+// capContent cuts content to MaxMessageBytes on a character boundary.
+func capContent(c string) string {
+	if len(c) <= MaxMessageBytes {
+		return c
+	}
+	return strings.ToValidUTF8(c[:MaxMessageBytes], "") + " …[truncated]"
 }
 
 // Append adds one message to the end of a session.
@@ -134,6 +149,10 @@ func write(ctx context.Context, db *sql.DB, profile, session string, clear bool,
 		if err := insert(ctx, tx, profile, session, m); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_memory_messages WHERE profile_id = ? AND session_key = ? AND seq <=
+		(SELECT MAX(seq) FROM chat_memory_messages WHERE profile_id = ? AND session_key = ?) - ?`, profile, session, profile, session, MaxSessionMessages); err != nil {
+		return fmt.Errorf("chat memory: trim: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("chat memory: %w", err)

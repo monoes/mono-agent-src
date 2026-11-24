@@ -32,15 +32,18 @@ const headingText = { fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 
 function VersionRow() {
   const [ver, setVer] = useState(null)
   const [update, setUpdate] = useState(null)
+  const upToDateTimer = useRef(null)
 
   useEffect(() => { GetVersion().then(setVer).catch(() => {}) }, [])
+  useEffect(() => () => clearTimeout(upToDateTimer.current), [])
 
   function check() {
+    clearTimeout(upToDateTimer.current) // a stale "up to date" reset must not wipe this check
     setUpdate({ checking: true })
     CheckForUpdate().then(info => {
-      if (info.error) setUpdate({ error: info.error })
+      if (info.error) setUpdate({ error: String(info.error?.message || info.error) })
       else if (info.update_available) setUpdate({ available: true, latest: info.latest_version })
-      else { setUpdate({ upToDate: true }); setTimeout(() => setUpdate(null), 3000) }
+      else { setUpdate({ upToDate: true }); upToDateTimer.current = setTimeout(() => setUpdate(null), 3000) }
     }).catch(e => setUpdate({ error: String(e) }))
   }
 
@@ -48,7 +51,7 @@ function VersionRow() {
     setUpdate(u => ({ ...u, updating: true }))
     AppSelfUpdate().then(r => {
       if (r.success) setUpdate({ done: true, latest: r.new_version, notice: r.notice, noticeOpen: !!r.notice })
-      else setUpdate({ error: r.error })
+      else setUpdate({ error: String(r.error?.message || r.error) })
     }).catch(e => setUpdate({ error: String(e) }))
   }
 
@@ -321,7 +324,7 @@ function LanguageSection() {
 export default function Settings({ onNavigate, navData, isActive = true }) {
   const { t } = useTranslation()
   // Deep links (the dashboard's "health" and "Jev" rows) scroll to a section.
-  const sectionRefs = { health: useRef(null), jev: useRef(null), version: useRef(null) }
+  const sectionRefs = { health: useRef(null), jev: useRef(null), version: useRef(null), extension: useRef(null), api: useRef(null), coder: useRef(null) }
   const section = navData?.section
   useEffect(() => {
     const el = section && sectionRefs[section]?.current
@@ -337,16 +340,16 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
   const jev = useJevData({ withUsage: true }) // one JevStatus + one JevUsage for both Jev parts
 
   const load = useCallback(async () => {
-    api.getDBPath().then(p => setDbPath(p || ''))
-    api.isDBConnected().then(c => setDbConnected(!!c))
+    api.getDBPath().then(p => setDbPath(p || '')).catch(() => {})
+    api.isDBConnected().then(c => setDbConnected(!!c)).catch(() => {})
     // Count active connections
     return api.listConnections('').then(conns => {
       if (Array.isArray(conns)) {
         const active = conns.filter(c => (c.Status || c.status) === 'active').length
-        setConnCount(`${active} active connection${active !== 1 ? 's' : ''}`)
+        setConnCount(t('settingsPage.activeConnections', { count: active }))
       }
     }).catch(() => {})
-  }, [])
+  }, [t])
 
   useEffect(() => { load() }, [load])
 
@@ -417,7 +420,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
 
           {/* Assistant tool access */}
           <div style={headingStyle}>
-            <span style={headingText}>Assistant Tool Access</span>
+            <span style={headingText}>{t('settingsPage.assistantToolAccess')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
@@ -431,8 +434,8 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
           <NotificationsSection />
 
           {/* Coder mode (#203) */}
-          <div style={headingStyle}>
-            <span style={headingText}>Coder Mode</span>
+          <div ref={sectionRefs.coder} data-section="coder" style={headingStyle}>
+            <span style={headingText}>{t('settingsPage.coderMode')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
@@ -447,8 +450,8 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
           <CoderOrgSection part="machine" />
 
           {/* The browser extension: the only way monoagent drives a browser */}
-          <div style={headingStyle}>
-            <span style={headingText}>Browser Extension</span>
+          <div ref={sectionRefs.extension} data-section="extension" style={headingStyle}>
+            <span style={headingText}>{t('settingsPage.browserExtension')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
@@ -456,7 +459,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
 
           {/* What AI agents may do in the browsers (machine-wide; plan C8) */}
           <div style={headingStyle}>
-            <span style={headingText}>Agent Browser Permissions</span>
+            <span style={headingText}>{t('settingsPage.agentBrowserPermissions')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
@@ -464,7 +467,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
 
           {/* Spend caps for AI tasks handed to the coder */}
           <div style={headingStyle}>
-            <span style={headingText}>AI Task Budgets</span>
+            <span style={headingText}>{t('settingsPage.aiTaskBudgets')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
@@ -490,11 +493,13 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
             <JevSection part="machine" jev={jev} collapsible defaultExpanded={section === 'jev'} expandToken={section === 'jev' ? navData : null} />
           </div>
 
-          <ApiSection part="machine" onNavigate={onNavigate} isActive={isActive} onStatus={setApiStatus} />
+          <div ref={sectionRefs.api} data-section="api">
+            <ApiSection part="machine" onNavigate={onNavigate} isActive={isActive} onStatus={setApiStatus} />
+          </div>
 
           {/* Application Info */}
           <div ref={sectionRefs.version} data-section="version" style={headingStyle}>
-            <span style={headingText}>Application Info</span>
+            <span style={headingText}>{t('settingsPage.applicationInfo')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
@@ -568,7 +573,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
 
           {/* Export people/actions as JSON (runs with --profile) */}
           <div style={headingStyle}>
-            <span style={headingText}>Data Export</span>
+            <span style={headingText}>{t('settingsPage.dataExport')}</span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 

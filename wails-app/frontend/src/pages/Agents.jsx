@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, Bot, MessageSquare, Download, Copy, Loader2, ArrowUpCircle } from 'lucide-react'
 import { cachedAgentScan, invalidateAgentScan, installRecipe, recipeCommand } from '../lib/agentRuntimes.js'
@@ -143,11 +143,21 @@ function writeScanCache(res) {
 export default function Agents() {
   // Chat on a runtime opens a new chat bubble with that runtime picked.
   const { openNewChat } = useSendToCoder()
-  const onOpenChat = useCallback(runtimeId => openNewChat?.({ setup: { runtime: runtimeId } }), [openNewChat])
   const { t } = useTranslation()
+  // Outside the app shell nothing can open a bubble: say so instead of doing nothing.
+  const [chatNote, setChatNote] = useState('')
+  const onOpenChat = useCallback(runtimeId => {
+    if (typeof openNewChat !== 'function') { setChatNote(t('agentsChatFallback.unavailable')); return }
+    setChatNote('')
+    openNewChat({ setup: { runtime: runtimeId } })
+  }, [openNewChat, t])
   const cached = readScanCache()
   const [agents, setAgents] = useState(() => (cached && !cached.res?.error) ? (cached.res.agents || []) : [])
   const [scanError, setScanError] = useState(() => cached?.res?.error || null)
+  // A refresh that failed while a good list is on screen: keep the list.
+  const [refreshNotice, setRefreshNotice] = useState(null)
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
   // Only show the blocking spinner when there is truly nothing to paint yet
   // (first-ever run on this machine, or a cleared cache). Otherwise show
   // stale-but-instant data while refreshing quietly underneath it.
@@ -160,10 +170,15 @@ export default function Agents() {
       // page scanned reconciles against the same result, no second 7s scan.
       const res = await cachedAgentScan()
       if (!res || res.error) {
+        if (agentsRef.current.length > 0) {
+          setRefreshNotice(res?.error || t('agents.unreachable'))
+          return // keep the list and the cached good scan
+        }
         setScanError(res?.error || t('agents.unreachable'))
         setAgents([])
       } else {
         setScanError(null)
+        setRefreshNotice(null)
         setAgents(res.agents || [])
       }
       writeScanCache(res)
@@ -247,6 +262,11 @@ export default function Agents() {
           {/* A live open-ended run's boss is shown whatever state the rest of the page is in: a run started from a chat must not
               need agents to be set up, installed or scanned. It renders nothing when no run's boss is open. */}
           <OpenRunBoss />
+          {refreshNotice && !scanError && (
+            <div role="status" data-testid="agents-refresh-notice" style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+              {t('agentsPage.refreshFailed', { error: refreshNotice })}
+            </div>
+          )}
           {loading ? (
             <div className="empty-state"><div className="spinner" /></div>
           ) : scanError ? (
@@ -278,6 +298,7 @@ export default function Agents() {
             </div>
           ) : (
             <>
+              {chatNote && <div role="status" style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{chatNote}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
                 {agents.map(a => (
                   <RuntimeTile key={a.id} agent={a} onChat={onOpenChat} onInstall={onInstall} job={jobs[a.id]} />

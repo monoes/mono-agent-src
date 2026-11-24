@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // readProcessCommandLine returns the command line of the process with the
@@ -56,6 +57,12 @@ func readProcessCommandLine(pid int) (cmdline string, alive bool, err error) {
 // pid can have been reused by the OS for an unrelated process; signalling
 // that must never happen (RA1-8). A dead pid is a no-op (false, nil).
 func signalWorkflowPID(pid int) (bool, error) {
+	return signalWorkflowPIDStartedAt(pid, time.Time{})
+}
+
+// signalWorkflowPIDStartedAt is signalWorkflowPID that also refuses a process
+// started after the execution did (a reused pid); a zero time skips that check.
+func signalWorkflowPIDStartedAt(pid int, executionStart time.Time) (bool, error) {
 	if pid <= 0 {
 		return false, nil
 	}
@@ -68,6 +75,9 @@ func signalWorkflowPID(pid int) (bool, error) {
 	}
 	if !isMonoagentBinary(processArgv0(pid, cmd)) {
 		return false, fmt.Errorf("refusing to signal non-monoagent process (pid %d: %s)", pid, cmd)
+	}
+	if startedAfterExecution(pid, executionStart) {
+		return false, fmt.Errorf("refusing to signal pid %d: it started after the execution did, so the pid was reused", pid)
 	}
 	proc, perr := os.FindProcess(pid)
 	if perr != nil {

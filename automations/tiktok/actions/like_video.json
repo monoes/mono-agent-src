@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "like_video",
   "platform": "TIKTOK",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Like TikTok videos from a list of video URLs. Opening a video page may count as a view.",
   "sideEffects": "write",
   "visibility": ["video_view_counted"],
@@ -27,6 +27,14 @@
         "min": 1,
         "max": 60,
         "description": "Seconds to wait between likes"
+      },
+      {
+        "name": "maxLikesPerRun",
+        "type": "number",
+        "default": 10,
+        "min": 1,
+        "max": 50,
+        "description": "Limit: max likes in one run (default 10, hard max 50)"
       }
     ]
   },
@@ -71,6 +79,7 @@
     {
       "id": "process_videos",
       "iterator": "selectedListItems",
+      "maxItems": "{{maxLikesPerRun or 10}}",
       "indexVar": "reachedIndex",
       "steps": [
         "t1_like_video",

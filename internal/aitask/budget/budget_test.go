@@ -445,3 +445,27 @@ func TestReleaseUnspentFreesATaskThatNeverRan(t *testing.T) {
 		t.Fatalf("a failed start kept its reservation: %v", err)
 	}
 }
+
+// R09-09: a role cap counts what other tasks of the role hold, not only what they have spent, so two
+// concurrent tasks cannot each fit under the cap at admit time.
+func TestRoleCapCountsOtherTasksReservations(t *testing.T) {
+	r := newRig(t, 0)
+	if err := r.l.SetCap(ScopeRole, "writer", 5, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	var adm []Admission
+	for _, conv := range []string{"c1", "c2"} {
+		a := r.task(conv, "generic", 4)
+		a.Role = "writer"
+		if _, err := r.l.DB.Exec(`INSERT INTO ai_chat_org_workers (profile_id, conversation_id, agent_id, turn_id, runtime, role, updated_at) VALUES ('p1', ?, 'w1', 't', 'claude', 'writer', 'x')`, conv); err != nil {
+			t.Fatal(err)
+		}
+		adm = append(adm, a)
+	}
+	if _, err := r.l.Admit(context.Background(), adm[0]); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := r.l.Admit(context.Background(), adm[1]); code(err) != CodeExceeded {
+		t.Fatalf("second task of the role fit under the cap beside the first's reservation: %v", err)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -31,12 +32,11 @@ const RepoManifestURL = "https://github.com/" + ReleasesRepo + "/releases/latest
 
 // AllowLegacyGitHubUpdates lets the updaters fall back to the GitHub API
 // (the releases' SHA256SUMS.txt over TLS) when the signed manifest is
-// unavailable. Treat it as a build constant: true now, false at the
-// repo-private release. The fallback is unsigned (TLS plus SHA256SUMS.txt
-// only) and has no expiry or downgrade protection, so it MUST be disabled
-// (AllowLegacyGitHubUpdates = false) at the repo-private release; otherwise
-// anyone who can block the signed manifest can force the weaker path. (A var only so tests can flip it.)
-var AllowLegacyGitHubUpdates = true
+// unavailable. It is false in every shipped build: the fallback is unsigned
+// (TLS plus SHA256SUMS.txt only) with no expiry or downgrade protection, so
+// anyone who could block the signed manifest could force the weaker path.
+// (A var only so tests of the remaining legacy code can turn it on.)
+var AllowLegacyGitHubUpdates = false
 
 // SchemaVersion is the only manifest schema this client understands.
 const SchemaVersion = 1
@@ -203,6 +203,21 @@ func CheckURL(raw string, hosts []string) error {
 		}
 	}
 	return untrusted("%s is not on an allowed host", u.Hostname())
+}
+
+// DownloadHostsLegacy are the hosts a release asset (and its redirects)
+// is served from; the legacy path accepts nothing else.
+var DownloadHostsLegacy = []string{"github.com", "api.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
+
+// CheckLegacyURL is CheckURL for the legacy path: https on one of
+// DownloadHostsLegacy, or plain http to a loopback address (local test servers).
+func CheckLegacyURL(raw string) error {
+	if u, err := url.Parse(raw); err == nil && u.Scheme == "http" {
+		if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+	}
+	return CheckURL(raw, DownloadHostsLegacy)
 }
 
 // Compare orders dotted release versions numerically ("v0.10.0" > "v0.9.9").

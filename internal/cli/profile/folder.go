@@ -173,8 +173,8 @@ func (d Deps) refuseFolderChoice() error {
 // as a plain file rather than a directory — os.MkdirAll would fail
 // confusingly on that, so it's caught up front with a clear message instead.
 func (d Deps) validateFolderChoice(dir string) error {
-	if !filepath.IsAbs(dir) {
-		return d.InvalidInput("folder path must be absolute: %q", dir)
+	if err := profiledir.ValidateRootDir(dir); err != nil {
+		return d.InvalidInput("%v", err)
 	}
 	info, err := os.Stat(dir)
 	if err != nil {

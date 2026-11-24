@@ -69,10 +69,3 @@ func TestMigrateFromNothingThenNoOp(t *testing.T) {
 		t.Errorf("second run, text:\n%s", text)
 	}
 }
-
-func TestCountAppliedMigrationsOfNoDatabaseIsZero(t *testing.T) {
-	t.Parallel()
-	if n := countAppliedMigrations(filepath.Join(t.TempDir(), "none.db")); n != 0 {
-		t.Errorf("got %d", n)
-	}
-}

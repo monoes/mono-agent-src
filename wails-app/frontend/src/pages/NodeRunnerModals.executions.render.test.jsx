@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
+import '../i18n.js'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { WorkflowsModal } from './NodeRunnerModals.jsx'
 

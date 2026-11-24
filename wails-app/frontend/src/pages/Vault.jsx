@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, KeyRound, Download, Upload, Copy, Search, ArrowUp, ArrowDown } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
@@ -61,9 +62,9 @@ export function filterAndSortEntries(entries, { search = '', sortBy = 'name', so
   return sorted
 }
 
-const kindBadge = (kind) => {
+const kindBadge = (kind, t) => {
   const s = KIND_COLORS[kind] || { bg: '#1a2332', border: '#334', color: '#64748b' }
-  const label = KIND_LABELS[kind] || kind
+  const label = KIND_LABELS[kind] ? t(`vaultBody.kind_${kind}`) : kind
   return (
     <span style={{
       background: s.bg, border: `1px solid ${s.border}`, borderRadius: 3,
@@ -106,12 +107,18 @@ function SortableHeader({ col, active, dir, onClick, children, style }) {
 }
 
 export default function Vault({ isActive = true }) {
+  const { t } = useTranslation()
+  const tRef = useRef(t)
+  tRef.current = t
+  const loadErrorRef = useRef(null) // the text of the current load failure, so a good load clears exactly that
   const [entries, setEntries] = useState([])
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState(emptyForm())
   const [error, setError] = useState(null)
   const [editingEntry, setEditingEntry] = useState(null)
   const [exportResult, setExportResult] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const [copied, setCopied] = useState('') // '' | 'ok' | 'failed'
   const [importPath, setImportPath] = useState(null)
   const [importPassphrase, setImportPassphrase] = useState('')
   const [importResult, setImportResult] = useState(null)
@@ -129,8 +136,12 @@ export default function Vault({ isActive = true }) {
     try {
       const list = await WailsApp.ListSecrets()
       setEntries(list || [])
+      setLoaded(true)
+      // A load failure clears once a load works; other errors stay.
+      setError(prev => (prev && prev === loadErrorRef.current ? null : prev))
     } catch (e) {
-      setError('Failed to load vault: ' + e)
+      loadErrorRef.current = tRef.current('vaultBody.loadFailed', { error: String(e) })
+      setError(loadErrorRef.current)
     }
   }, [])
 
@@ -162,7 +173,7 @@ export default function Vault({ isActive = true }) {
       return
     }
     if (Object.keys(fields).length === 0) {
-      setError('At least one field is required.')
+      setError(t('vaultBody.fieldRequired'))
       return
     }
     try {
@@ -171,18 +182,18 @@ export default function Vault({ isActive = true }) {
       setShowAdd(false)
       load()
     } catch (e) {
-      setError('Save failed: ' + e)
+      setError(t('vaultBody.saveFailed', { error: String(e) }))
     }
   }
 
   const handleDelete = async (name) => {
-    if (!(await confirm('Delete this vault entry? This cannot be undone.', { title: 'Delete Vault Entry', confirmLabel: 'Delete' }))) return
+    if (!(await confirm(t('vaultBody.deleteConfirm'), { title: t('vaultBody.deleteTitle'), confirmLabel: t('vaultBody.delete') }))) return
     setError(null)
     try {
       await WailsApp.DeleteSecret(name)
       setEntries(prev => prev.filter(e => e.name !== name))
     } catch (e) {
-      setError('Delete failed: ' + e)
+      setError(t('vaultBody.deleteFailed', { error: String(e) }))
     }
   }
 
@@ -193,7 +204,7 @@ export default function Vault({ isActive = true }) {
       if (result.cancelled) return
       setExportResult(result)
     } catch (e) {
-      setError('Export failed: ' + e)
+      setError(t('vaultBody.exportFailed', { error: String(e) }))
     }
   }
 
@@ -206,7 +217,7 @@ export default function Vault({ isActive = true }) {
       setImportPath(path)
       setImportPassphrase('')
     } catch (e) {
-      setError('Import failed: ' + e)
+      setError(t('vaultBody.importFailed', { error: String(e) }))
     }
   }
 
@@ -220,7 +231,7 @@ export default function Vault({ isActive = true }) {
       setImportResult(result)
       load()
     } catch (e) {
-      setImportError('Import failed: ' + e)
+      setImportError(t('vaultBody.importFailed', { error: String(e) }))
     }
   }
 
@@ -231,22 +242,22 @@ export default function Vault({ isActive = true }) {
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
         <div>
-          <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>Vault</div>
+          <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>{t('vaultBody.title')}</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569' }}>
             {visibleEntries.length === entries.length
-              ? `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`
-              : `${visibleEntries.length} of ${entries.length} entries`}
+              ? t('vaultBody.entries', { count: entries.length })
+              : t('vaultBody.entriesOf', { shown: visibleEntries.length, total: entries.length })}
           </div>
         </div>
         <div style={{ flex: 1 }} />
         <button onClick={handleImportPick} style={headerBtnStyle}>
-          <Upload size={12} /> Import
+          <Upload size={12} /> {t('vaultBody.import')}
         </button>
         <button onClick={handleExport} style={headerBtnStyle}>
-          <Download size={12} /> Export All
+          <Download size={12} /> {t('vaultBody.exportAll')}
         </button>
         <button onClick={() => setShowAdd(true)} style={headerBtnStyle}>
-          <Plus size={12} /> Add New Item
+          <Plus size={12} /> {t('vaultBody.addNew')}
         </button>
       </div>
 
@@ -256,7 +267,7 @@ export default function Vault({ isActive = true }) {
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: 320 }}>
           <Search size={13} style={{ position: 'absolute', left: 10, color: '#475569', pointerEvents: 'none' }} />
           <input
-            placeholder="Search name, username, or kind..."
+            placeholder={t('vaultBody.searchPlaceholder')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ ...inputStyle, width: '100%', paddingLeft: 28 }}
@@ -286,11 +297,11 @@ export default function Vault({ isActive = true }) {
               className="select-compact"
               style={{ flex: '0 0 auto', fontSize: 11 }}
             >
-              <option value="secret">Keys</option>
-              <option value="login">Login</option>
+              <option value="secret">{t('vaultBody.optKeys')}</option>
+              <option value="login">{t('vaultBody.optLogin')}</option>
             </select>
             <input
-              placeholder="Name"
+              placeholder={t('vaultBody.name')}
               value={form.name}
               onChange={e => setForm({ ...form, name: e.target.value })}
               required
@@ -300,13 +311,13 @@ export default function Vault({ isActive = true }) {
           {form.kind === 'login' && (
             <div style={{ display: 'flex', gap: 8 }}>
               <input
-                placeholder="Username"
+                placeholder={t('vaultBody.username')}
                 value={form.username}
                 onChange={e => setForm({ ...form, username: e.target.value })}
                 style={{ ...inputStyle, flex: 1 }}
               />
               <input
-                placeholder="URL"
+                placeholder={t('vaultBody.url')}
                 value={form.url}
                 onChange={e => setForm({ ...form, url: e.target.value })}
                 style={{ ...inputStyle, flex: 1 }}
@@ -315,7 +326,7 @@ export default function Vault({ isActive = true }) {
           )}
           <KeyValueFields rows={form.fields} onChange={f => setForm({ ...form, fields: f })} />
           <textarea
-            placeholder="Notes"
+            placeholder={t('vaultBody.notes')}
             value={form.notes}
             onChange={e => setForm({ ...form, notes: e.target.value })}
             rows={2}
@@ -330,7 +341,7 @@ export default function Vault({ isActive = true }) {
                 padding: '6px 12px', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
               }}
             >
-              Cancel
+              {t('vaultBody.cancel')}
             </button>
             <button
               type="submit"
@@ -340,7 +351,7 @@ export default function Vault({ isActive = true }) {
                 fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
               }}
             >
-              Save
+              {t('vaultBody.save')}
             </button>
           </div>
         </form>
@@ -352,11 +363,11 @@ export default function Vault({ isActive = true }) {
         fontFamily: 'var(--font-mono)', fontSize: 9, color: '#334155',
         letterSpacing: '1px', textTransform: 'uppercase',
       }}>
-        <SortableHeader style={{ flex: 1 }} col="name" active={sortBy} dir={sortDir} onClick={toggleSort}>Name</SortableHeader>
-        <div style={{ width: 70 }}>Kind</div>
-        <div style={{ width: 110 }}>Username</div>
-        <div style={{ width: 90 }}>Fields</div>
-        <SortableHeader style={{ width: 56 }} col="date" active={sortBy} dir={sortDir} onClick={toggleSort}>Updated</SortableHeader>
+        <SortableHeader style={{ flex: 1 }} col="name" active={sortBy} dir={sortDir} onClick={toggleSort}>{t('vaultBody.name')}</SortableHeader>
+        <div style={{ width: 70 }}>{t('vaultBody.colKind')}</div>
+        <div style={{ width: 110 }}>{t('vaultBody.username')}</div>
+        <div style={{ width: 90 }}>{t('vaultBody.colFields')}</div>
+        <SortableHeader style={{ width: 56 }} col="date" active={sortBy} dir={sortDir} onClick={toggleSort}>{t('vaultBody.colUpdated')}</SortableHeader>
         <div style={{ width: 28 }} />
       </div>
 
@@ -368,7 +379,7 @@ export default function Vault({ isActive = true }) {
           }}>
             <KeyRound size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              No vault entries yet — add a new item above
+              {loaded ? t('vaultBody.emptyLoaded') : t('vaultBody.loading')}
             </div>
           </div>
         )}
@@ -379,7 +390,7 @@ export default function Vault({ isActive = true }) {
           }}>
             <Search size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              No entries match "{search}"
+              {t('vaultBody.noMatch', { search })}
             </div>
           </div>
         )}
@@ -395,12 +406,12 @@ export default function Vault({ isActive = true }) {
             <div style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 10 }}>
               {entry.name}
             </div>
-            <div style={{ width: 70 }}>{kindBadge(entry.kind)}</div>
+            <div style={{ width: 70 }}>{kindBadge(entry.kind, t)}</div>
             <div style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>
               {entry.username || '—'}
             </div>
             <div style={{ width: 90, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>
-              {entry.field_count} {entry.field_count === 1 ? 'key' : 'keys'}
+              {t('vaultBody.keyCount', { count: entry.field_count })}
             </div>
             <div style={{ width: 56, fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569' }}>{fmtDate(entry.updated_at)}</div>
             <div style={{ width: 28 }}>
@@ -433,13 +444,13 @@ export default function Vault({ isActive = true }) {
       {exportResult && (
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 420, maxWidth: '90%' }}>
-            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Vault Exported</div>
+            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{t('vaultBody.exported')}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
-              Saved to {exportResult.path}. Save this now — it will not be shown again.
+              {t('vaultBody.savedTo', { path: exportResult.path })}
             </div>
             {exportResult.skipped > 0 && (
               <div style={{ background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fbbf24' }}>
-                Exported {exportResult.exported}, skipped {exportResult.skipped} that could not be decrypted.
+                {t('vaultBody.exportSkipped', { exported: exportResult.exported, skipped: exportResult.skipped })}
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5, padding: '8px 10px', marginBottom: 14 }}>
@@ -448,19 +459,24 @@ export default function Vault({ isActive = true }) {
               </span>
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(exportResult.passphrase)}
-                title="Copy"
+                onClick={() => {
+                  Promise.resolve().then(() => navigator.clipboard.writeText(exportResult.passphrase))
+                    .then(() => setCopied('ok'), () => setCopied('failed'))
+                }}
+                title={t('vaultBody.copy')}
+                aria-label={copied === 'ok' ? t('vaultBody.copied') : copied === 'failed' ? t('vaultBody.copyFailedLabel') : t('vaultBody.copyPassphrase')}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 4, display: 'flex' }}
               >
                 <Copy size={13} />
               </button>
+              {copied && <span role="status" style={{ fontSize: 10, color: copied === 'ok' ? '#00f5d4' : '#fca5a5' }}>{copied === 'ok' ? t('vaultBody.copied') : t('vaultBody.copyFailed')}</span>}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setExportResult(null)}
                 style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 5, padding: '6px 12px', color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
               >
-                Done
+                {t('vaultBody.done')}
               </button>
             </div>
           </div>
@@ -470,7 +486,7 @@ export default function Vault({ isActive = true }) {
       {importPath && (
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <form onSubmit={handleImportSubmit} style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 380, maxWidth: '90%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Import Vault</div>
+            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{t('vaultBody.importVault')}</div>
             {importError && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
                 {importError}
@@ -479,7 +495,7 @@ export default function Vault({ isActive = true }) {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8' }}>{importPath}</div>
             <input
               type="password"
-              placeholder="Export passphrase"
+              placeholder={t('vaultBody.passphrase')}
               value={importPassphrase}
               onChange={e => setImportPassphrase(e.target.value)}
               required
@@ -492,13 +508,13 @@ export default function Vault({ isActive = true }) {
                 onClick={() => { setImportPath(null); setImportPassphrase('') }}
                 style={{ background: 'none', border: '1px solid #1e3a4f', borderRadius: 5, padding: '6px 12px', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
               >
-                Cancel
+                {t('vaultBody.cancel')}
               </button>
               <button
                 type="submit"
                 style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 5, padding: '6px 12px', color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
               >
-                Import
+                {t('vaultBody.import')}
               </button>
             </div>
           </form>
@@ -508,21 +524,21 @@ export default function Vault({ isActive = true }) {
       {importResult && (
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 340, maxWidth: '90%' }}>
-            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Import Complete</div>
+            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>{t('vaultBody.importComplete')}</div>
             {importError && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
                 {importError}
               </div>
             )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
-              Imported {importResult.imported}, skipped {importResult.skipped} duplicate{importResult.skipped === 1 ? '' : 's'}.
+              {t('vaultBody.importSummary', { imported: importResult.imported, count: importResult.skipped })}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setImportResult(null)}
                 style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 5, padding: '6px 12px', color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
               >
-                Done
+                {t('vaultBody.done')}
               </button>
             </div>
           </div>

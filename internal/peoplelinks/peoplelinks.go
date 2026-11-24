@@ -23,8 +23,8 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
-// DefaultLimit caps the pairs one run considers (plan: 200 per run).
-const DefaultLimit = 200
+// DefaultLimit caps the pairs one run considers (50 per run: each pair is one paid Jev request).
+const DefaultLimit = 50
 
 // MaxBioChars caps the bio sent to Jev (runes).
 const MaxBioChars = 1000
@@ -54,7 +54,7 @@ type Person struct {
 	ContactDetails   string `json:"-"`
 	JobTitle         string `json:"job_title,omitempty"`
 	Category         string `json:"category,omitempty"`
-	Introduction     string `json:"-"`
+	Introduction     string `json:"-"` // the profile bio, loaded from people.about (not the DM draft)
 }
 
 // Pair is a candidate: two people of one profile on different platforms,
@@ -161,7 +161,7 @@ const MaxGroupSize = 50
 func loadPeople(ctx context.Context, db *sql.DB, profileID string) ([]Person, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(platform,''), COALESCE(platform_username,''),
 		COALESCE(full_name,''), COALESCE(website,''), COALESCE(contact_details,''),
-		COALESCE(job_title,''), COALESCE(category,''), COALESCE(introduction,'')
+		COALESCE(job_title,''), COALESCE(category,''), COALESCE(about,'')
 		FROM people WHERE profile_id = ? ORDER BY id`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("loading people: %w", err)

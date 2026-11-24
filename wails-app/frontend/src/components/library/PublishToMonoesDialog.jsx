@@ -7,6 +7,7 @@ import { X, UploadCloud, Loader, ExternalLink } from 'lucide-react'
 import { library } from '../../services/library.js'
 import { api } from '../../services/api.js'
 import LogInToMonoesButton from './LogInToMonoesButton.jsx'
+import { useEscapeClose } from '../../lib/escapeStack.js'
 
 const mono = { fontFamily: 'var(--font-mono)', fontSize: 10.5 }
 
@@ -28,11 +29,7 @@ export default function PublishToMonoesDialog({ kind, localId, defaultName = '',
     return () => { live = false }
   }, [])
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, busy])
+  useEscapeClose(() => { if (!busy) onClose?.() })
 
   const submit = async () => {
     setBusy(true); setError('')

@@ -33,6 +33,10 @@ const (
 // RiskLevels are the risk rubric's levels, lowest first.
 var RiskLevels = []string{"low", "medium", "high"}
 
+// Jev is not local: what is capped below goes to the profile's decision provider (TypeSafe's hosted
+// service by default). The consent is `jev enable hil`, which only the operator can give and which is
+// off until then; `hil list --suggest` says so in its help.
+//
 // Caps on what leaves the machine (plan D6): each field value's string form
 // is cut to MaxValueChars, and all field values together to MaxStateChars.
 const (

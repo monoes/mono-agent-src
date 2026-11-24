@@ -50,8 +50,17 @@ services:
       MONOAGENT_WEBHOOK_ADDR: "0.0.0.0:9321"
       # No OS keychain in the container. Before explicit account login, create
       # this private passphrase file (mode 0600) in the persistent volume.
+      #
+      # This default keeps the passphrase file in the SAME volume as the sealed
+      # tokens it protects, so it only guards an accidental copy of one file:
+      # anyone holding the volume holds both. To keep the passphrase off the
+      # data volume, mount it from the host instead (also remove the line below
+      # and add the `secrets:` entries marked "host passphrase"; the host file
+      # must be mode 0600 and readable by uid 10001, the container user).
       MONOAGENT_ALLOW_FILE_KEYRING: "1"
       MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE: "/data/.monoagent/keyring-passphrase"
+      # host passphrase:
+      # MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE: "/run/secrets/monoagent_keyring_passphrase"
       # MONOAGENT_WEBHOOK_ALLOWED_ORIGINS: "https://app.example.com"
       # Real certificate instead of the auto-generated self-signed one
       # (paths inside the container — mount the cert/key via `volumes`):
@@ -65,6 +74,9 @@ services:
 
     volumes:
       - monoagent-data:/data
+    # host passphrase:
+    # secrets:
+    #   - monoagent_keyring_passphrase
 
     # Usage:
     #   docker compose up -d --build
@@ -85,3 +97,8 @@ services:
 
 volumes:
   monoagent-data:
+
+# host passphrase: a file on the host, outside the data volume (chmod 600, chown 10001).
+# secrets:
+#   monoagent_keyring_passphrase:
+#     file: ./keyring-passphrase

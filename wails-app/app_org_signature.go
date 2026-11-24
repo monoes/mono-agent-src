@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orgsign"
 )
@@ -30,6 +31,21 @@ func orgSignArgs(root, orgName string, extra ...string) []string {
 		args = append(args, "--project", root)
 	}
 	return append(append(args, "sign", orgName), extra...)
+}
+
+// issueOrgSignNonce is the operator's one-time nonce, stubbed in tests.
+var issueOrgSignNonce = operator.IssueNonce
+
+// orgSignYesArgs are the extra arguments of a signing `org sign --yes`: the pinned hash and, because the CLI
+// is run without a terminal here, the one-time nonce this process issues for exactly that definition. The app is
+// the operator's own act (the review dialog's confirm button, or the re-sign after the designer saved), so it
+// can issue the nonce itself. If none can be issued the CLI is still called without one and says why it refuses.
+func orgSignYesArgs(orgName, hash string) []string {
+	args := []string{"--yes", "--expect-hash", hash}
+	if nonce, err := issueOrgSignNonce(operator.OrgSignNoncePurpose, orgName+":"+hash, true); err == nil {
+		args = append(args, "--nonce", nonce)
+	}
+	return args
 }
 
 // OrgSignatureStatus is `org sign <org> --status`: {supported, state,
@@ -61,7 +77,7 @@ func (a *App) OrgSign(orgName, hash string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
-	return a.jsonResult(orgSignArgs(a.orgProjectRoot(), orgName, "--yes", "--expect-hash", hash)...)
+	return a.jsonResult(orgSignArgs(a.orgProjectRoot(), orgName, orgSignYesArgs(orgName, hash)...)...)
 }
 
 // orgSignSupport caches whether the installed monomind requires signed

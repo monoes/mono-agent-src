@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
@@ -48,6 +49,25 @@ type Heartbeat struct {
 	// Account is the monoes.me account verdict, refreshed on every write. It is
 	// absent while the account gate is dormant, and in a daemon that predates it.
 	Account *AccountState `json:"account,omitempty"`
+	// SchedulerTick is when the scheduler loop last ran (NoteSchedulerTick),
+	// refreshed on every write. The heartbeat ticker is independent of the
+	// scheduler, so only this field tells a wedged scheduler from a healthy
+	// one. Zero when the scheduler never reported (an older daemon).
+	SchedulerTick time.Time `json:"scheduler_tick,omitzero"`
+}
+
+var lastSchedulerTick atomic.Int64 // unix nanoseconds
+
+// NoteSchedulerTick records that the scheduler loop is alive now. The
+// scheduler calls it on every pass; the next heartbeat carries the time.
+func NoteSchedulerTick() { lastSchedulerTick.Store(time.Now().UnixNano()) }
+
+func schedulerTick() time.Time {
+	n := lastSchedulerTick.Load()
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n)
 }
 
 // AccountState is the account verdict a heartbeat carries: ok, grace or locked,
@@ -146,6 +166,9 @@ func RunWith(ctx context.Context, hb Heartbeat, refresh func(*Heartbeat)) {
 	write := func() {
 		if refresh != nil {
 			refresh(&hb)
+		}
+		if t := schedulerTick(); !t.IsZero() {
+			hb.SchedulerTick = t
 		}
 		hb.TS = time.Now()
 		_ = Write(hb)

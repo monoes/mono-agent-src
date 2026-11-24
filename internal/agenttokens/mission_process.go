@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/procchain"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -59,23 +60,41 @@ func missionMAC(key []byte, f ...string) string {
 
 // missionRow is what the process signature covers.
 type missionRow struct {
-	id, profile, hash, expires, role, actor, owner string
-	session, task                                  int64
-	pid                                            int
-	stamp, mac                                     string
+	id, profile, hash, expires, role, actor, owner, scope string
+	session, task                                         int64
+	pid                                                   int
+	stamp, mac                                            string
 }
 
+// missionMACv2 prefixes a signature that also covers the token's scope. A bare hex signature is
+// the first version (no scope); it is still accepted for a token bound before.
+const missionMACv2 = "v2:"
+
 func (r missionRow) sign(key []byte, pid int, stamp string) string {
+	return missionMACv2 + missionMAC(key, r.id, r.profile, r.hash, r.expires, r.role, r.actor, r.owner,
+		fmt.Sprint(r.session), fmt.Sprint(r.task), fmt.Sprint(pid), stamp, r.scope)
+}
+
+func (r missionRow) signV1(key []byte, pid int, stamp string) string {
 	return missionMAC(key, r.id, r.profile, r.hash, r.expires, r.role, r.actor, r.owner,
 		fmt.Sprint(r.session), fmt.Sprint(r.task), fmt.Sprint(pid), stamp)
+}
+
+// macValid checks the stored signature in whichever version it was written.
+func (r missionRow) macValid(key []byte) bool {
+	want := r.signV1(key, r.pid, r.stamp)
+	if strings.HasPrefix(r.mac, missionMACv2) {
+		want = r.sign(key, r.pid, r.stamp)
+	}
+	return hmac.Equal([]byte(want), []byte(r.mac))
 }
 
 func (s *Store) missionRowByID(ctx context.Context, id string) (missionRow, error) {
 	r := missionRow{id: id}
 	var exp sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT profile_id, token_hash, expires_at, mission_role, mission_actor, mission_owner, mission_session, mission_task, mission_pid, mission_stamp, mission_mac
+	err := s.db.QueryRowContext(ctx, `SELECT profile_id, token_hash, expires_at, scope, mission_role, mission_actor, mission_owner, mission_session, mission_task, mission_pid, mission_stamp, mission_mac
 		FROM agent_tokens WHERE id = ? AND mission_session > 0`, id).
-		Scan(&r.profile, &r.hash, &exp, &r.role, &r.actor, &r.owner, &r.session, &r.task, &r.pid, &r.stamp, &r.mac)
+		Scan(&r.profile, &r.hash, &exp, &r.scope, &r.role, &r.actor, &r.owner, &r.session, &r.task, &r.pid, &r.stamp, &r.mac)
 	r.expires = exp.String
 	return r, err
 }
@@ -130,7 +149,7 @@ func (s *Store) checkMissionProcess(ctx context.Context, t Token) error {
 		return nil // names no process
 	}
 	key, err := missionKey(ctx, s.db, r.profile)
-	if err != nil || !hmac.Equal([]byte(r.sign(key, r.pid, r.stamp)), []byte(r.mac)) {
+	if err != nil || !r.macValid(key) {
 		return ErrInvalid // a process was recorded and the record is not genuine (or cannot be checked)
 	}
 	if !procchain.Supported {

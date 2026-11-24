@@ -1531,6 +1531,21 @@ select option {
   max-width: 280px;
 }
 
+/* Hero variant for pages where the empty state is the content (Help): a
+   full-strength icon and room for a longer description. Add it next to
+   .empty-state; the sparse default above stays faint and narrow. */
+.empty-state--hero {
+  padding: 64px 24px;
+  gap: 16px;
+}
+.empty-state--hero .empty-state-icon {
+  opacity: 1;
+}
+.empty-state--hero .empty-state-desc {
+  font-size: 14px;
+  max-width: 440px;
+}
+
 /* ── Spinner ── */
 .spinner {
   width: 18px;

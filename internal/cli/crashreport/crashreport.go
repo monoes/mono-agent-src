@@ -40,8 +40,8 @@ type Build struct {
 // auth (gh CLI / GITHUB_TOKEN) live in one place. There is no auto-download
 // fallback: npx is never invoked.
 func Report(panicValue interface{}, stack []byte, b Build) {
-	title := fmt.Sprintf("panic: %v", panicValue)
-	body := fmt.Sprintf("Uncaught panic in `monoagentcli`.\n\nVersion: %s (built %s)\n\n```\n%s\n```\n", b.Version, b.BuildDate, stack)
+	title := Scrub(fmt.Sprintf("panic: %v", panicValue))
+	body := Scrub(fmt.Sprintf("Uncaught panic in `monoagentcli`.\n\nVersion: %s (built %s)\n\n```\n%s\n```\n", b.Version, b.BuildDate, stack))
 
 	if os.Getenv(crashReportOptIn) == "1" {
 		if monomindPath, err := monomind.Find(); err == nil {

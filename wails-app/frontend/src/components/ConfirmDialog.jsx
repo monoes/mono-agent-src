@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEscapeClose } from '../lib/escapeStack.js'
 
 // Promise-based confirm to replace blocking native window.confirm(), which looks
 // foreign in a styled Wails app and freezes the webview. Usage:
 //   if (!(await confirm('Delete this?'))) return
 // With opts.checkbox = { label, warning } the dialog also shows an unchecked
 // checkbox, and confirming resolves { checked } (truthy) instead of true.
+// With opts.defaultCancel the Cancel button has focus on open and a bare Enter
+// does not confirm: use it where the confirmed action is the risky one.
 const bus = new EventTarget()
 let pendingResolve = null
 
@@ -73,15 +76,18 @@ export default function ConfirmHost() {
     return () => document.removeEventListener('keydown', onTab)
   }, [req])
 
+  // Escape goes through the shared stack, so a confirm opened over a modal
+  // answers "no" and leaves the modal open.
+  useEscapeClose(() => close(false), !!req)
+
   useEffect(() => {
     if (!req) return
     const onKey = (e) => {
-      if (e.key === 'Escape') close(false)
       // A focused button answers Enter itself (Cancel with focus means
       // cancel). Only Enter with no button focused confirms; the confirm
       // button has focus when the dialog opens, so Enter still confirms by
       // default.
-      if (e.key === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) close(true)
+      if (e.key === 'Enter' && !req.defaultCancel && !(document.activeElement instanceof HTMLButtonElement)) close(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -131,6 +137,7 @@ export default function ConfirmHost() {
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button
+            autoFocus={!!req.defaultCancel}
             onClick={() => close(false)}
             style={{
               padding: '7px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
@@ -141,7 +148,7 @@ export default function ConfirmHost() {
             {req.cancelLabel || 'Cancel'}
           </button>
           <button
-            autoFocus
+            autoFocus={!req.defaultCancel}
             onClick={() => close(true)}
             style={{
               padding: '7px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, border: 'none',

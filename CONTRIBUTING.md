@@ -87,6 +87,9 @@ should build with the tag and set a date that never comes.
 - Describe what changed and why; link any related issues.
 - Verify before opening: `gofmt` clean, `go build ./...`,
   `go test ./...`, and the same with `-tags nosocial`.
+- **Required checks.** Require the aggregate jobs "Build & test (default)" and
+  "Build & test (nosocial)", which fail when any `Test shard` cell fails; do not
+  list the individual shard cells (their set changes with the test weights).
 
 ## Contribution terms
 

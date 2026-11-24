@@ -2,7 +2,7 @@
   "$schema": "../../../data/schemas/action.v1.schema.json",
   "actionType": "share_video",
   "platform": "TIKTOK",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Copy the share link of TikTok videos and return the URL. Nothing is posted, but it clicks Copy link, which replaces your clipboard and may count as a share on TikTok. Opening a video page may count as a view.",
   "sideEffects": "write",
   "visibility": ["video_view_counted"],
@@ -27,6 +27,14 @@
         "min": 1,
         "max": 60,
         "description": "Seconds to wait between videos"
+      },
+      {
+        "name": "maxSharesPerRun",
+        "type": "number",
+        "default": 10,
+        "min": 1,
+        "max": 50,
+        "description": "Limit: max shares in one run (default 10, hard max 50)"
       }
     ]
   },
@@ -78,6 +86,7 @@
     {
       "id": "process_videos",
       "iterator": "selectedListItems",
+      "maxItems": "{{maxSharesPerRun or 10}}",
       "indexVar": "reachedIndex",
       "steps": [
         "t1_share_video",

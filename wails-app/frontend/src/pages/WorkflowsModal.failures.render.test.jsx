@@ -12,7 +12,7 @@ vi.mock('../wailsjs/go/main/App', async (importOriginal) => ({
   GetWorkflowExecutions: (...a) => m.execs(...a),
 }))
 vi.mock('../services/api.js', () => ({ notify: (...a) => m.notify(...a) }))
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: k => k }) }))
+import '../i18n.js'
 vi.mock('../components/library/LibraryModal.jsx', () => ({ default: () => null }))
 vi.mock('../components/library/LogInToMonoesButton.jsx', () => ({ default: () => null }))
 

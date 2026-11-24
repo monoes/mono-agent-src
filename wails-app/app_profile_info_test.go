@@ -21,7 +21,7 @@ func TestProfileInfoBindingsShellOut(t *testing.T) {
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
 case "$*" in
   *"info fields"*) echo '{"groups":[{"id":"identity","label":"Identity"}],"fields":[{"key":"identity.first_name","label":"First name","group":"identity","kind":"text"},{"key":"ids.passport","label":"Passport","group":"ids","kind":"text","sensitive":true}]}' ;;
-  *"info get --reveal"*) echo '{"profile":"work","entries":[{"key":"ids.passport","value":"X1234567","source":"user"}]}' ;;
+  *"info get ids.passport --reveal"*) echo '{"profile":"work","entries":[{"key":"ids.passport","value":"X1234567","source":"user"}]}' ;;
   *"info get"*) echo '{"profile":"work","entries":[{"key":"ids.passport","value":"•••• 4567","masked":true,"source":"ai","origin":"cv.pdf"}]}' ;;
   *"info set"*) cat > '`+stdinLog+`' ;;
   *"info photo-path"*) echo '{"key":"photos.id","path":"`+photo+`"}' ;;
@@ -66,7 +66,7 @@ esac
 	want := []string{
 		"--profile work --json profile info fields",
 		"--profile work --json profile info get",
-		"--profile work --json profile info get --reveal",
+		"--profile work --json profile info get ids.passport --reveal",
 		"--profile work --json profile info set about.bio --stdin",
 		"--profile work --json profile info rm about.bio",
 		"--profile work --json profile info photo photos.id " + photo,

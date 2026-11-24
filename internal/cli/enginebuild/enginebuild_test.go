@@ -120,3 +120,10 @@ func TestBuildReportsADatabaseThatDoesNotOpen(t *testing.T) {
 	}
 	cleanup() // a no-op, safe to defer
 }
+
+// The engine reads the selector configs from the directory the CLI names, as `node run` does.
+func TestConfigDirComesFromDeps(t *testing.T) {
+	if got := (Deps{ConfigDir: func() string { return "/x/configs" }}).configDir(); got != "/x/configs" {
+		t.Fatalf("configDir = %q, want the one the CLI names", got)
+	}
+}

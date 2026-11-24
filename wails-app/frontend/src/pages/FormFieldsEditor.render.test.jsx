@@ -109,3 +109,17 @@ describe('FormFieldsEditor', () => {
     expect(onCommit).not.toHaveBeenCalled()
   })
 })
+
+describe('FormFieldsEditor external value (W4 r20-15)', () => {
+  it('adopts a value that changes from outside but not its own commits', () => {
+    const onCommit = vi.fn()
+    const el = v => <FormFieldsEditor field={field} value={v} config={{}} onCommit={onCommit} inputStyle={{}} />
+    const { rerender } = render(el([{ fieldLabel: 'A' }]))
+    expect(screen.getByLabelText('Field 1 label')).toHaveValue('A')
+    type('Field 1 label', 'B')
+    rerender(el([{ fieldLabel: 'B', fieldType: 'text', requiredField: false }]))
+    expect(screen.getByLabelText('Field 1 label')).toHaveValue('B')
+    rerender(el([{ fieldLabel: 'Other node' }]))
+    expect(screen.getByLabelText('Field 1 label')).toHaveValue('Other node')
+  })
+})

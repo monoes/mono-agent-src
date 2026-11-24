@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"text/template"
 	"text/template/parse"
 	"time"
@@ -61,7 +62,11 @@ type nodeJSONProxy = map[string]interface{}
 // performance.
 type ExpressionEngine struct {
 	cache sync.Map // key: template string → *parsedTemplate
-	funcs template.FuncMap
+	// cached counts the entries of cache; sources past maxCachedTemplates are
+	// parsed on every use, so item data embedded in a source cannot grow
+	// the daemon's memory without bound.
+	cached atomic.Int64
+	funcs  template.FuncMap
 }
 
 // NewExpressionEngine returns a fully configured ExpressionEngine.
@@ -253,6 +258,9 @@ func toIndexInt(key interface{}) (int, error) {
 	}
 }
 
+// maxCachedTemplates bounds the parsed-template cache.
+const maxCachedTemplates = 2048
+
 // parse returns a cached *parsedTemplate for the given source string.
 // A preamble is prepended so $json/$node/... variables are available.
 func (e *ExpressionEngine) parse(src string) (*parsedTemplate, error) {
@@ -275,7 +283,11 @@ func (e *ExpressionEngine) parse(src string) (*parsedTemplate, error) {
 		}
 	}
 	p := &parsedTemplate{t: t, needs: needsOf(t, len(pre))}
-	e.cache.Store(src, p)
+	if e.cached.Load() < maxCachedTemplates {
+		if _, loaded := e.cache.LoadOrStore(src, p); !loaded {
+			e.cached.Add(1)
+		}
+	}
 	return p, nil
 }
 

@@ -3,7 +3,7 @@
   "schema": "monoagent.automation/v1",
   "id": "tiktok",
   "name": "TikTok",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Read TikTok profiles, videos and comments; like, comment, follow, message and publish videos from your own account",
   "publisher": {
     "name": "Mono Agent",

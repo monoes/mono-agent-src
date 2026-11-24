@@ -182,6 +182,19 @@ type Server struct {
 	clientName  string
 	actorName   string
 	actorSuffix string
+
+	// startedRuns holds the executions this server's workflow_run started: the
+	// caller may not approve a Human-in-Loop gate of its own run (hil_approve).
+	startedRuns sync.Map
+}
+
+// noteStartedRun records an execution that workflow_run started here.
+func (s *Server) noteStartedRun(executionID string) { s.startedRuns.Store(executionID, struct{}{}) }
+
+// startedRun says whether workflow_run on this server started the execution.
+func (s *Server) startedRun(executionID string) bool {
+	_, ok := s.startedRuns.Load(executionID)
+	return ok
 }
 
 // NewServer creates a Server with the given options.
@@ -235,6 +248,9 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 	if s.opts.Grant == "" && workflowToolsRequested(s.opts.WorkflowTools) && (s.opts.TasksOnly || s.opts.APIOnly) {
 		return ErrWorkflowToolsWithNarrowMode
+	}
+	if s.opts.AllowMutations {
+		fmt.Fprintln(os.Stderr, "mcp: mutating tools are ENABLED (MONOAGENT_MCP_ALLOW_MUTATIONS or --allow-mutations); a connected client can change workflows, orgs and data")
 	}
 
 	// serveCtx is cancelled as soon as the read loop ends (client closed

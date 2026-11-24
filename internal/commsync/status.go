@@ -235,7 +235,9 @@ func NodeFinished(ctx context.Context, db *sql.DB, executionID, nodeID string, e
 		var serr error
 		if err != nil {
 			serr = setStatusRetry(ctx, db, ref, Failed, Detail{Error: err.Error()})
-		} else {
+		} else if pending, perr := otherNodesPending(ctx, db, ref, nodeID); perr != nil {
+			serr = perr
+		} else if !pending {
 			serr = setStatusRetry(ctx, db, ref, Sent, Detail{})
 		}
 		if serr != nil {

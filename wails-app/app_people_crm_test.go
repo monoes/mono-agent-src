@@ -139,12 +139,6 @@ esac
 	a.ctx = context.Background()
 	a.selectForTest("work")
 
-	if err := a.AddPersonMessage("p1", "manual", "", "", "", "Hi", "hello there"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.AddPersonMessage("p1", "outlook", "x1", "outbound", "me", "", ""); err != nil {
-		t.Fatal(err)
-	}
 	m, err := a.ComposePersonMessage("p1", "outlook", "Hi", "<p>body</p>", true)
 	if err != nil || m.ID != "m1" || m.Status != "draft" {
 		t.Fatalf("ComposePersonMessage = %+v, %v", m, err)
@@ -166,8 +160,6 @@ esac
 	}
 
 	want := []string{
-		"--profile work --json people messages add --source=manual --subject=Hi --body=hello there -- p1",
-		"--profile work --json people messages add --source=outlook --external-id=x1 --direction=outbound --sender=me -- p1",
 		"--profile work --json people messages compose --connection=outlook --subject=Hi --body=<p>body</p> --draft -- p1",
 		"--profile work --json people messages compose --connection=c1 --subject= --body=b -- p1",
 		"--profile work --json people messages drafts",

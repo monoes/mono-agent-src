@@ -62,6 +62,12 @@ func mask(s string) string {
 // Get returns the profile's values in catalog order. Encrypted fields are
 // masked unless reveal is set.
 func Get(ctx context.Context, db *sql.DB, profile string, reveal bool) ([]Entry, error) {
+	return GetWhere(ctx, db, profile, reveal, nil)
+}
+
+// GetWhere is Get for the fields keep accepts (nil keeps all); a field keep
+// rejects is neither decrypted nor sealed.
+func GetWhere(ctx context.Context, db *sql.DB, profile string, reveal bool, keep func(Field) bool) ([]Entry, error) {
 	rows, err := db.QueryContext(ctx, `SELECT key, value, source, origin, updated_at FROM profile_info WHERE profile_id = ?`, profile)
 	if err != nil {
 		return nil, err
@@ -81,7 +87,7 @@ func Get(ctx context.Context, db *sql.DB, profile string, reveal bool) ([]Entry,
 	out := make([]Entry, 0, len(have))
 	for _, fd := range Catalog {
 		e, ok := have[fd.Key]
-		if !ok {
+		if !ok || (keep != nil && !keep(fd)) {
 			continue
 		}
 		if fd.Encrypted() {
@@ -146,15 +152,13 @@ func sealStored(ctx context.Context, db *sql.DB, profile, key, plain string) ([]
 // Values returns the plain values of the fields keep accepts, for the AI step
 // and the extension; an encrypted field is decrypted only if keep takes it.
 func Values(ctx context.Context, db *sql.DB, profile string, keep func(Field) bool) (map[string]string, error) {
-	all, err := Get(ctx, db, profile, true)
+	all, err := GetWhere(ctx, db, profile, true, keep)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]string{}
 	for _, e := range all {
-		if fd := Lookup(e.Key); fd != nil && keep(*fd) {
-			out[e.Key] = e.Value
-		}
+		out[e.Key] = e.Value
 	}
 	return out, nil
 }

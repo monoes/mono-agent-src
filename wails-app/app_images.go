@@ -29,13 +29,6 @@ func (a *App) GetVaultImages(limit int) ([]map[string]interface{}, error) {
 	return a.imageRows("media", "list", "--limit", strconv.Itoa(limit))
 }
 
-func (a *App) SearchVaultImages(query string) ([]map[string]interface{}, error) {
-	if err := a.signedOut(); err != nil {
-		return nil, err
-	}
-	return a.imageRows("media", "search", "--", query)
-}
-
 func (a *App) imageRows(args ...string) ([]map[string]interface{}, error) {
 	var out []map[string]interface{}
 	if err := a.runMonoCLI("", &out, args...); err != nil {

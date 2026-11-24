@@ -11,4 +11,5 @@ func (g *Gateway) Mount(mux *http.ServeMux, p Policy) {
 	mux.Handle("POST /v1/chat/completions", g.auth(g.handleChat(p)))
 	mux.Handle("POST /v1/images/generations", g.auth(g.handleImages(p)))
 	mux.Handle("GET /v1/images/jobs/{id}", g.auth(g.handleImageJob()))
+	mux.Handle("DELETE /v1/images/jobs/{id}", g.auth(g.handleImageJobDelete()))
 }

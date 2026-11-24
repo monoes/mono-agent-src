@@ -60,7 +60,7 @@ func TestUnreadableFileUnderAnAbandonedChangeIsResolvable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Skip(err)
+		t.Skipf("mkfifo unavailable: %v", err)
 	}
 	if _, err := s.db.Exec(`INSERT INTO workflow_publications (workflow_id, kind, state, owner_pid, started_at)
 		VALUES ('wf-g', 'save', 'pending', 0, ?)`, time.Now().UTC()); err != nil {
@@ -101,7 +101,7 @@ func TestUnreadableFileUnderAnAbandonedChangeIsResolvable(t *testing.T) {
 func TestStampSkipsPipesAndLinks(t *testing.T) {
 	dir := t.TempDir()
 	if err := syscall.Mkfifo(filepath.Join(dir, "x.json"), 0o600); err != nil {
-		t.Skip(err)
+		t.Skipf("mkfifo unavailable: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "real.txt"), []byte(`{"id":"l"}`), 0o600); err != nil {
 		t.Fatal(err)

@@ -165,6 +165,9 @@ type Env struct {
 	// binary's newest embedded one, and whether the database is ahead.
 	SchemaAhead func(ctx context.Context) (dbVersion, binaryVersion int, ahead bool, err error)
 
+	// ProfileBackupsSize reports how many pre-delete-profile snapshots there are and their bytes.
+	ProfileBackupsSize func() (count int, bytes int64, err error)
+
 	// WorkflowPublications reads the unfinished workflow changes; RecoverWorkflowPublications
 	// resolves the abandoned ones (what any command that opens the workflows does anyway) and
 	// returns how many it looked at.
@@ -331,7 +334,14 @@ type DaemonInfo struct {
 	// Version is the version the daemon started with, from its heartbeat; ""
 	// for a daemon that predates the field (v0.46.0).
 	Version string
+	// SchedulerAgeMS is how long ago the scheduler loop last ran, from the
+	// heartbeat's scheduler_tick; 0 when the daemon never reported one.
+	SchedulerAgeMS int64
 }
+
+// SchedulerStaleAfter is how old the scheduler's last tick may be before
+// doctor says the daemon looks wedged (its heartbeat ticker runs on its own).
+const SchedulerStaleAfter = 2 * time.Minute
 
 // Report is the `doctor --json` payload.
 type Report struct {

@@ -1,7 +1,14 @@
 // internal/discovery/sources/linkedin/robots_test.go
 package linkedin
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/monoes/mono-agent/internal/discovery"
+)
 
 // linkedInShapedRobotsTxt mirrors the real shape of
 // https://www.linkedin.com/robots.txt: zero "User-agent: *" blocks, only
@@ -53,5 +60,27 @@ func TestIsDisallowedByRobotsNoDisallowMeansAllowed(t *testing.T) {
 	robotsTxt := "User-agent: LinkedInBot\nAllow: /\n"
 	if isDisallowedByRobots(robotsTxt, "/jobs-guest/jobs/api/seeMoreJobPostings/search") {
 		t.Fatal("expected no Disallow rules to mean allowed")
+	}
+}
+
+func TestFetchRobotsTxtRefusesAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+		w.Write(make([]byte, discovery.MaxRobotsBytes+1))
+	}))
+	defer srv.Close()
+	if _, err := fetchRobotsTxt(context.Background(), srv.URL+"/robots.txt"); err == nil {
+		t.Fatal("an oversized robots.txt was accepted")
+	}
+}
+
+func TestFetchRobotsTxtReadsAnOrdinaryBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(linkedInShapedRobotsTxt))
+	}))
+	defer srv.Close()
+	body, err := fetchRobotsTxt(context.Background(), srv.URL+"/robots.txt")
+	if err != nil || body != linkedInShapedRobotsTxt {
+		t.Fatalf("body %q err %v", body, err)
 	}
 }

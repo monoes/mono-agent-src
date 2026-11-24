@@ -109,6 +109,9 @@ func (d Deps) newAgentRosterAutoOnCmd() *cobra.Command {
 			fmt.Sprintf("%d runtime a day, %d models per run, %s quiet period). ", agentroster.DefaultAutoRuntimesPerDay,
 				agentroster.DefaultAutoModelsPerRun, agentroster.DefaultAutoQuietPeriod) + autoRevalidateMoneyNote,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := d.refuseUnlessOperatorFor("turning auto-revalidate on"); err != nil {
+				return err
+			}
 			quiet, err := parseDurationFlag(quietRaw)
 			if err != nil {
 				return err

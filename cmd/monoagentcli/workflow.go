@@ -81,6 +81,7 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 		},
 		BotRegistry:       &cliBotRegistry{},
 		OpenWorkflowStore: openWorkflowStore,
+		ConfigDir:         func() string { return expandPath("~/.monoagent/configs") },
 	})
 }
 

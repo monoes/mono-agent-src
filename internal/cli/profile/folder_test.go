@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 // TestValidateFolderChoiceAllowsNonEmptyFolders is a regression test for
@@ -89,4 +91,18 @@ func TestValidateFolderChoiceAllowsNonEmptyFolders(t *testing.T) {
 			t.Fatal("expected an error when \".monomind\" already exists as a file, got nil")
 		}
 	})
+}
+
+func TestValidateFolderChoiceRefusesFoldersThatAreTooWide(t *testing.T) {
+	home := t.TempDir()
+	testhome.SetHome(t, home)
+	for name, dir := range map[string]string{
+		"filesystem root": string(filepath.Separator),
+		"home":            home,
+		"hidden":          filepath.Join(home, ".ssh"),
+	} {
+		if err := validateFolderChoice(dir); err == nil {
+			t.Errorf("%s: %q was accepted", name, dir)
+		}
+	}
 }

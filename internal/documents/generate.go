@@ -21,7 +21,7 @@ func GenerateDocument(ctx context.Context, db *sql.DB, profileID, applicationID 
 		return "", "", fmt.Errorf("documents.GenerateDocument: %w", err)
 	}
 
-	htmlFile, err := os.CreateTemp("", string(docType)+"-*.html")
+	htmlFile, err := os.CreateTemp(scratchDir(), string(docType)+"-*.html")
 	if err != nil {
 		return "", "", fmt.Errorf("documents.GenerateDocument: creating temp html file: %w", err)
 	}
@@ -47,7 +47,7 @@ func GenerateDocument(ctx context.Context, db *sql.DB, profileID, applicationID 
 		return htmlDocID, "", fmt.Errorf("documents.GenerateDocument: rendering pdf: %w", err)
 	}
 
-	pdfFile, err := os.CreateTemp("", string(docType)+"-*.pdf")
+	pdfFile, err := os.CreateTemp(scratchDir(), string(docType)+"-*.pdf")
 	if err != nil {
 		return htmlDocID, "", fmt.Errorf("documents.GenerateDocument: creating temp pdf file: %w", err)
 	}

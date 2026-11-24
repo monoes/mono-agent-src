@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/orgsign/orgsigntest"
@@ -77,6 +78,8 @@ func callsWith(t *testing.T, log, part string) []string {
 // the projection hash of exactly what it wrote.
 func TestSaveOrgDoc_ResignsASignedOrg(t *testing.T) {
 	log := fakeSignCLI(t, reconciledRead, statusSigned)
+	issueOrgSignNonce = func(string, string, bool) (string, error) { return "n1", nil }
+	t.Cleanup(func() { issueOrgSignNonce = operator.IssueNonce })
 	a, root := newOrgDesignApp(t)
 	signedDesignOrg(t, root)
 
@@ -89,7 +92,7 @@ func TestSaveOrgDoc_ResignsASignedOrg(t *testing.T) {
 	}
 	raw, _, _ := orgsign.ReadFile(root, "growth")
 	want, _ := orgsign.Hash(root, raw)
-	expect := "--profile gui --json org --project " + root + " sign growth --yes --expect-hash " + want
+	expect := "--profile gui --json org --project " + root + " sign growth --yes --expect-hash " + want + " --nonce n1" // the terminal-less sign carries the nonce the app issued
 	if calls := callsWith(t, log, "--yes"); len(calls) != 1 || calls[0] != expect {
 		t.Fatalf("sign calls = %q, want %q", calls, expect)
 	}
