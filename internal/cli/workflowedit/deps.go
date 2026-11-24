@@ -27,6 +27,9 @@ type Deps struct {
 	WorkflowStore func(db *storage.Database) *workflow.HybridWorkflowStore
 	// OwnedWorkflow is workflow id when it exists and profileID owns it, else nil.
 	OwnedWorkflow func(ctx context.Context, store *workflow.HybridWorkflowStore, db *sql.DB, profileID, id string) *workflow.Workflow
+	// KnownNodeType reports whether a node type is installed. Optional: when nil,
+	// `node add --type` is not checked against the registry.
+	KnownNodeType func(nodeType string) bool
 	// NotFound builds the CLI's not-found error (exit code 2).
 	NotFound func(format string, a ...interface{}) error
 	// InvalidInput builds the CLI's invalid-input error (exit code 3).

@@ -21,6 +21,7 @@ func workflowEditDeps(cfg *globalConfig) workflowedit.Deps {
 		OpenDB:        func() (*storage.Database, error) { return initDB(cfg) },
 		WorkflowStore: openWorkflowStore,
 		OwnedWorkflow: ownedWorkflow,
+		KnownNodeType: func(nodeType string) bool { return buildNodeRegistry(false, nil).Has(nodeType) },
 		NotFound:      errNotFound,
 		InvalidInput:  errInvalidInput,
 	}
