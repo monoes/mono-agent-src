@@ -49,15 +49,6 @@
       "min": 1,
       "required": false,
       "type": "number"
-    },
-    {
-      "default": 512,
-      "help": "JS runtime memory limit in megabytes.",
-      "key": "memory_limit_mb",
-      "label": "Memory Limit (MB)",
-      "min": 1,
-      "required": false,
-      "type": "number"
     }
   ],
   "outputs": [

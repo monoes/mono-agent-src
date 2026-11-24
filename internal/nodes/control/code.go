@@ -32,10 +32,10 @@ import (
 //	    or "runOnceForEachItem".
 //	"timeout_seconds" (number, optional): execution timeout, default 30,
 //	    clamped to 1-600.
-//	"memory_limit_mb" (number, optional): JS runtime memory limit,
-//	    default 512. Applied via goja's SetMemoryLimit when the vendored
-//	    goja supports it; the per-item and item-count caps below are
-//	    enforced regardless.
+//	"memory_limit_mb" (number, optional, not in the form): applied via goja's
+//	    SetMemoryLimit when the vendored goja has one, which it does not, so it
+//	    limits nothing; the per-item and item-count caps below are enforced
+//	    regardless.
 type CodeNode struct{}
 
 // Caps on what a code node may return. A node exceeding any of these
