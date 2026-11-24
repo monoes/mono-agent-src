@@ -21,7 +21,7 @@ import (
 // commands; nothing else reads the table.
 //
 //	profile info fields                 the catalog: every field, grouped
-//	profile info get [--reveal]         the stored values (ID and card numbers masked; --reveal is the operator's only)
+//	profile info get [key] [--reveal]   the stored values (or one key) (ID and card numbers masked; --reveal is the operator's only)
 //	profile info set <key> [value]      set one (--stdin reads a long text)
 //	profile info rm <key>               clear one
 //	profile info photo <key> <file>     set a photo or scan
@@ -73,10 +73,17 @@ func (d Deps) newInfoFieldsCmd() *cobra.Command {
 func (d Deps) newInfoGetCmd() *cobra.Command {
 	var reveal bool
 	cmd := &cobra.Command{
-		Use:   "get",
-		Short: "Show the stored values; ID, bank and card numbers are masked unless --reveal",
-		Args:  cobra.NoArgs,
+		Use:   "get [key]",
+		Short: "Show the stored values (or just one key); ID, bank and card numbers are masked unless --reveal",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var keep func(profileinfo.Field) bool
+			if len(args) == 1 {
+				if profileinfo.Lookup(args[0]) == nil {
+					return fmt.Errorf("unknown field %q (see: profile info fields)", args[0])
+				}
+				keep = func(f profileinfo.Field) bool { return f.Key == args[0] }
+			}
 			if reveal {
 				if err := revealgate.Refuse("profile info get --reveal"); err != nil {
 					return err
@@ -87,7 +94,7 @@ func (d Deps) newInfoGetCmd() *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.DB.Close()
-			entries, err := profileinfo.Get(cmd.Context(), db.DB, d.ProfileID(), reveal)
+			entries, err := profileinfo.GetWhere(cmd.Context(), db.DB, d.ProfileID(), reveal, keep)
 			if err != nil {
 				return err
 			}
