@@ -3158,9 +3158,15 @@
       "deleteNode": "Eliminar nodo",
       "dragHere": "arrastra aquí el puerto superior de un nodo {{label}}",
       "dragToAi": "Arrastra para conectar este {{label}} a un nodo de IA",
+      "emptyAdd": "o haz clic o arrastra nodos desde el panel izquierdo",
+      "emptyConnect": "Conecta los puertos de salida → entrada para encadenarlos",
+      "emptyPressPost": "para ejecutar",
+      "emptyPressPre": "Pulsa",
+      "emptyTemplate": "Empezar desde una plantilla",
       "error": "error",
       "items_one": "{{count}} elemento",
       "items_other": "{{count}} elementos",
+      "jsonTitle": "JSON DEL FLUJO DE TRABAJO",
       "needs": "Necesita una conexión {{what}}",
       "region": "Lienzo del flujo de trabajo (solo con ratón). Usa el botón de vista JSON de la barra de herramientas para una vista accesible con teclado y lector de pantalla.",
       "required": "(obligatorio)",
@@ -3168,6 +3174,19 @@
       "skipped": "omitido",
       "upTo": "hasta {{max}}",
       "waiting": "en espera"
+    },
+    "dialogs": {
+      "deleteConfirm": "¿Eliminar este flujo de trabajo? No se puede deshacer.",
+      "deleteLabel": "Eliminar",
+      "deleteTitle": "Eliminar flujo de trabajo",
+      "discardChanges": "¿Descartar los cambios sin guardar?",
+      "discardLoad": "Descartar y cargar",
+      "discardNew": "Descartar y crear",
+      "discardOpen": "Descartar y abrir",
+      "loadTitle": "Cargar flujo de trabajo",
+      "newConfirm": "¿Crear un flujo de trabajo nuevo? Se perderán los cambios sin guardar.",
+      "newTitle": "Nuevo flujo de trabajo",
+      "openRunTitle": "Abrir ejecución"
     },
     "inspector": {
       "addPrompt": "Añadir este prompt",
@@ -3206,6 +3225,16 @@
       "noMatches": "Sin coincidencias",
       "noneInstalled": "Ninguna instalada —",
       "search": "Buscar nodos…"
+    },
+    "run": {
+      "autoSaveFailed": "Falló el guardado automático: el flujo de trabajo no se ejecutó",
+      "couldNotOpen": "No se pudo abrir el flujo de trabajo: {{error}}",
+      "couldNotStop": "No se pudo detener la ejecución {{id}}; sigue en curso.",
+      "lostContact": "Se perdió el contacto con la ejecución {{id}}. Puede seguir en curso: ábrela desde Flujos de trabajo > Ejecuciones para comprobarlo.",
+      "rejectedAiInput": "Conexión rechazada: la entrada {{label}} admite un subnodo de IA; arrastra desde el puerto superior de un nodo {{label}}.",
+      "rejectedCycle": "Conexión rechazada: crearía un ciclo. Solo un retorno a un nodo Split In Batches puede cerrarlo.",
+      "rejectedSubToMain": "Conexión rechazada: un subnodo de IA se conecta a una entrada compatible del borde inferior de un nodo de IA, no a una entrada principal.",
+      "stoppedEarly": "La ejecución se detuvo antes de empezar: abre los registros en vivo para ver la salida."
     },
     "toolbar": {
       "activate": "Activar",

@@ -3158,9 +3158,15 @@
       "deleteNode": "Delete node",
       "dragHere": "drag a {{label}} node's top port here",
       "dragToAi": "Drag to connect this {{label}} to an AI node",
+      "emptyAdd": "or click or drag nodes from the left panel",
+      "emptyConnect": "Connect output → input ports to chain them",
+      "emptyPressPost": "to execute",
+      "emptyPressPre": "Press",
+      "emptyTemplate": "Start from a template",
       "error": "error",
       "items_one": "{{count}} item",
       "items_other": "{{count}} items",
+      "jsonTitle": "WORKFLOW JSON",
       "needs": "Needs a {{what}} connection",
       "region": "Workflow canvas (mouse only). Use the JSON view button in the toolbar for a keyboard and screen reader view.",
       "required": "(required)",
@@ -3168,6 +3174,19 @@
       "skipped": "skipped",
       "upTo": "up to {{max}}",
       "waiting": "waiting"
+    },
+    "dialogs": {
+      "deleteConfirm": "Delete this workflow? This cannot be undone.",
+      "deleteLabel": "Delete",
+      "deleteTitle": "Delete Workflow",
+      "discardChanges": "Discard unsaved changes?",
+      "discardLoad": "Discard & Load",
+      "discardNew": "Discard & New",
+      "discardOpen": "Discard & Open",
+      "loadTitle": "Load Workflow",
+      "newConfirm": "Create a new workflow? Unsaved changes will be lost.",
+      "newTitle": "New Workflow",
+      "openRunTitle": "Open Run"
     },
     "inspector": {
       "addPrompt": "Add this prompt",
@@ -3206,6 +3225,16 @@
       "noMatches": "No matches",
       "noneInstalled": "None installed —",
       "search": "Search nodes…"
+    },
+    "run": {
+      "autoSaveFailed": "Auto-save failed — workflow not run",
+      "couldNotOpen": "Could not open the workflow: {{error}}",
+      "couldNotStop": "Could not stop run {{id}}; it is still running.",
+      "lostContact": "Lost contact with run {{id}}. It may still be running: open it from Workflows > Executions to check.",
+      "rejectedAiInput": "Connection rejected: the {{label}} input takes an AI sub-node; drag from the top port of a {{label}} node.",
+      "rejectedCycle": "Connection rejected: it would create a cycle. Only a loop back into a Split In Batches node may close one.",
+      "rejectedSubToMain": "Connection rejected: an AI sub-node connects to a matching input on the bottom edge of an AI node, not to a main input.",
+      "stoppedEarly": "The run stopped before it started — open Live Logs for the output."
     },
     "toolbar": {
       "activate": "Activate",

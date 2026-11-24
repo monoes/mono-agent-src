@@ -1253,7 +1253,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           clearInterval(iv)
           if (pollRef.current === iv) pollRef.current = null
           setRunning(false)
-          notify('run status', `Lost contact with run ${execId}. It may still be running: open it from Workflows > Executions to check.`)
+          notify('run status', t('nodeRunner.run.lostContact', { id: execId }))
         }
         return
       }
@@ -1298,7 +1298,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
       } catch (e) {
         console.error('Failed to load workflow from navData', e)
-        notify('load workflow', `Could not open the workflow: ${e?.message || e}`)
+        notify('load workflow', t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
       }
     })()
     return () => { cancelled = true }
@@ -1319,7 +1319,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         const needLoad = !!detail.workflow_id && (detail.workflow_id !== wfId || nodes.length === 0)
         const opened = await openRunWorkflow({
           detail, wfId, needLoad, isDirty, getWorkflow: WailsApp.GetWorkflow, notify,
-          confirmDiscard: () => confirm('Discard unsaved changes?', { title: 'Open Run', confirmLabel: 'Discard & Open' }),
+          confirmDiscard: () => confirm(t('nodeRunner.dialogs.discardChanges'), { title: t('nodeRunner.dialogs.openRunTitle'), confirmLabel: t('nodeRunner.dialogs.discardOpen') }),
         })
         if (opened.cancelled || cancelled) return
         if (needLoad) {
@@ -1613,7 +1613,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     const tNode = nodesRef.current.find(n => n.id === targetNodeId)
     const label = (tNode?.subInputs || []).find(x => x.handle === handle)?.label || handle
     if (d.type === 'edge') {
-      notify('connect nodes', `Connection rejected: the ${label} input takes an AI sub-node; drag from the top port of a ${label} node.`)
+      notify('connect nodes', t('nodeRunner.run.rejectedAiInput', { label }))
       return
     }
     const sNode = nodesRef.current.find(n => n.id === d.sourceNodeId)
@@ -1629,7 +1629,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const completeEdge = (targetNodeId, targetPortIdx) => {
     if (dragRef.current?.type === 'subEdge') {
       dragRef.current = null; setPendingEdge(null)
-      notify('connect nodes', 'Connection rejected: an AI sub-node connects to a matching input on the bottom edge of an AI node, not to a main input.')
+      notify('connect nodes', t('nodeRunner.run.rejectedSubToMain'))
       return
     }
     if (!dragRef.current || dragRef.current.type !== 'edge') return
@@ -1641,7 +1641,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     // A cycle is allowed only as a loop closing into a Split In Batches node.
     const candidate = { source: sourceNodeId, sourcePortIdx, sourcePortId: sNode.outputs[sourcePortIdx]?.id, target: targetNodeId }
     if (hasForbiddenCycle(nodesRef.current, [...edges, candidate])) {
-      notify('connect nodes', 'Connection rejected: it would create a cycle. Only a loop back into a Split In Batches node may close one.')
+      notify('connect nodes', t('nodeRunner.run.rejectedCycle'))
       dragRef.current = null; setPendingEdge(null)
       return
     }
@@ -1666,7 +1666,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       try { failed = cancelFailed(await api.cancelWorkflow(execId)) } catch { failed = true }
       if (failed) {
         // The run was not cancelled: keep polling and the running state.
-        notify('stop run', `Could not stop run ${execId}; it is still running.`)
+        notify('stop run', t('nodeRunner.run.couldNotStop', { id: execId }))
         return
       }
     }
@@ -1721,7 +1721,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       if (!wfId || isDirty) {
         const saved = await handleSave()
         if (!saved?.id) {
-          notify('run workflow', 'Auto-save failed — workflow not run')
+          notify('run workflow', t('nodeRunner.run.autoSaveFailed'))
           setRunning(false)
           return
         }
@@ -1766,7 +1766,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         if (runTokenRef.current !== runToken) return // superseded by a newer run
         if (!execId) {
           setRunning(false)
-          notify('run workflow', 'The run stopped before it started — open Live Logs for the output.')
+          notify('run workflow', t('nodeRunner.run.stoppedEarly'))
           return
         }
 
@@ -1856,7 +1856,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   const handleLoad = useCallback(async (id, { keepModal = false } = {}) => {
     // Guard the dirty canvas: Load (modal), template creation and AI-created
     // workflows all funnel through here.
-    if (isDirty && !(await confirm('Discard unsaved changes?', { title: 'Load Workflow', confirmLabel: 'Discard & Load' }))) return
+    if (isDirty && !(await confirm(t('nodeRunner.dialogs.discardChanges'), { title: t('nodeRunner.dialogs.loadTitle'), confirmLabel: t('nodeRunner.dialogs.discardLoad') }))) return
     try {
       // a poll from a previous run must not repaint the new canvas, but it
       // keeps running when the load fails (stopped inside once wf is in hand)
@@ -1878,7 +1878,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       return true
     } catch (e) {
       console.error('Load failed', e)
-      notify('load workflow', `Could not open the workflow: ${e?.message || e}`)
+      notify('load workflow', t('nodeRunner.run.couldNotOpen', { error: e?.message || e }))
     }
   }, [isDirty]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1910,7 +1910,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
   const handleNew = useCallback(async () => {
     if (isDirty && nodes.length > 0) {
-      if (!(await confirm('Create a new workflow? Unsaved changes will be lost.', { title: 'New Workflow', confirmLabel: 'Discard & New', danger: false }))) return
+      if (!(await confirm(t('nodeRunner.dialogs.newConfirm'), { title: t('nodeRunner.dialogs.newTitle'), confirmLabel: t('nodeRunner.dialogs.discardNew'), danger: false }))) return
     }
     stopPolling()
     resetCanvas()
@@ -2291,7 +2291,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           }}
           onLibraryInstalled={() => { onWorkflowsChanged?.(); loadCatalog() }}
           onDelete={async (id) => {
-            if (!(await confirm('Delete this workflow? This cannot be undone.', { title: 'Delete Workflow', confirmLabel: 'Delete' }))) return false
+            if (!(await confirm(t('nodeRunner.dialogs.deleteConfirm'), { title: t('nodeRunner.dialogs.deleteTitle'), confirmLabel: t('nodeRunner.dialogs.deleteLabel') }))) return false
             await DeleteWorkflow(id)
             onWorkflowsChanged?.()
             if (id === wfId) {
@@ -2339,7 +2339,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
               <Braces size={11} color="#00b4d8" />
-              WORKFLOW JSON
+              {t('nodeRunner.canvas.jsonTitle')}
               {wfId && <span style={{ opacity: 0.5 }}>· {wfId}</span>}
             </div>
             <pre style={{
@@ -2404,12 +2404,12 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               }}>
                 <Plus size={32} style={{ opacity: 0.1 }} />
                 <button className="btn btn-secondary btn-sm" style={{ pointerEvents: 'auto', gap: 6 }} onClick={() => setShowWfModal('templates')}>
-                  <LayoutTemplate size={13} /> Start from a template
+                  <LayoutTemplate size={13} /> {t('nodeRunner.canvas.emptyTemplate')}
                 </button>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.8 }}>
-                  or click or drag nodes from the left panel<br />
-                  Connect output → input ports to chain them<br />
-                  Press <kbd style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 3, padding: '1px 5px' }}>RUN</kbd> to execute
+                  {t('nodeRunner.canvas.emptyAdd')}<br />
+                  {t('nodeRunner.canvas.emptyConnect')}<br />
+                  {t('nodeRunner.canvas.emptyPressPre')} <kbd style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 3, padding: '1px 5px' }}>{t('nodeRunner.toolbar.run')}</kbd> {t('nodeRunner.canvas.emptyPressPost')}
                 </div>
               </div>
             )}
