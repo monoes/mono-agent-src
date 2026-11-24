@@ -23,6 +23,7 @@ import {
   makeIdGen,
 } from './nodeConfigFields.js'
 import { SaveModal, WorkflowsModal, TriggerInputModal } from './NodeRunnerModals.jsx'
+import { workflowToCanvas } from './workflowCanvas.js'
 import WorkflowImportDialog from './WorkflowImportDialog.jsx'
 import GenerateWorkflowDialog from '../components/GenerateWorkflowDialog.jsx'
 import PublishToMonoesDialog from '../components/library/PublishToMonoesDialog.jsx'
@@ -1275,31 +1276,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     let cancelled = false
     ;(async () => {
       try {
-        const wf = await WailsApp.GetWorkflow(navData.workflowId)
+        const wf = await loadWorkflowChecked({ id: navData.workflowId, getWorkflow: WailsApp.GetWorkflow, stopPolling, notify })
         if (cancelled || !wf) return
-        const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
-        const loadedNodes = (wf.nodes || []).map(n => {
-          const nt = normalizeNodeType(n.node_type || n.type || '')
-          const prefix = nt.split('.')[0]
-          const cat = prefixToCat[prefix] || prefix
-          return {
-            id: n.id, label: n.name, subtype: nt, category: cat,
-            x: n.position_x, y: n.position_y,
-            config: n.config || {}, color: catColor(cat),
-            schema: n.schema || null,
-            configFields: n.schema?.fields ? n.schema.fields : getConfigFields(nt),
-            inputs: deriveInputs(nt), outputs: deriveOutputs(nt, n.config),
-            runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-          }
-        })
-        const nodeById = {}
-        loadedNodes.forEach(n => { nodeById[n.id] = n })
-        const loadedEdges = (wf.connections || []).map(c => ({
-          id: c.id, source: c.source_node_id, sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
-          sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
-          target: c.target_node_id, targetPortId: c.target_handle,
-          targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
-        }))
+        const { nodes: loadedNodes, edges: loadedEdges } = toCanvas(wf)
+        setGlobalStatus(null)
         setWfId(wf.id)
         setWfName(wf.name || 'Untitled Workflow')
         setWfActive(!!wf.is_active)
@@ -1309,7 +1289,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         setSelectedId(null)
         setIsDirty(false)
         setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
-      } catch (e) { console.error('Failed to load workflow from navData', e) }
+      } catch (e) {
+        console.error('Failed to load workflow from navData', e)
+        notify('load workflow', `Could not open the workflow: ${e?.message || e}`)
+      }
     })()
     return () => { cancelled = true }
   }, [navData?.workflowId, navData?.executionId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1335,29 +1318,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         if (needLoad) {
           const wf = opened.wf
           if (wf) {
-            const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
-            const loadedNodes = (wf.nodes || []).map(n => {
-              const nt = normalizeNodeType(n.node_type || n.type || '')
-              const prefix = nt.split('.')[0]
-              const cat = prefixToCat[prefix] || prefix
-              return {
-                id: n.id, label: n.name, subtype: nt, category: cat,
-                x: n.position_x, y: n.position_y,
-                config: n.config || {}, color: catColor(cat),
-                schema: n.schema || null,
-                configFields: n.schema?.fields ? n.schema.fields : getConfigFields(nt),
-                inputs: deriveInputs(nt), outputs: deriveOutputs(nt, n.config),
-                runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-              }
-            })
-            const nodeById = {}
-            loadedNodes.forEach(n => { nodeById[n.id] = n })
-            const loadedEdges = (wf.connections || []).map(c => ({
-              id: c.id, source: c.source_node_id, sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
-              sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
-              target: c.target_node_id, targetPortId: c.target_handle,
-              targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
-            }))
+            const { nodes: loadedNodes, edges: loadedEdges } = toCanvas(wf)
             setWfId(wf.id)
             setWfName(wf.name || 'Untitled Workflow')
             setWfActive(!!wf.is_active)
@@ -1899,40 +1860,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       setWfName(wf.name || 'Untitled Workflow')
       setWfActive(!!wf.is_active)
       // Map backend WorkflowNodeData → canvas node shape
-      const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
-      const loadedNodes = (wf.nodes || []).map(n => {
-        const nt = normalizeNodeType(n.node_type || n.type || '')
-        const prefix = nt.split('.')[0]
-        const cat = prefixToCat[prefix] || prefix
-        return {
-        id:       n.id,
-        label:    n.name,
-        subtype:  nt,
-        category: cat,
-        x: n.position_x,
-        y: n.position_y,
-        config: n.config || {},
-        color: catColor(cat),
-        schema: n.schema || null,
-        configFields: n.schema?.fields ? n.schema.fields : getConfigFields(nt),
-        inputs:  deriveInputs(nt),
-        outputs: deriveOutputs(nt, n.config),
-        runStatus: null, runInputItems: null, runOutputs: null, runOutputItems: 0, runDuration: null, runError: null,
-      }})
-      // Map backend WorkflowConnectionData → canvas edge shape. Handles are
-      // port ids ('main', 'true', …) — resolve to indexes; legacy numeric
-      // strings fall back to the parsed index.
-      const nodeById = {}
-      loadedNodes.forEach(n => { nodeById[n.id] = n })
-      const loadedEdges = (wf.connections || []).map(c => ({
-        id:           c.id,
-        source:       c.source_node_id,
-        sourcePortId: canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle),
-        sourcePortIdx: resolvePortIdx(nodeById[c.source_node_id]?.outputs, canonicalOutputHandle(nodeById[c.source_node_id]?.subtype, c.source_handle)),
-        target:       c.target_node_id,
-        targetPortId: c.target_handle,
-        targetPortIdx: resolvePortIdx(nodeById[c.target_node_id]?.inputs, c.target_handle),
-      }))
+      const { nodes: loadedNodes, edges: loadedEdges } = toCanvas(wf)
       canvasIds.advancePast([...loadedNodes, ...loadedEdges].map(x => x.id))
       setNodes(loadedNodes)
       setEdges(loadedEdges)
@@ -2589,6 +2517,8 @@ const LEGACY_NODE_TYPES = {
   'read_write_file': 'system.read_write_file',
 }
 function normalizeNodeType(t) { return LEGACY_NODE_TYPES[t] || t }
+
+const toCanvas = (wf) => workflowToCanvas(wf, { normalizeNodeType, catColor, getConfigFields, resolvePortIdx, deriveInputs, deriveOutputs, canonicalOutputHandle })
 
 
 function getConfigFields(nodeType) {
