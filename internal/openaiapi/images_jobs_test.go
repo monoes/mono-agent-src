@@ -224,9 +224,11 @@ func TestImageJobStoreFailsAJobThatNeverEndsSoItFreesItsPlace(t *testing.T) {
 	if _, ok := s.add("k"); !ok {
 		t.Fatal("jobs that never end hold every place for ever")
 	}
-	got, ok := s.get("k", stuck.id)
-	if !ok || !got.done || got.err == nil {
-		t.Fatalf("the stuck job is %+v (found %v): it should be failed", got, ok)
+	// Every running job was past its deadline, so all of them were failed at once; the per-key
+	// cap on finished jobs may then have dropped some of them (which ones is arbitrary: they
+	// all finished at the same instant). Either way the stuck job must not still be running.
+	if got, ok := s.get("k", stuck.id); ok && (!got.done || got.err == nil) {
+		t.Fatalf("the stuck job is %+v: it should be failed or dropped, not still running", got)
 	}
 }
 
