@@ -302,6 +302,9 @@
     "busy": "Already running elsewhere.",
     "still": "Installed, but still: {{why}}"
   },
+  "tasksPage": {
+    "shellCheckFailed": "Read-only: could not check whether an agent started this app ({{error}}). Restart the app to edit the board."
+  },
   "toasts": {
     "failed": "Failed: {{op}}",
     "dismiss": "Dismiss"

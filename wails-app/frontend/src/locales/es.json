@@ -302,6 +302,9 @@
     "busy": "Ya se está ejecutando en otro lugar.",
     "still": "Instalado, pero sigue: {{why}}"
   },
+  "tasksPage": {
+    "shellCheckFailed": "Solo lectura: no se pudo comprobar si un agente inició esta app ({{error}}). Reinicia la app para editar el tablero."
+  },
   "toasts": {
     "failed": "Error: {{op}}",
     "dismiss": "Descartar"
