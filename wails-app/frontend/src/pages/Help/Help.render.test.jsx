@@ -123,3 +123,16 @@ describe('help locale keys', () => {
     for (const k of used) expect(e, k).toContain(k)
   })
 })
+
+// Found in a real browser: an opened topic stayed in its one 320px grid cell and its steps were squeezed into a
+// sliver beside the step number and button. The open topic takes the whole row and a step wraps its button.
+describe('Help layout', () => {
+  const css = fs.readFileSync(process.cwd() + '/src/pages/Help/Help.css', 'utf8')
+  it('an opened topic spans the whole grid row', () => {
+    expect(css).toMatch(/\.help-topic\.open\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/)
+  })
+  it('a step wraps its action instead of squeezing its text', () => {
+    expect(css).toMatch(/\.help-step\s*\{[^}]*flex-wrap:\s*wrap/)
+    expect(css).toMatch(/\.help-step-text\s*\{[^}]*flex:\s*1\s+1\s+\d+px/)
+  })
+})
