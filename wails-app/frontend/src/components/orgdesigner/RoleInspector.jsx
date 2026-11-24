@@ -4,65 +4,13 @@ import { wouldCycle } from './orgGraph.js'
 import { iconUrl } from './roleIcons.js'
 import { KVBlock } from '../KVBlock.jsx'
 import StringListField from '../StringListField.jsx'
-import { api } from '../../services/api.js'
 import RoleAutomationsSection, { EffectiveTools } from './RoleAutomationsSection.jsx'
 import RoleFullAccessSection from './RoleFullAccessSection.jsx'
 import { declaresFull } from './fullAccess.jsx'
 import RuntimeSelect from './RuntimeSelect.jsx'
+import { RUNTIME_OPTIONS, MODELED_REST_FIELDS, MODELED_POLICY_FIELDS, omit, cleanObj, numOrUndefined } from './roleInspectorModel.js'
+import { ModelBudgetsSection, ProviderOverrideSection, ToolPolicySection, InstructionsFileSection } from './RoleInspectorSections.jsx'
 
-const RUNTIME_OPTIONS = [
-  'claude', 'kimicode', 'opencode', 'vercel', 'codex', 'antigravity',
-  'grok', 'qwen', 'crush', 'copilot', 'pi', 'pi-rpc', 'qwen-rpc',
-  'cline', 'aider', 'dsh',
-]
-const PROVIDER_KIND_OPTIONS = [
-  'subscription', 'api-key', 'base-url', 'bedrock', 'vertex', 'vercel-api-key', 'codex', 'antigravity',
-]
-const PROVIDER_VENDOR_OPTIONS = [
-  'openai', 'anthropic', 'google', 'xai', 'deepseek', 'glm', 'mistral', 'groq',
-  'together', 'fireworks', 'cohere', 'perplexity', 'alibaba', 'openrouter', 'ollama', 'openai-compatible',
-]
-const GIT_LEVEL_OPTIONS = ['none', 'read', 'commit', 'push']
-// Fields this component surfaces via dedicated controls even though
-// orgGraph.js's hydrate() does not (yet) hoist them to top-level canvas
-// node properties — they currently live in `node.rest`. Read from there,
-// patched by wire field name, and excluded from the read-only Advanced
-// KVBlock below so they aren't shown twice. `adapter_config` (not `model`)
-// is the real wire key — the role's model/provider-name/max_tokens live
-// nested under it, never as a flat top-level field.
-// The automation keys are shown by RoleAutomationsSection instead; `endpoint`
-// holds a capability URL, so it is never dumped into the Advanced block.
-const MODELED_REST_FIELDS = [
-  'runtime', 'adapter_config', 'max_turns_per_message', 'budget_tokens', 'budget_usd',
-  'policy', 'provider', 'instructions_file',
-  'kind', 'endpoint', 'automation', 'automations',
-]
-// The `policy` keys this panel has controls for. Everything else in a saved
-// policy is preserved verbatim by commitPolicy, since a role patch replaces
-// `policy` wholesale.
-const MODELED_POLICY_FIELDS = [
-  'git', 'maxTokens', 'maxUsd',
-  'allowTools', 'denyTools', 'fileWrite', 'fileRead', 'webAllow', 'autoApproveTools',
-]
-
-function omit(obj, keys) {
-  if (!obj) return obj
-  const out = {}
-  Object.keys(obj).forEach(k => { if (!keys.includes(k)) out[k] = obj[k] })
-  return out
-}
-
-// Drop keys whose value is '' or nullish — used before sending a merged
-// object-patch (provider/policy) so unset fields don't get written as
-// empty strings, while still allowing arrays (including empty ones, which
-// are a meaningful "explicitly none" distinct from "unset") through as-is.
-function cleanObj(obj) {
-  const out = {}
-  Object.entries(obj).forEach(([k, v]) => {
-    if (Array.isArray(v) || (v !== '' && v != null)) out[k] = v
-  })
-  return out
-}
 
 /**
  * RoleInspector — the detail/edit panel for whichever role is currently
@@ -253,7 +201,6 @@ export default function RoleInspector({
     setRenaming(false)
   }
 
-  const numOrUndefined = (v) => (v === '' || v === null || v === undefined ? undefined : Number(v))
 
   // Provider override — always sends the whole merged object (Go's patch
   // replaces `provider` wholesale, no deep-patching); `overrides` carries
@@ -461,181 +408,19 @@ export default function RoleInspector({
       </section>
 
       {/* Model / provider name / budgets */}
-      <section>
-        <div className="form-label">Model / budgets</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input
-            className="form-input"
-            value={model}
-            onChange={e => setModel(e.target.value)}
-            onBlur={() => onPatch({ model: model === '' ? undefined : model })}
-            placeholder="claude-sonnet-4-5"
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            value={providerName}
-            onChange={e => setProviderName(e.target.value)}
-            onBlur={() => onPatch({ adapter_config_provider: providerName === '' ? undefined : providerName })}
-            placeholder="provider name (from `monomind providers configure`)"
-            title="References a provider already configured with `monomind providers configure`. Distinct from the Provider override section below, which defines one inline — an inline override wins if both are set."
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            type="number"
-            value={maxTurns}
-            onChange={e => setMaxTurns(e.target.value)}
-            onBlur={() => onPatch({ max_turns_per_message: numOrUndefined(maxTurns) })}
-            placeholder="max turns per message"
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            type="number"
-            value={budgetTokens}
-            onChange={e => setBudgetTokens(e.target.value)}
-            onBlur={() => onPatch({ budget_tokens: numOrUndefined(budgetTokens) })}
-            placeholder="budget (tokens)"
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            type="number"
-            value={budgetUsd}
-            onChange={e => setBudgetUsd(e.target.value)}
-            onBlur={() => onPatch({ budget_usd: numOrUndefined(budgetUsd) })}
-            placeholder="budget (USD)"
-            style={{ fontSize: 11 }}
-          />
-        </div>
-      </section>
+      <ModelBudgetsSection model={model} setModel={setModel} providerName={providerName} setProviderName={setProviderName} maxTurns={maxTurns} setMaxTurns={setMaxTurns} budgetTokens={budgetTokens} setBudgetTokens={setBudgetTokens} budgetUsd={budgetUsd} setBudgetUsd={setBudgetUsd} onPatch={onPatch} />
 
       {/* Provider override — the inline block, distinct from "provider name"
           above; wins over it when both are set. */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="form-label" style={{ marginBottom: 0 }}>Provider override</div>
-          {(pKind || pVendor || pApiKeyEnv || pBaseUrl || pAuthTokenEnv) && (
-            <button
-              onClick={clearProvider}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted, #8492a6)', cursor: 'pointer', fontSize: 9.5, fontFamily: 'var(--font-mono)', padding: 0 }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-          <select className="form-select" value={pKind} onChange={e => { setPKind(e.target.value); commitProvider({ kind: e.target.value || undefined }) }}>
-            <option value="">(none)</option>
-            {PROVIDER_KIND_OPTIONS.map(k => <option key={k} value={k}>{k}</option>)}
-          </select>
-          <select className="form-select" value={pVendor} onChange={e => { setPVendor(e.target.value); commitProvider({ vendor: e.target.value || undefined }) }}>
-            <option value="">(vendor)</option>
-            {PROVIDER_VENDOR_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
-          <input
-            className="form-input"
-            value={pApiKeyEnv}
-            onChange={e => setPApiKeyEnv(e.target.value)}
-            onBlur={() => commitProvider({ apiKeyEnv: pApiKeyEnv || undefined })}
-            placeholder="API key env var name"
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            value={pBaseUrl}
-            onChange={e => setPBaseUrl(e.target.value)}
-            onBlur={() => commitProvider({ baseUrl: pBaseUrl || undefined })}
-            placeholder="base URL (for base-url kind)"
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            value={pAuthTokenEnv}
-            onChange={e => setPAuthTokenEnv(e.target.value)}
-            onBlur={() => commitProvider({ authTokenEnv: pAuthTokenEnv || undefined })}
-            placeholder="auth token env var name"
-            style={{ fontSize: 11 }}
-          />
-        </div>
-      </section>
+      <ProviderOverrideSection pKind={pKind} setPKind={setPKind} pVendor={pVendor} setPVendor={setPVendor} pApiKeyEnv={pApiKeyEnv} setPApiKeyEnv={setPApiKeyEnv} pBaseUrl={pBaseUrl} setPBaseUrl={setPBaseUrl} pAuthTokenEnv={pAuthTokenEnv} setPAuthTokenEnv={setPAuthTokenEnv} clearProvider={clearProvider} commitProvider={commitProvider} />
 
       {/* Tool policy */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="form-label" style={{ marginBottom: 0 }}>Tool policy</div>
-          <button
-            onClick={clearPolicy}
-            style={{ background: 'none', border: 'none', color: 'var(--text-muted, #8492a6)', cursor: 'pointer', fontSize: 9.5, fontFamily: 'var(--font-mono)', padding: 0 }}
-          >
-            Clear
-          </button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-          <select className="form-select" value={policyGit} onChange={e => { setPolicyGit(e.target.value); commitPolicy({ git: e.target.value }) }}>
-            {GIT_LEVEL_OPTIONS.map(g => <option key={g} value={g}>git: {g}</option>)}
-          </select>
-          <input
-            className="form-input"
-            type="number"
-            value={policyMaxTokens}
-            onChange={e => setPolicyMaxTokens(e.target.value)}
-            onBlur={() => commitPolicy({ maxTokens: numOrUndefined(policyMaxTokens) })}
-            placeholder="max tokens (this role's own cap)"
-            style={{ fontSize: 11 }}
-          />
-          <input
-            className="form-input"
-            type="number"
-            value={policyMaxUsd}
-            onChange={e => setPolicyMaxUsd(e.target.value)}
-            onBlur={() => commitPolicy({ maxUsd: numOrUndefined(policyMaxUsd) })}
-            placeholder="max USD (this role's own cap)"
-            style={{ fontSize: 11 }}
-          />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-          <StringListField label="Allow tools" values={allowTools} onChange={v => { setAllowTools(v); commitPolicy({ allowTools: v }) }} resetKey={policyListKey} addLabel="+ Add tool" />
-          <StringListField label="Deny tools" values={denyTools} onChange={v => { setDenyTools(v); commitPolicy({ denyTools: v }) }} resetKey={policyListKey} addLabel="+ Add tool" />
-          <StringListField label="File write globs" values={fileWrite} onChange={v => { setFileWrite(v); commitPolicy({ fileWrite: v }) }} resetKey={policyListKey} placeholder="default: **" addLabel="+ Add glob" />
-          <StringListField label="File read globs" values={fileRead} onChange={v => { setFileRead(v); commitPolicy({ fileRead: v }) }} resetKey={policyListKey} placeholder="default: **" addLabel="+ Add glob" />
-          <StringListField label="Web allow (hosts)" values={webAllow} onChange={v => { setWebAllow(v); commitPolicy({ webAllow: v }) }} resetKey={policyListKey} placeholder="unset: default web access" addLabel="+ Add host" />
-          <StringListField label="Auto-approve tools" values={autoApproveTools} onChange={v => { setAutoApproveTools(v); commitPolicy({ autoApproveTools: v }) }} resetKey={policyListKey} placeholder="skips the human-approval pause" addLabel="+ Add tool" />
-        </div>
-      </section>
+      <ToolPolicySection policyGit={policyGit} setPolicyGit={setPolicyGit} policyMaxTokens={policyMaxTokens} setPolicyMaxTokens={setPolicyMaxTokens} policyMaxUsd={policyMaxUsd} setPolicyMaxUsd={setPolicyMaxUsd} allowTools={allowTools} setAllowTools={setAllowTools} denyTools={denyTools} setDenyTools={setDenyTools} fileWrite={fileWrite} setFileWrite={setFileWrite} fileRead={fileRead} setFileRead={setFileRead} webAllow={webAllow} setWebAllow={setWebAllow} autoApproveTools={autoApproveTools} setAutoApproveTools={setAutoApproveTools} policyListKey={policyListKey} clearPolicy={clearPolicy} commitPolicy={commitPolicy} />
 
       {showAutomations && <EffectiveTools orgName={orgName} roleId={node.id} refreshKey={`${grantsVersion ?? 0}:${policyKey}`} />}
 
       {/* Instructions file */}
-      <section>
-        <div className="form-label">Instructions file</div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <input
-            className="form-input"
-            value={instructionsFile}
-            onChange={e => setInstructionsFile(e.target.value)}
-            onBlur={() => onPatch({ instructions_file: instructionsFile })}
-            placeholder="path to a .md/.txt file"
-            style={{ fontSize: 11, flex: 1 }}
-          />
-          <button
-            className="btn btn-sm btn-secondary"
-            onClick={async () => {
-              const path = await api.chooseInstructionsFile()
-              if (path) {
-                setInstructionsFile(path)
-                onPatch({ instructions_file: path })
-              }
-            }}
-          >
-            Browse…
-          </button>
-        </div>
-        <div style={{ fontSize: 9.5, color: 'var(--text-dim, #6c7b90)', marginTop: 4 }}>
-          Saved with the role, but not yet read by the org runtime — reserved for a future release.
-        </div>
-      </section>
+      <InstructionsFileSection instructionsFile={instructionsFile} setInstructionsFile={setInstructionsFile} onPatch={onPatch} />
       </>)}
 
       {/* Reports to */}
