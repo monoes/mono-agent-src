@@ -47,6 +47,8 @@ type Deps struct {
 	PinChoices func(ctx context.Context) ([]Pin, error)
 	// FirstTurn reads where the open run's boss's first turn stands, for `status`. Nil: status says nothing about it.
 	FirstTurn func(ctx context.Context) (FirstTurnState, error)
+	// ModelSpend reads what the open run's sessions' model turns cost (a display, see ModelSpend), for `status` and `overview`. Nil: they show none.
+	ModelSpend func(ctx context.Context) (*ModelSpend, error)
 	// UnboundWarning is "running without peer-credential binding: <reason>" while binding is off because the machine cannot run it, for
 	// `status` of an open run. Nil: status says nothing about it.
 	UnboundWarning func(ctx context.Context) string
@@ -476,6 +478,11 @@ func (d Deps) newStatus() *cobra.Command {
 					}
 				}
 			}
+			if s.Active && d.ModelSpend != nil {
+				if ms, merr := d.ModelSpend(cmd.Context()); merr == nil {
+					s.ModelSpend = ms
+				}
+			}
 			if s.Active && d.UnboundWarning != nil {
 				s.Warning = d.UnboundWarning(cmd.Context())
 			}
@@ -503,6 +510,7 @@ func (d Deps) newStatus() *cobra.Command {
 				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
 			}
 			WriteProgress(out, s.Progress)
+			writeModelSpend(out, s.ModelSpend)
 			switch s.FirstTurn {
 			case "failed":
 				fmt.Fprintf(out, "first turn failed: %s\n", s.FirstTurnError)

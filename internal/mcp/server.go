@@ -78,6 +78,9 @@ type Options struct {
 	// MONOAGENT_MCP_ALLOW_MUTATIONS=="1". Mirrors internal/httpapi's
 	// identically-named/shaped AllowMutations gate.
 	AllowMutations bool
+	// AllowBossTools serves the session_boss_* tools without AllowMutations (boss_allow.go) and no other mutating tool.
+	// Also settable via MONOAGENT_MCP_BOSS_TOOLS=="1", which the chat child sets for a boss's turn.
+	AllowBossTools bool
 	// AllowAPIExposure lets api_config_set save a change that makes the
 	// OpenAI-compatible API's server reach further than it did (a listener
 	// beyond this machine, a higher confinement class, more runtimes: see
@@ -185,6 +188,9 @@ type Server struct {
 func NewServer(opts Options) *Server {
 	if !opts.AllowMutations {
 		opts.AllowMutations = os.Getenv("MONOAGENT_MCP_ALLOW_MUTATIONS") == "1"
+	}
+	if !opts.AllowBossTools {
+		opts.AllowBossTools = os.Getenv(BossToolsEnv) == "1"
 	}
 	if !opts.AllowAPIExposure {
 		opts.AllowAPIExposure = os.Getenv("MONOAGENT_MCP_ALLOW_API_EXPOSURE") == "1"

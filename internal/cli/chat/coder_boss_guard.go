@@ -2,9 +2,12 @@ package chat
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/mcp"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -55,6 +58,28 @@ func enqueueBounded(cfg *Deps, c coderhost.Command, b coderhost.SendBounds) (cod
 	return out, deduped, nil
 }
 
+// queueBossTurn queues a boss turn the operator's own act started (the run's first turn, a steer) as a mission send and records the
+// operator's single-use confirmation for that command, exactly as `coder sessions send --mission` does. The callers are the
+// operator-gated start flow and steer, so the record is the operator's: an agent cannot reach this path. The record is bound to the
+// mission state the boss is in now (its own open session); the host starts the turn only while that still holds. A deduped repeat
+// queued nothing and has its original's record.
+func queueBossTurn(cfg *Deps, profileID string, c coderhost.Command, b coderhost.SendBounds) (coderhost.Command, bool, error) {
+	session, err := openMissionSessionID(context.Background(), cfg, profileID, c.ConversationID)
+	if err != nil {
+		return c, false, fmt.Errorf("the mission state of the boss's conversation could not be read: %w", err)
+	}
+	c.WantsMission = true
+	out, deduped, err := enqueueBounded(cfg, c, b)
+	if err != nil || deduped || out.ID <= 0 {
+		return out, deduped, err
+	}
+	if err := confirmMission(cfg, out, session); err != nil {
+		failQueuedMission(cfg, out.ID, "mission confirmation could not be recorded: send again")
+		return out, false, err
+	}
+	return out, false, nil
+}
+
 // refuseBossTurnWithoutHostIdentity is the guard of a turn run straight through `chat --conversation C --turn T`: in the
 // conversation of a boss only the HOST's own launch of the turn is run. The proof is the session token the host minted for
 // exactly this conversation and turn when it launched it (hashed in the database, bound to the turn's process, live only while
@@ -79,6 +104,22 @@ func refuseBossTurnWithoutHostIdentity(ctx context.Context, cfg *Deps, profileID
 		return nil
 	}
 	return clicore.InvalidInput("conversation %s is a boss's: a turn there runs only as the host launches it from a queued message (`coder sessions steer %s`)", conversationID, front)
+}
+
+// exposeBossTools is called once refuseBossTurnWithoutHostIdentity has passed: when the turn is a boss's, the process environment
+// (which the runtime and the MCP server it starts inherit, as they do the session token) carries mcp.BossToolsEnv, so that server
+// lists the session_boss_* tools although the user registered it without --allow-mutations. Another conversation's turn gets
+// nothing; the tools still check the session token and that a run is going.
+func exposeBossTools(ctx context.Context, cfg *Deps, profileID, conversationID string) error {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, _, ok, err := tasks.BossFrontDesk(ctx, db.DB, profileID, conversationID); err != nil || !ok {
+		return err
+	}
+	return os.Setenv(mcp.BossToolsEnv, "1")
 }
 
 // refuseBossResume refuses `chat --resume <runtime session id>` (a turn outside any conversation) when the id is the runtime

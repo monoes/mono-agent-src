@@ -26,6 +26,7 @@ func TestEveryBossToolWithNothingWiredRefusesAsOffAndWritesNothing(t *testing.T)
 		"session_boss_finish_ready":     {},
 		"session_boss_strategy_propose": {"title": "t", "rationale": "r", "criteria": []string{"c0"}},
 		"session_boss_strategy_report":  {"direction": "d", "state": "stalled"},
+		"session_boss_set_model":        {"session": m.se.ID, "model": "x", "reason": "r"},
 	}
 	if len(args) != len(bossToolNames) {
 		t.Fatalf("this table covers %d tools, the mode has %d", len(args), len(bossToolNames))

@@ -41,7 +41,7 @@ func buildSteerRig(t *testing.T, stamp, firstTurn bool) *steerRig {
 		charter = "c1"
 	}
 	if _, err := db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind, doomsday_charter_id, doomsday_generation)
-		VALUES ('default', ?, 'Boss', '', 'full', 10, 3, 2, 'you', 'x', 'x', ?, 'mission', ?, 1)`, r.bossCon.ID, tasks.BossClientID(r.front.ID, 1), charter); err != nil {
+		VALUES ('default', ?, 'Boss', '', 'full', 10, 3, 2, 'you', '2026-10-22T10:00:00Z', '2026-10-22T10:00:00Z', ?, 'mission', ?, 1)`, r.bossCon.ID, tasks.BossClientID(r.front.ID, 1), charter); err != nil {
 		t.Fatal(err)
 	}
 	if stamp { // the run the stamp belongs to is the profile's running one
@@ -75,9 +75,12 @@ func TestSteerDeliversMarkedGuidanceToTheBossOnly(t *testing.T) {
 		t.Fatalf("queued: %+v", cmds)
 	}
 	c := cmds[0]
-	if c.Kind != coderhost.KindSend || c.ConversationID != r.bossCon.ID || c.WantsMission || c.Issuer != "" {
+	if c.Kind != coderhost.KindSend || c.ConversationID != r.bossCon.ID || c.Issuer != "" {
 		t.Fatalf("command: %+v", c)
 	}
+	// DELIBERATE CHANGE (owner decision, boss spawn wave): a steer is the operator's own act, so it is queued as a mission send with
+	// the operator's single-use confirmation (this test used to pin WantsMission == false). The boss's turn then gets the mission tools.
+	requireBossConfirmed(t, r, c)
 	for _, want := range []string{"[OPERATOR STEERING]", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins", "prefer the smaller change"} {
 		if !strings.Contains(c.Message, want) {
 			t.Errorf("the envelope lacks %q:\n%s", want, c.Message)
@@ -339,6 +342,9 @@ func TestQueueBossFirstTurn(t *testing.T) {
 	}
 	if c.ConversationID != r.bossCon.ID || c.Kind != coderhost.KindSend || c.Message != text || coderhost.HostMade(c.TurnID) {
 		t.Fatalf("queued: %+v", c)
+	}
+	for _, q := range pendingCommands(t, r.dbPath) { // the first turn carries the operator's confirmation too
+		requireBossConfirmed(t, r, q)
 	}
 	// once a turn exists, or when the conversation is no stamped boss's, there is no first turn to queue
 	seedTurn(t, openTestChatStore(t, r.dbPath), r.db, r.bossCon.ID, "t1", "x", "completed", "2026-10-22T09:00:00Z")
@@ -714,5 +720,23 @@ func TestSessionsListTextMarksTheBoss(t *testing.T) {
 	}
 	if !strings.Contains(out, "boss=true") {
 		t.Fatalf("no boss marked: %s", out)
+	}
+}
+
+// requireBossConfirmed: the queued boss turn is marked as a mission and the operator's genuine, live, single-use record is there
+// for exactly that command; it is consumed once.
+func requireBossConfirmed(t *testing.T, r *steerRig, c coderhost.Command) {
+	t.Helper()
+	if !c.WantsMission {
+		t.Fatalf("a boss turn is not queued as a mission: %+v", c)
+	}
+	cs, closeDB := confirmStore(t, r.dbPath)
+	defer closeDB()
+	mc, ok := cs.PeekConfirm(c)
+	if !ok || mc.Command != c.ID || mc.TurnID != c.TurnID || mc.ConversationID != r.bossCon.ID {
+		t.Fatalf("no genuine confirmation for the boss turn: %+v ok=%v", mc, ok)
+	}
+	if !cs.ConsumeConfirm("default", c.ConversationID, c.TurnID, mc.Token(), mc.Session) || cs.ConsumeConfirm("default", c.ConversationID, c.TurnID, mc.Token(), mc.Session) {
+		t.Fatal("the confirmation is not single-use")
 	}
 }
