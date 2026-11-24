@@ -84,6 +84,38 @@ func TestInitProfile(t *testing.T) {
 	}
 }
 
+// A profile folder that already holds .claude/settings.json (hooks an agent may
+// have written) is not registered by a `claude -p` turn there: claude would run
+// those hooks outside any sandbox (r08-D07).
+func TestInitProfileSkipsClaudeTurnWhenSettingsExist(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fakes")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".claude", "settings.local.json"), []byte(`{"hooks":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	log := filepath.Join(t.TempDir(), "calls")
+	os.WriteFile(filepath.Join(bin, "monomind"), []byte("#!/bin/sh\nmkdir -p .monomind && echo x > .monomind/config.yaml\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\necho \"claude $*\" >> "+log+"\n"), 0o755)
+	t.Setenv(EnvOverride, filepath.Join(bin, "monomind"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/bin:/usr/bin")
+	var lines []string
+	if err := InitProfile(context.Background(), InitOptions{Root: root, Progress: func(l string) { lines = append(lines, l) }}); err != nil {
+		t.Fatal(err)
+	}
+	if calls, _ := os.ReadFile(log); len(calls) != 0 {
+		t.Errorf("claude ran in a folder with settings: %s", calls)
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "skipped") {
+		t.Errorf("progress should say the step was skipped: %q", lines)
+	}
+}
+
 // A monomind with capability init-json registers the folder itself
 // (--register-claude-project): no claude turn, and Repin adds --force.
 func TestInitProfileRegistersThroughMonomind(t *testing.T) {

@@ -58,6 +58,8 @@ func InitProfile(ctx context.Context, opts InitOptions) error {
 	// user's other entries are kept); an edited managed block in CLAUDE.md or
 	// AGENTS.md is replaced after a backup in .monomind/backups/. Without it
 	// an existing .mcp.json is left alone.
+	// Settings that were there before this init (monomind's own are written by it, below).
+	hadSettings := hasClaudeSettings(opts.Root)
 	args := []string{"init", "--yes", "--no-watch", "--no-install"}
 	if opts.Repin {
 		args = append(args, "--force")
@@ -93,9 +95,24 @@ func InitProfile(ctx context.Context, opts InitOptions) error {
 		return errors.New(InitFailureMessage(bin, err, tail))
 	}
 	if !registerViaInit(ctx, bin, opts.Root, opts.Prepare, progress) {
-		registerClaudeCodeProject(ctx, opts.Root, opts.Prepare, progress)
+		if hadSettings {
+			progress("(skipped: the folder already has .claude/settings*.json, whose hooks `claude -p` would run unsandboxed — open Claude Code there once to register it)")
+		} else {
+			registerClaudeCodeProject(ctx, opts.Root, opts.Prepare, progress)
+		}
 	}
 	return nil
+}
+
+// hasClaudeSettings reports whether root holds .claude/settings.json or
+// .claude/settings.local.json: hooks there run when `claude` starts in root.
+func hasClaudeSettings(root string) bool {
+	for _, name := range []string{"settings.json", "settings.local.json"} {
+		if _, err := os.Stat(filepath.Join(root, ".claude", name)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // registerViaInit registers root with Claude Code's project list by
