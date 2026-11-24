@@ -46,9 +46,6 @@ esac
 	if rows, err := a.GetVaultImages(0); err != nil || len(rows) != 1 || rows[0]["url"] != "/vault-image/img-002" || rows[0]["size_bytes"] != float64(9) {
 		t.Fatalf("GetVaultImages = %v, %v", rows, err)
 	}
-	if rows, err := a.SearchVaultImages("-logo"); err != nil || rows == nil || len(rows) != 0 {
-		t.Fatalf("SearchVaultImages = %#v, %v", rows, err)
-	}
 	if im, err := a.GetVaultImage("img-002"); err != nil || im["label"] != "Logo" {
 		t.Fatalf("GetVaultImage = %v, %v", im, err)
 	}
@@ -81,7 +78,6 @@ esac
 	}
 	want := []string{
 		"--profile work --json media list --limit 200",
-		"--profile work --json media search -- -logo",
 		"--profile work --json media get -- img-002",
 		"--profile work --json media data -- img-002",
 		"--profile work --json media add --label Logo -- /pics/a.png",

@@ -117,9 +117,6 @@ esac
 	if got := a.GetConnectionsForPlatform("gmail"); len(got) != 1 || got[0].ID != "g1" {
 		t.Fatalf("GetConnectionsForPlatform = %+v", got)
 	}
-	if got := a.ListCredentialsForNode("service.github"); len(got) != 1 || got[0] != (CredentialOption{ID: "c1", Label: "GitHub", Platform: "github", Method: "apikey"}) {
-		t.Fatalf("ListCredentialsForNode = %+v", got)
-	}
 	for id, want := range map[string]string{
 		"c-ok":  "ok",
 		"c-bad": "error: connection test failed: 401 unauthorized",
@@ -142,7 +139,6 @@ esac
 	for _, want := range []string{
 		"--profile work --json connect list",
 		"--profile work --json connect list --platform gmail",
-		"--profile work --json connect for-node service.github",
 		"--profile work --json connect test c-ok",
 		"--profile work --json connect test c-bad",
 		"--profile work --json login test 42",

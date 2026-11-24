@@ -14,28 +14,6 @@ import (
 // Connections
 // ─────────────────────────────────────────────────────────────────────────────
 
-// CredentialOption is a lightweight connection summary used to populate
-// credential dropdowns in the workflow node inspector.
-type CredentialOption struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	Platform string `json:"platform"`
-	Method   string `json:"method"`
-}
-
-// ListCredentialsForNode returns the active profile's connections a
-// workflow node type can use (`connect for-node`).
-func (a *App) ListCredentialsForNode(nodeType string) []CredentialOption {
-	if a.signedOut() != nil {
-		return nil
-	}
-	opts := []CredentialOption{}
-	if err := a.runConnCLI("", &opts, "connect", "for-node", nodeType); err != nil || opts == nil {
-		return []CredentialOption{}
-	}
-	return opts
-}
-
 // ListConnections returns all saved connections for the active profile, filtered by platform if non-empty.
 // `connect list --json` never carries credential material (Connection.Data).
 func (a *App) ListConnections(platform string) []connections.SafeConnection {

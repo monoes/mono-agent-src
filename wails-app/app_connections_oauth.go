@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/connections"
 )
@@ -194,6 +195,18 @@ func runOAuthConnect(ctx context.Context, cliBin string, args []string, stdin st
 	return &conn, nil
 }
 
+// oauthLoginTimeout caps a login subprocess; one that hangs would otherwise
+// live until the app quits.
+var oauthLoginTimeout = 10 * time.Minute
+
+func (a *App) oauthLoginContext() (context.Context, context.CancelFunc) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, oauthLoginTimeout)
+}
+
 // LoginSocial spawns `monoagentcli login <platform>` as a subprocess, which
 // opens the login page as a new tab in the user's real, already-running
 // Chrome (via the mono-agent extension) and returns immediately. Log in
@@ -228,7 +241,9 @@ func (a *App) LoginSocial(platform string) string {
 	}
 
 	go func() {
-		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", profile, "login", pid)
+		ctx, cancel := a.oauthLoginContext()
+		defer cancel()
+		cmd := exec.CommandContext(ctx, cliBin, "--profile", profile, "login", pid)
 		suppressConsole(cmd)
 		stderr, _ := cmd.StderrPipe()
 
@@ -282,7 +297,9 @@ func (a *App) ConfirmSocialLogin(platform string) string {
 	}
 
 	go func() {
-		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", profile, "login", "confirm", pid)
+		ctx, cancel := a.oauthLoginContext()
+		defer cancel()
+		cmd := exec.CommandContext(ctx, cliBin, "--profile", profile, "login", "confirm", pid)
 		suppressConsole(cmd)
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()

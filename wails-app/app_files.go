@@ -71,6 +71,9 @@ func (a *App) GetProfileDocumentText(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if fi, statErr := os.Stat(path); statErr == nil && fi.Size() > maxInlinePreviewBytes {
+		return "", fmt.Errorf("file too large to preview inline (%d MB) — open it with your system's default application instead", fi.Size()/1024/1024)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("reading document file: %w", err)

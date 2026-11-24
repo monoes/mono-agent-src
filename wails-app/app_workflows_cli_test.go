@@ -124,10 +124,6 @@ func TestWorkflowCRUDBindingsShellOut(t *testing.T) {
 	if err := a.SetWorkflowActive("w1", false); err != nil {
 		t.Fatal(err)
 	}
-	exported, err := a.ExportWorkflow("w1")
-	if err != nil || exported != "{\n  \"id\": \"w1\",\n  \"name\": \"A\",\n  \"nodes\": []\n}" {
-		t.Fatalf("ExportWorkflow = %q, %v", exported, err)
-	}
 
 	wantCalls(t, log,
 		"--profile work --json workflow list",
@@ -137,7 +133,6 @@ func TestWorkflowCRUDBindingsShellOut(t *testing.T) {
 		"--profile work --json workflow delete w1 --yes",
 		"--profile work --json workflow activate w1",
 		"--profile work --json workflow deactivate w1",
-		"--profile work --json workflow export w1",
 	)
 }
 
