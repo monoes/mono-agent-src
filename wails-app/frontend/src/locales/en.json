@@ -1,4 +1,7 @@
 {
+  "agentsPage": {
+    "refreshFailed": "Could not refresh the list; showing the last known state. {{error}}"
+  },
   "commsPage": {
     "capped": "Showing the latest {{n}} messages. Counts and filters cover only these."
   },

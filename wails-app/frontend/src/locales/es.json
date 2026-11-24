@@ -1,4 +1,7 @@
 {
+  "agentsPage": {
+    "refreshFailed": "No se pudo actualizar la lista; se muestra el último estado conocido. {{error}}"
+  },
   "commsPage": {
     "capped": "Se muestran los últimos {{n}} mensajes. Los recuentos y filtros solo cubren estos."
   },
