@@ -299,12 +299,25 @@ func TestWorkflowExecutionsLists(t *testing.T) {
 	wantErr(t, s, "workflow_executions", map[string]interface{}{"workflow_id": "nope"}, `workflow "nope" not found`)
 }
 
+// doctor opens the database and spawns the runtimes: it carries no readOnlyHint (r08-D10).
+func TestDoctorToolIsNotAnnotatedReadOnly(t *testing.T) {
+	for _, d := range toolDefinitions(true) {
+		if d["name"] == "doctor" {
+			if a, _ := d["annotations"].(map[string]bool); a["readOnlyHint"] {
+				t.Error("doctor is annotated readOnly")
+			}
+			return
+		}
+	}
+	t.Error("doctor is not listed")
+}
+
 // Every new mutating tool is refused without --allow-mutations and absent
 // from tools/list; every new read-only one is served and annotated so.
 func TestAuthoringToolsGateAndAnnotations(t *testing.T) {
 	s := newTestServer(t)
 	mutating := []string{"workflow_connect", "workflow_disconnect", "workflow_node_update", "workflow_node_delete", "workflow_save", "workflow_template_instantiate", "node_run"}
-	readOnly := []string{"workflow_search", "workflow_inputs", "workflow_executions", "workflow_template_list", "workflow_template_show", "doctor"}
+	readOnly := []string{"workflow_search", "workflow_inputs", "workflow_executions", "workflow_template_list", "workflow_template_show"}
 	names := toolsListNames(t, newTestServer(t))
 	for _, name := range mutating {
 		wantErr(t, s, name, map[string]interface{}{}, "--allow-mutations")

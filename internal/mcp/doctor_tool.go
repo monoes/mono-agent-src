@@ -27,7 +27,9 @@ func doctorTool() tool {
 			"skip_group": list("Leave out checks of these groups (e.g. runtimes)"),
 			"check":      list("Only run these checks (and what they depend on)"),
 		}),
-		annotations: map[string]bool{"readOnlyHint": true},
+		// Not readOnlyHint: the command opens the database (and may migrate it) and asks every
+		// runtime for its version; doctor has no read-only flag.
+		annotations: map[string]bool{"readOnlyHint": false},
 		handler:     toolDoctor,
 	}
 }

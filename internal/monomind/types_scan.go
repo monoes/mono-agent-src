@@ -120,4 +120,11 @@ type InstallRecipe struct {
 	Packages []string `json:"packages,omitempty"`
 	URL      string   `json:"url,omitempty"`
 	Shell    string   `json:"shell,omitempty"`
+	// SHA256 is the hex sha-256 of the script as reviewed (script kind): the
+	// installer refuses a download that hashes differently. Empty from a
+	// monomind that does not send one.
+	SHA256 string `json:"sha256,omitempty"`
+	// IgnoreScripts asks npm to skip lifecycle scripts (npm kind), for a
+	// package that installs without them.
+	IgnoreScripts bool `json:"ignore_scripts,omitempty"`
 }
