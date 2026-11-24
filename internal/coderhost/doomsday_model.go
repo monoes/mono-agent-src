@@ -76,7 +76,10 @@ func (s *Store) BossSetModel(ctx context.Context, sc CallerScope, profileID stri
 		return BossModelChange{}, fmt.Errorf("%w: the session's model changed meanwhile: read it again", ErrInvalid)
 	}
 	if err := s.recordModelChange(profileID, sid, ch, reason); err != nil {
-		return ch, fmt.Errorf("the model was changed but the ledger row could not be written: %w", err)
+		// An unrecorded change would not count toward the limit: put the model back rather than leave it uncounted.
+		_, _ = s.db.Exec(`UPDATE ai_chat_conversations SET model = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND runtime_id = ? AND model = ?`,
+			ch.From, s.stamp(), conv, profileID, ch.Runtime, ch.To)
+		return BossModelChange{}, fmt.Errorf("the model change was not recorded in the ledger, so it was undone: %w", err)
 	}
 	return ch, nil
 }
@@ -116,7 +119,7 @@ func (s *Store) checkModelChange(ctx context.Context, profileID, conv, model str
 		return ch, fmt.Errorf("%w: the session's budget is used up", ErrLimit)
 	}
 	var changes int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND question = ?`, profileID, conv, modelChangeQuestion).Scan(&changes); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND question = ? AND made_by = ?`, profileID, conv, modelChangeQuestion, string(WhoMaster)).Scan(&changes); err != nil {
 		return ch, err
 	}
 	if changes >= MaxBossModelChanges {

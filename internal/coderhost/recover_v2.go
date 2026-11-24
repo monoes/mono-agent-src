@@ -69,6 +69,9 @@ func (s *Store) V2Turn(profileID, conversationID, turnID string) (isV2 bool, pid
 	return true, b.WorkerPID, b.WorkerStamp, nil
 }
 
+// boundStamp reads a process's start stamp; a variable so tests can stand in for a process.
+var boundStamp = BoundStamp
+
 // adoptBound keeps a bound turn the previous host left running as the one turn of its conversation (#1743): killing the
 // leader's process group stops only the runner, while the agent and its runtime lead groups of their own and keep
 // running, beside the next turn the chat would start. The turn's tokens are revoked first (the new host has a new
@@ -79,8 +82,17 @@ func (h *Host) adoptBound(x Session) bool {
 	if x.TurnPID <= 1 || x.TurnStamp == "" || x.TurnID == "" {
 		return false
 	}
+	// A process whose start time cannot be read cannot be told from a later one that reused the pid: not adopted.
+	if boundStamp(x.TurnPID) == "" {
+		return false
+	}
 	if err := h.Store.RevokeSessionTokensErr(x.ProfileID, x.ConversationID); err != nil {
 		return false
+	}
+	if x.Role == "child" { // as when a turn is stopped: no task token of a mission child outlives the host that issued it
+		if err := h.revokeChildTokens(x.ProfileID, x.ConversationID); err != nil {
+			return false
+		}
 	}
 	t := h.L.Adopt(x.TurnPID, x.TurnStamp)
 	if t == nil {

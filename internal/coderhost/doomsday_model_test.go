@@ -115,3 +115,22 @@ func TestBossSetModelRespectsBudgetAndCount(t *testing.T) {
 		t.Fatalf("a session with no budget left: %v", err)
 	}
 }
+
+// Only the boss's own ledger rows count toward the limit of changes: rows the session wrote under the same question
+// text (made_by model) neither use up the boss's changes nor lock it out.
+func TestBossModelChangeCountIgnoresRowsTheSessionWroteItself(t *testing.T) {
+	f := newAskTree(t)
+	ctx := context.Background()
+	routeFor(f, true)
+	boss := f.lead(f.rc)
+	rosterModel(t, f, "claude", "a", agentroster.StatusOK)
+	for i := 0; i < MaxBossModelChanges; i++ {
+		if _, err := f.st.db.Exec(`INSERT INTO coder_session_decisions (profile_id, conversation_id, class, question, choice, alternatives, reason, reversible, made_by, status, reverted_by, created_at)
+			VALUES ('p', ?, 'scope_growth', ?, 'x', '[]', 'forged', 1, 'model', 'active', '', '2026-01-01T00:00:00Z')`, f.cc, modelChangeQuestion); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.st.BossSetModel(ctx, boss, "p", f.C.ID, "a", "r"); err != nil {
+		t.Fatalf("forged rows locked the boss out: %v", err)
+	}
+}
