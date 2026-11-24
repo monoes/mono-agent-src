@@ -149,9 +149,12 @@ func (s *Server) profileAuth(need agenttokens.Scope, h http.HandlerFunc) http.Ha
 			accountdoor.WriteUnauthorized(w, err)
 			return
 		}
+		if s.throttled(w, r) {
+			return
+		}
 		got := bearerCredential(r)
 		if got == "" {
-			writeUnauthorized(w)
+			s.deny(w, r)
 			return
 		}
 		ctx := r.Context()
@@ -176,7 +179,7 @@ func (s *Server) profileAuth(need agenttokens.Scope, h http.HandlerFunc) http.Ha
 					s.auditForeignUse(tok, r)
 				}
 			}
-			writeUnauthorized(w)
+			s.deny(w, r)
 			return
 		}
 		var matched []string
@@ -209,7 +212,7 @@ func (s *Server) profileAuth(need agenttokens.Scope, h http.HandlerFunc) http.Ha
 		}
 		switch {
 		case len(matched) == 0:
-			writeUnauthorized(w)
+			s.deny(w, r)
 		case len(candidates) > 1:
 			// The caller holds the token of one profile of that name: it may
 			// be told the name is shared, and that the id is what to use.
@@ -229,9 +232,12 @@ func (s *Server) anyProfileAuth(need agenttokens.Scope, h http.HandlerFunc) http
 			accountdoor.WriteUnauthorized(w, err)
 			return
 		}
+		if s.throttled(w, r) {
+			return
+		}
 		got := bearerCredential(r)
 		if got == "" {
-			writeUnauthorized(w)
+			s.deny(w, r)
 			return
 		}
 		ids, err := allProfileIDs(r.Context(), s.rt.db.DB)
@@ -263,7 +269,7 @@ func (s *Server) anyProfileAuth(need agenttokens.Scope, h http.HandlerFunc) http
 			}
 		}
 		if !ok {
-			writeUnauthorized(w)
+			s.deny(w, r)
 			return
 		}
 		h(w, r)

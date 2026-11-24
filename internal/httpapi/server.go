@@ -16,6 +16,7 @@ import (
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/accountdoor"
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/tlsserve"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -43,6 +44,8 @@ type Server struct {
 	// readToken reads a profile's token from the vault without creating one
 	// ("" when it has none). A field so that a test can count the reads.
 	readToken func(ctx context.Context, profileID string) (string, error)
+	// throttle backs off callers that keep failing to authenticate (auth_throttle.go).
+	throttle *authThrottle
 	// tokens is the agent-token store, built on first use (agentTokens).
 	tokens     *agenttokens.Store
 	tokensOnce sync.Once
@@ -73,10 +76,10 @@ func NewServer(opts Options) (*Server, error) {
 		rt.Close()
 		return nil, fmt.Errorf("httpapi: %w", err)
 	}
-	s := &Server{opts: opts, addr: opts.Addr, rt: rt, decoyToken: decoy, warnOut: os.Stderr}
-	s.readToken = func(ctx context.Context, profileID string) (string, error) {
+	s := &Server{opts: opts, addr: opts.Addr, rt: rt, decoyToken: decoy, warnOut: os.Stderr, throttle: newAuthThrottle()}
+	s.readToken = tokenCache(func(ctx context.Context, profileID string) (string, error) {
 		return existingToken(ctx, s.rt.db.DB, profileID)
-	}
+	}, time.Now)
 	s.mux = s.routes()
 	s.handler = accountGate(s.mux)
 	return s, nil
@@ -136,6 +139,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.ensureTokens(ctx)
 	if !s.rt.hosted {
 		fmt.Fprintln(s.warnOut, standaloneWebhookWarning)
+	}
+	if s.throttle != nil {
+		s.throttle.on = !tlsserve.IsLoopbackAddr(ln.Addr().String())
 	}
 	extraHosts := configuredHosts(s.opts)
 	if w := nonLoopbackWarning(ln.Addr().String(), extraHosts); w != "" {

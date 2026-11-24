@@ -67,3 +67,15 @@ func nonLoopbackWarning(bound string, extra []string) string {
 	return "warning: the HTTP API is bound to " + bound + ", not loopback: requests addressed by a LAN IP or hostname " +
 		"get 421 (unexpected Host header). Allow them with " + allowedHostsEnv + "=host:port,... (the loopback names of this port always work)"
 }
+
+// LoopbackHostGuard is hostGuard for another listener that serves its own routes (the
+// dedicated /v1 listener): on a loopback bind only the loopback names of the bound port
+// and the operator's MONOAGENT_HTTPAPI_ALLOWED_HOSTS get through, so a page that makes a
+// browser reach the port under an attacker's name is turned away. A bind beyond loopback
+// serves by its own address or name, so there next is returned as it is.
+func LoopbackHostGuard(bound string, next http.Handler) http.Handler {
+	if !tlsserve.IsLoopbackAddr(bound) {
+		return next
+	}
+	return hostGuard(allowedHosts(bound, configuredHosts(Options{})), next)
+}
