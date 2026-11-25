@@ -30,6 +30,10 @@ PROFILE=a2ui-test
 die() { echo "a2ui-testkit: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 is not installed"; }
 
+# own_terminal refuses an agent shell: there the CLI refuses button presses and ignores the bridge port
+# override, so the test bridge would take the default port, which belongs to your live bridge.
+own_terminal() { [ -z "${CLAUDECODE:-}${AI_AGENT:-}" ] || die "this shell belongs to an agent; run '$cmd' in your own terminal"; }
+
 # testenv runs a command in the test world. The Go and npm caches stay where they are.
 testenv() {
 	local extra=()
@@ -84,7 +88,7 @@ status)
 	;;
 proof)
 	[ "${A2UI_NO_UNSHARE:-}" = 1 ] || need unshare
-	[ -z "${CLAUDECODE:-}" ] || die "this shell belongs to an agent (CLAUDECODE is set); run the proof in your own terminal"
+	own_terminal
 	p=$(profile_id)
 	n=$(date +%H%M%S)
 	conv=proof-$n
@@ -124,6 +128,7 @@ proof)
 	iso chat ui show "$conv" --profile "$p"
 	;;
 app)
+	own_terminal
 	need wails
 	[ -x "$BIN" ] || die "run 'setup' first"
 	cd "$ROOT/wails-app"
@@ -132,6 +137,7 @@ app)
 	echo "wails may have rewritten generated files; 'git status' shows them, discard them if so."
 	;;
 bridge)
+	own_terminal
 	[ -x "$BIN" ] || die "run 'setup' first"
 	testenv "$BIN" extension serve
 	;;
