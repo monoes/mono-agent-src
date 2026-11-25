@@ -11,6 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/agentroster"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/coderspend"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -108,10 +109,12 @@ func readOnlySandbox(st coderStatus, e *monomind.ScanEntry) bool {
 
 // startDynamicOrg wires a conductor into a dynamic-org coder turn: the lead
 // gets the org tools and the org part of its system prompt. It returns a
-// close func that ends every worker (call it before the turn finishes) and
-// the func the lead's own events go through (its file edits take the write
-// lease), or nils with the journal told why the turn runs solo.
-func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, settings coderSettings, st coderStatus, rt monomind.CoderRuntime, t coderTurn, opts *monomind.ExecOptions) (func(), func(monomind.Event), func(float64)) {
+// close func that ends every worker (call it before the turn finishes), the
+// func the lead's own events go through (its file edits take the write
+// lease) and the func that settles the lead's own cost (call it once, after
+// close and the turn's compaction: it releases the org's database), or nils
+// with the journal told why the turn runs solo.
+func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, settings coderSettings, st coderStatus, rt monomind.CoderRuntime, t coderTurn, opts *monomind.ExecOptions) (func(), func(monomind.Event), func(*monomind.TurnResult)) {
 	if reason := orgUnavailableReason(st, rt.ID); reason != "" {
 		journal.notice(noticeOrgUnavailable, reason, chatevents.SeverityWarning)
 		return nil, nil, nil
@@ -143,7 +146,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	}
 	// The operator's model set per purpose limits every worker's model. It is
 	// read afresh at every spawn decision (the db handle stays open until the
-	// returned close func runs, after the turn), and a store that can't be
+	// returned settle func runs, after the turn), and a store that can't be
 	// read fails closed: no org this turn, no spawn later.
 	purposeStore := agentpurposes.Store{DB: db, ProfileID: cfg.ProfileID()}
 	if _, err := purposeStore.Usable(); err != nil {
@@ -227,10 +230,26 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		stopWatch = watchAgentStops(agentControlDir(cfg, journal.turnID), func(id string) { _, _ = cond.Stop(id) })
 	}
 	return func() {
-		stopWatch()
-		cond.Close()
-		db.Close()
-	}, cond.LeadEvent, func(usd float64) { cond.ChargeLeadTurn(context.WithoutCancel(ctx), usd) }
+			stopWatch()
+			cond.Close()
+		}, cond.LeadEvent, func(res *monomind.TurnResult) {
+			defer db.Close()
+			cond.ChargeLeadTurn(context.WithoutCancel(ctx), leadTurnCost(db.DB, journal, res))
+		}
+}
+
+// leadTurnCost is what the lead's turn added: the figure the conversation's spend counts for it (claude reports a
+// resumed session's total, so the exec's own figure holds the earlier turns again, #1744), else, when the journal
+// can't say, what the exec reported (0: it reported none).
+func leadTurnCost(q coderspend.Querier, journal *turnJournal, res *monomind.TurnResult) float64 {
+	usd, reported, err := coderspend.LeadTurn(q, journal.profileID, journal.conversationID, journal.turnID)
+	if err == nil && reported {
+		return usd
+	}
+	if res != nil && res.HasCostUSD {
+		return res.CostUSD
+	}
+	return 0
 }
 
 // orgStoredIDs reads the ids of every worker stored for the conversation; tests replace it to inject a read error.
