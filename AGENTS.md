@@ -4536,9 +4536,11 @@ resolver prefix `jev:`.
   `gpt-6-luna`) and `gemini-decisions` (Google's, `POST /v1beta/decisions`,
   model `gemini-decision-1`): the vendor's own calibrated probabilities
   (`native`), `choice`, `noul` and `score`, every question of a request in
-  one call; `base_url` is the host and may be left at the vendor's, a key is
-  required. Gemini wants question keys of `[A-Za-z0-9_-]` and at most 64
-  characters, so the adapter sends cleaned keys and maps the answers back.
+  one call; `base_url` is the host (a trailing `/v1` or `/v1beta` is not
+  doubled) and `jev provider add` fills the vendor's when `--base-url` is
+  left out; a key is required, on this computer too. Gemini wants question
+  keys of `[A-Za-z0-9_-]` and at most 64 characters, so the adapter sends
+  cleaned keys and maps the answers back.
   With no provider configured every surface uses TypeSafe and behaves as before.
 - **Requests in flight and retries.** A request's questions go out at most 8
   at a time, and a sampled question's 5 samples together (Anthropic: one,
