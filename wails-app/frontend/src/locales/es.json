@@ -2343,7 +2343,9 @@
     "openNamed": "Abrir {{name}}",
     "commandLabel": "Comando que se ejecutará",
     "commandFolder": "Carpeta del rol: {{path}}",
-    "commandCut": "Solo se conoce el principio de este comando: el motor guarda sus primeros 200 caracteres."
+    "commandCut": "Solo se conoce el principio de este comando: el motor guarda sus primeros 200 caracteres.",
+    "commandRedacted": "monomind ocultó parte de este comando ([REDACTED]). El texto oculto puede incluir más comandos.",
+    "commandMore": "Hay más abajo: desplaza el recuadro para leer el comando completo."
   },
   "comms": {
     "status": {
