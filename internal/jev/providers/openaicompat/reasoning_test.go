@@ -106,7 +106,7 @@ func TestALongerAnswerMustBeExactlyALabel(t *testing.T) {
 
 // A 400 that names a parameter already adjusted is not retried again.
 func TestARepeatedRefusalIsNotRetriedForever(t *testing.T) {
-	f := newFake(t, func(int, seen) (int, any) { return 400, `{"error":"max_tokens: invalid value"}` })
+	f := newFake(t, func(int, seen) (int, any) { return 400, `{"error":"Unsupported parameter: max_tokens"}` })
 	cl, _ := newClient(t, f.URL, "", jev.Capabilities{})
 	if _, err := ask(t, cl, choiceOf("first", "second")); err == nil || !strings.Contains(err.Error(), "HTTP 400") {
 		t.Fatalf("err = %v", err)

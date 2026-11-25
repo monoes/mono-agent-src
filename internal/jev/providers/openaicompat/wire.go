@@ -157,7 +157,7 @@ func entries(raw []json.RawMessage) []jev.TokenLogprob {
 
 // httpError is a non-2xx reply. Its text is the status and an allow-listed
 // error code (jev.HTTPError), never the body: body, with the key taken out,
-// is only read by learnRefusal.
+// is only read to learn what was refused (trial.refused, namesTopLogprobs).
 type httpError struct {
 	status int
 	body   string
@@ -180,22 +180,22 @@ func (e *transportError) Error() string { return e.text }
 func (e *transportError) Unwrap() error { return e.err }
 
 // complete sends one chat completion and decodes the reply. A 400 that
-// refuses max_tokens or temperature (OpenAI's reasoning models) is sent
-// again without that parameter, and the backend remembers it (adapt). Any
-// other 400 is the caller's, a logprobs refusal included. An empty answer
-// under completionBudget is asked once more with largeCompletionBudget,
-// which is then kept.
-func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse, error) {
+// refuses max_tokens or temperature as unsupported (OpenAI's reasoning
+// models) is sent again without that parameter, remembered once such a request
+// succeeds (trial). Any other 400 is the caller's, a logprobs refusal
+// included. An empty answer under completionBudget is asked once more with
+// largeCompletionBudget, which is then kept.
+func (b *Backend) complete(ctx context.Context, tr *trial, body chatRequest) (*chatResponse, error) {
 	var spent struct{ PromptTokens, CompletionTokens int } // of an answer asked again
 	for {
-		sent := b.adapt(body)
+		sent := tr.adapt(b.base, body)
 		enc, err := json.Marshal(sent)
 		if err != nil {
 			return nil, fmt.Errorf("openaicompat: encode the request: %w", err)
 		}
 		raw, err := b.do(ctx, http.MethodPost, "/chat/completions", enc)
 		var he *httpError
-		if errors.As(err, &he) && he.status == http.StatusBadRequest && b.learnRefusal(sent, he.body) {
+		if errors.As(err, &he) && he.status == http.StatusBadRequest && tr.refused(sent, he.body) {
 			continue
 		}
 		if err != nil {
@@ -211,10 +211,14 @@ func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse
 		if sent.MaxCompletionTokens == completionBudget && strings.TrimSpace(res.text()) == "" {
 			// The model spent the whole budget reasoning: ask this once more
 			// with the larger one, and keep it. The tokens spent are billed.
+			tr.mu.Lock()
+			tr.q.largeBudget = true
+			tr.mu.Unlock()
 			remember(b.base, body.Model, func(q *quirks) { q.largeBudget = true })
 			spent.PromptTokens, spent.CompletionTokens = res.Usage.PromptTokens, res.Usage.CompletionTokens
 			continue
 		}
+		tr.succeeded(b.base, sent)
 		return &res, nil
 	}
 }
@@ -226,43 +230,6 @@ const (
 	completionBudget      = 16
 	largeCompletionBudget = 256
 )
-
-// adapt shapes body for what the provider refused so far.
-func (b *Backend) adapt(body chatRequest) chatRequest {
-	q := recall(b.base, body.Model)
-	if q.completionTokens && body.MaxTokens > 0 {
-		body.MaxTokens, body.MaxCompletionTokens = 0, completionBudget
-		if q.largeBudget {
-			body.MaxCompletionTokens = largeCompletionBudget
-		}
-	}
-	if q.noTemperature {
-		body.Temperature = nil
-	}
-	return body
-}
-
-// learnRefusal reads the body of a 400 to sent: one that names max_tokens
-// (or max_completion_tokens) or temperature, and not logprobs, switches that
-// parameter off (remember) and reports true when sent still carried it, so each
-// request in flight at the refusal is sent again and none for the same
-// parameter twice. A body that names logprobs or top_logprobs, or neither, is
-// left to the caller.
-func (b *Backend) learnRefusal(sent chatRequest, body string) bool {
-	s := strings.ToLower(body)
-	if strings.Contains(s, "logprobs") {
-		return false
-	}
-	switch {
-	case sent.MaxTokens > 0 && (strings.Contains(s, "max_tokens") || strings.Contains(s, "max_completion_tokens")):
-		remember(b.base, sent.Model, func(q *quirks) { q.completionTokens = true })
-	case sent.Temperature != nil && strings.Contains(s, "temperature"):
-		remember(b.base, sent.Model, func(q *quirks) { q.noTemperature = true })
-	default:
-		return false
-	}
-	return true
-}
 
 // do sends a request to the provider's own base URL, retrying a 408, 429 or
 // 5xx as often as the caller's budget says (jev.RetriesFrom; twice without
@@ -320,7 +287,7 @@ func (b *Backend) do(ctx context.Context, method, path string, body []byte) ([]b
 
 // snippet is the start of a reply body with the key taken out (a server may
 // echo the Authorization header), cut after the key is removed. It is only
-// read (learnRefusal), never put in an error.
+// read (trial.refused, namesTopLogprobs), never put in an error.
 func (b *Backend) snippet(raw []byte) string {
 	s := []rune(b.redact(strings.TrimSpace(string(raw))))
 	if len(s) > 300 {
