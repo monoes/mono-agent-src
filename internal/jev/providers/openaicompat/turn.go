@@ -180,6 +180,7 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 		if res, err = t.b.complete(ctx, t.request(user, 0, retryTopK)); err == nil {
 			t.b.learnK(retryTopK, k)
 			k = retryTopK
+			remember(t.b.base, t.model, func(q *quirks) { q.topLogprobs = retryTopK })
 		}
 		t.add(res)
 	}

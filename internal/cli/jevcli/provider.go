@@ -165,7 +165,9 @@ func newJevProviderAddCmd(d Deps) *cobra.Command {
 			"http to this machine) and a model. --key-stdin reads its key from stdin (never pass it\n" +
 			"as an argument) into the machine vault entry --secret-name (default decision-<name>);\n" +
 			"--secret-name alone points at an entry that already holds it; neither = keyless, which\n" +
-			"only a server on this machine may be (a provider on another host needs a key). A key\n" +
+			"only a server on this machine may be (a provider on another host needs a key). The\n" +
+			"kinds openai-decisions and gemini-decisions always need a key, and without --base-url\n" +
+			"they use the vendor's host. A key\n" +
 			"stored with --key-stdin is bound to the provider's host. Replacing a provider's host,\n" +
 			"or the kind, host or key of a provider in use, prints what moves and asks (--yes\n" +
 			"skips the question). The provider is probed unless --no-probe, and saved even when\n" +
@@ -178,8 +180,12 @@ func newJevProviderAddCmd(d Deps) *cobra.Command {
 				return clicore.OperatorOnly("jev provider add decides where Jev sends this machine's data and a key, which only the user does: %s; run it yourself in your terminal or the app", why)
 			}
 			p.Name = args[0]
-			if strings.TrimSpace(p.Kind) == "" || strings.TrimSpace(p.BaseURL) == "" {
-				return clicore.InvalidInput("--kind and --base-url are required (kinds in this build: %s)", strings.Join(jevconf.Kinds(), ", "))
+			// The kind's default host is filled in first, so the consent below
+			// names the host the record is saved with.
+			p = jevconf.WithKindDefaults(p)
+			if p.Kind == "" || p.BaseURL == "" {
+				return clicore.InvalidInput("--kind and --base-url are required (--base-url may be left out for openai-decisions and "+
+					"gemini-decisions; kinds in this build: %s)", strings.Join(jevconf.Kinds(), ", "))
 			}
 			var key string
 			if keyStdin {
@@ -248,7 +254,7 @@ func newJevProviderAddCmd(d Deps) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&p.Kind, "kind", "", "Adapter kind (jev provider list shows the kinds of this build)")
-	f.StringVar(&p.BaseURL, "base-url", "", "The provider's API base URL: https, or http to this machine")
+	f.StringVar(&p.BaseURL, "base-url", "", "The provider's API base URL: https, or http to this machine (decisions kinds: default the vendor's host)")
 	f.StringVar(&p.Model, "model", "", "Model to ask (default: the adapter's)")
 	f.BoolVar(&keyStdin, "key-stdin", false, "Read the provider's key from stdin into the machine vault")
 	f.StringVar(&p.SecretName, "secret-name", "", "Machine vault entry holding the key (default with --key-stdin: decision-<name>)")

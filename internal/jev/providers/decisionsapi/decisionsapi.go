@@ -43,9 +43,9 @@ const (
 )
 
 func init() {
-	for _, kind := range []string{KindOpenAI, KindGemini} {
-		kind := kind
-		jevconf.RegisterKind(kind, func(p jevconf.Provider, key string) (jev.Backend, error) { return New(kind, p, key) })
+	for kind, host := range map[string]string{KindOpenAI: defaultOpenAIHost, KindGemini: defaultGeminiHost} {
+		jevconf.RegisterKind(kind, func(p jevconf.Provider, key string) (jev.Backend, error) { return New(kind, p, key) },
+			jevconf.KindSpec{DefaultBaseURL: host, NeedsKey: true})
 	}
 }
 
@@ -57,11 +57,12 @@ type Backend struct {
 	sleep                 func(ctx context.Context, d time.Duration) error
 }
 
-// New builds the backend of provider record p with its key.
+// New builds the backend of provider record p with its key. A base_url that
+// already ends in the API version gets only "/decisions" added.
 func New(kind string, p jevconf.Provider, key string) (*Backend, error) {
-	host, model, path := defaultOpenAIHost, defaultOpenAIModel, "/v1/decisions"
+	host, model, version := defaultOpenAIHost, defaultOpenAIModel, "/v1"
 	if kind == KindGemini {
-		host, model, path = defaultGeminiHost, defaultGeminiModel, "/v1beta/decisions"
+		host, model, version = defaultGeminiHost, defaultGeminiModel, "/v1beta"
 	} else if kind != KindOpenAI {
 		return nil, fmt.Errorf("decisionsapi: unknown kind %q", kind)
 	}
@@ -69,12 +70,12 @@ func New(kind string, p jevconf.Provider, key string) (*Backend, error) {
 		return nil, fmt.Errorf("%s: an API key is required", kind)
 	}
 	if h := strings.TrimRight(strings.TrimSpace(p.BaseURL), "/"); h != "" {
-		host = h
+		host = strings.TrimSuffix(h, version)
 	}
 	if m := strings.TrimSpace(p.Model); m != "" {
 		model = m
 	}
-	return &Backend{kind: kind, url: host + path, key: key, model: model,
+	return &Backend{kind: kind, url: host + version + "/decisions", key: key, model: model,
 		http: jev.KeyedHTTPClient(timeout), retries: 2, sleep: sleepCtx}, nil
 }
 
@@ -97,15 +98,19 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 			return nil, fmt.Errorf("%s: %w: %q has more than %d options", b.kind, jev.ErrUnsupported, id, maxOptions)
 		}
 	}
+	model := req.Model
+	if model == "" {
+		model = b.model
+	}
 	var (
 		body  []byte
 		order []string
 		err   error
 	)
 	if b.kind == KindGemini {
-		body, order, err = encodeGemini(b.model, req)
+		body, order, err = encodeGemini(model, req)
 	} else {
-		body, order, err = encodeOpenAI(b.model, req)
+		body, order, err = encodeOpenAI(model, req)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: encode request: %w", b.kind, err)
@@ -123,7 +128,7 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 	if resp != nil {
 		resp.Probability = jev.ProbNative
 		if resp.Model == "" {
-			resp.Model = b.model
+			resp.Model = model
 		}
 	}
 	return resp, err

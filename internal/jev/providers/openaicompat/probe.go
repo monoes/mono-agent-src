@@ -22,6 +22,9 @@ func (b *Backend) Probe(ctx context.Context) (jev.Capabilities, error) {
 	var he *httpError
 	if errors.As(err, &he) && he.status == 400 {
 		res, err = b.complete(ctx, t.request(user, 0, retryTopK)) // a host that caps top_logprobs
+		if err == nil {
+			remember(b.base, b.model, func(q *quirks) { q.topLogprobs = retryTopK })
+		}
 	}
 	if errors.As(err, &he) && he.status == 400 {
 		if _, err := b.complete(ctx, t.request(user, 0, 0)); err != nil {
