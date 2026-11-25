@@ -174,24 +174,6 @@ func newOrgStatusCmd(root func() string) *cobra.Command {
 	}
 }
 
-func newOrgLogsCmd(root func() string) *cobra.Command {
-	var run string
-	c := &cobra.Command{
-		Use:   "logs <name>",
-		Short: "Show the org's bus event log",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := monomind.OrgLogs(cmd.Context(), root(), args[0], run)
-			if err != nil {
-				return err
-			}
-			return printOrgJSON(out)
-		},
-	}
-	c.Flags().StringVar(&run, "run", "", "Specific run id (default: most recent run)")
-	return c
-}
-
 func newOrgReportCmd(root func() string) *cobra.Command {
 	var all bool
 	var run string

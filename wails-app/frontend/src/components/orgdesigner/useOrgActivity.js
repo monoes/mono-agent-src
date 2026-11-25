@@ -4,9 +4,10 @@
 //                    keeps open). Duplicate ids from the seed are skipped.
 //   source <runId> — replays that past run's `org logs` through the same
 //                    reducer; nothing live is applied.
-// Returns { state, loading, error, now } — `now` is the wall clock while
-// live and the run's last event time on replay, so "recent" edges mean the
-// same thing in both.
+// Returns { state, loading, error, noRun, now } — `now` is the wall clock
+// while live and the run's last event time on replay, so "recent" edges mean
+// the same thing in both. `noRun` is the CLI's "this org never ran"; the
+// first live event clears it.
 import { useEffect, useRef, useState } from 'react'
 import { api, onOrgEvent } from '../../services/api.js'
 import { initialState, applyEvent } from './orgActivity.js'
@@ -23,6 +24,7 @@ export default function useOrgActivity({ orgName, nodes, enabled, source = 'live
   const [state, setState] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [noRun, setNoRun] = useState(false)
   const [clock, setClock] = useState(() => Date.now())
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
@@ -35,6 +37,7 @@ export default function useOrgActivity({ orgName, nodes, enabled, source = 'live
     setState(s)
     setLoading(true)
     setError('')
+    setNoRun(false)
 
     // Live events that arrive while the seed is loading are buffered and
     // applied after it, so ordering matches the bus.
@@ -44,6 +47,7 @@ export default function useOrgActivity({ orgName, nodes, enabled, source = 'live
       ? onOrgEvent((payload) => {
         if (cancelled || payload?.orgName !== orgName || !payload.event) return
         if (!seeded) { buffered.push(payload.event); return }
+        setNoRun(false)
         setState(prev => applyEvent(prev || initialState(nodesRef.current || [], { org: orgName }), payload.event))
       })
       : () => {}
@@ -55,6 +59,7 @@ export default function useOrgActivity({ orgName, nodes, enabled, source = 'live
       for (const ev of buffered) s = applyEvent(s, ev)
       seeded = true
       setState(s)
+      setNoRun(!!res?.no_run && buffered.length === 0)
       setLoading(false)
     })
 
@@ -67,5 +72,5 @@ export default function useOrgActivity({ orgName, nodes, enabled, source = 'live
   }, [enabled, orgName, source])
 
   const now = source === 'live' ? clock : (state?.lastTs || 0)
-  return { state, loading, error, now }
+  return { state, loading, error, noRun, now }
 }
