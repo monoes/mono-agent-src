@@ -228,7 +228,7 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 					return fmt.Errorf("the mission state of this chat could not be read: %w", err)
 				}
 			}
-			c, hostStarted, qerr := enqueueStarting(cfg,coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts, WantsMission: mission}, !noHost)
+			c, hostStarted, qerr := enqueueStarting(cfg, coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts, WantsMission: mission}, !noHost)
 			if mission && c.ID > 0 { // queued, even if starting the host failed afterwards
 				if err := confirmMission(cfg, c, session); err != nil {
 					failQueuedMission(cfg, c.ID, "mission confirmation could not be recorded: send again")

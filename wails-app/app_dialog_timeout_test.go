@@ -30,7 +30,7 @@ func stuckDialog(t *testing.T) {
 // timeout says the window is dead and has to be closed.
 func TestEveryDialogTimeoutSaysTheStaleWindowDoesNothing(t *testing.T) {
 	opgate.SetForTest(t, func(bool) string { return "" }) // the user's own app
-	check :=func(t *testing.T, said, outcome string) {
+	check := func(t *testing.T, said, outcome string) {
 		t.Helper()
 		for _, want := range []string{"did not return", outcome, "answering it now does nothing", "close it before you try again"} {
 			if !strings.Contains(said, want) {

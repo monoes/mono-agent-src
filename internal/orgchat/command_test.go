@@ -49,9 +49,9 @@ func TestCommandTruncationIsMonomindsCutOnly(t *testing.T) {
 		command string
 		want    bool
 	}{
-		"exactly the limit":       {strings.Repeat("a", 200), false},
-		"a command ending in …":   {"echo wait…", false},
-		"cut":                     {strings.Repeat("a", 200) + "…", true},
+		"exactly the limit":        {strings.Repeat("a", 200), false},
+		"a command ending in …":    {"echo wait…", false},
+		"cut":                      {strings.Repeat("a", 200) + "…", true},
 		"cut, counted as monomind": {strings.Repeat("a", 198) + "😀…", true}, // the emoji is two UTF-16 units
 	} {
 		_, truncated := Command(map[string]interface{}{"command": tc.command})
