@@ -113,6 +113,21 @@ describe('pursuit panel', () => {
     expect(li).toHaveTextContent('coder host pursuit judge set RUNTIME/MODEL')
     expect(screen.queryByTestId('pursuit-missing-goal')).toBeNull()
   })
+  // #1766: the CLI says which listed line already covers another.
+  it('shows one line for a missing judge, not the host item the CLI says it covers', async () => {
+    const fix = 'coder host pursuit judge set RUNTIME/MODEL'
+    go.PursuitReadiness.mockReturnValue(j({ ready: false, items: [
+      { id: 'host_loop', status: 'missing', detail: 'idle: judge-pin missing', fix, covered_by: 'judge_pin' },
+      { id: 'judge_pin', status: 'missing', detail: 'no judge model is chosen yet (judge-pin missing)', fix },
+      // covered by a line that is not listed: it stays, or nothing would say it
+      { id: 'lead_cap', status: 'missing', detail: 'no spend cap', fix: 'x', covered_by: 'chat' },
+    ], pursuit: { started: false } }))
+    await strip()
+    await screen.findByTestId('pursuit-missing-judge_pin')
+    expect(screen.queryByTestId('pursuit-missing-host_loop')).toBeNull()
+    expect(screen.getByTestId('pursuit-missing-lead_cap')).toBeInTheDocument()
+    expect(screen.getByTestId('pursuit-missing').querySelectorAll('li')).toHaveLength(2)
+  })
   it('turns the child-sessions switch on only after the operator confirms, and not when declined', async () => {
     await strip()
     const box = await screen.findByTestId('pursuit-children')

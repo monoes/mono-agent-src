@@ -127,6 +127,38 @@ func TestReadinessReadyAndNoMissingItemWithoutAFix(t *testing.T) {
 	}
 }
 
+// #1766: a host idle only for want of a judge model is one missing thing, so the
+// host_loop item names judge_pin as the line that covers it. A host that is
+// missing for any other reason is its own line.
+func TestReadinessHostIdleForWantOfAJudgeIsCoveredByTheJudgeItem(t *testing.T) {
+	t.Parallel()
+	idle := buildReadiness(readyInput(func(in *readinessInput, f *missionpursuit.LiveFacts) {
+		in.Host = coderhost.PursuitHostInfo{Missing: coderhost.PursuitMissingJudgePin}
+		f.HostOn = false
+	}))
+	if it := itemOf(t, idle, ItemHostLoop); it.CoveredBy != ItemJudgePin || it.Status != itemMissing || it.Fix == "" {
+		t.Errorf("idle host: %+v", it)
+	}
+	if it := itemOf(t, idle, ItemJudgePin); it.CoveredBy != "" {
+		t.Errorf("the judge item covers itself: %+v", it)
+	}
+	for name, mut := range map[string]func(*readinessInput, *missionpursuit.LiveFacts){
+		"all set":          nil,
+		"host not running": func(in *readinessInput, f *missionpursuit.LiveFacts) { in.HostAlive, f.HostOn = false, false },
+		"operator off": func(in *readinessInput, f *missionpursuit.LiveFacts) {
+			in.Host = coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: "turned off"}
+			f.HostOn = false
+		},
+		"judge is the lead's": func(in *readinessInput, f *missionpursuit.LiveFacts) { f.PinWhy = "the judge's model is the lead's" },
+	} {
+		for _, it := range buildReadiness(readyInput(mut)).Items {
+			if it.CoveredBy != "" {
+				t.Errorf("%s: %s is covered by %s", name, it.ID, it.CoveredBy)
+			}
+		}
+	}
+}
+
 // A begun pursuit reports its state, why it waits and who acts from the same functions as `pursuit status`.
 func TestReadinessOfABegunPursuitCarriesItsWaitingReason(t *testing.T) {
 	t.Parallel()
