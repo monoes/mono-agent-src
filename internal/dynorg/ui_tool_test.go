@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -273,5 +274,27 @@ func TestRebuildRegistryKeepsSystemProvenance(t *testing.T) {
 	}
 	if _, ok := s.Data.(map[string]any)["n"]; ok {
 		t.Error("an agent message updated a system surface on replay")
+	}
+}
+
+func TestRebuildRegistryFreesTheSlotOfAnAnsweredAgentCard(t *testing.T) {
+	var evs []chatevents.Event
+	add := func(typ chatevents.EventType, payload any) {
+		ev, err := chatevents.New("p", "c", "t", int64(len(evs)+1), time.Unix(0, 0), typ, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs = append(evs, ev)
+	}
+	for i := 0; i < a2ui.MaxSurfaces+3; i++ {
+		id := fmt.Sprintf("q-%d", i)
+		msg := fmt.Sprintf(`{"version":"1.0","createSurface":{"surfaceId":%q,"components":[{"id":"root","component":"Button","child":"l","action":{"event":{"name":"go"}}},{"id":"l","component":"Text","text":"Go"}]}}`, id)
+		add(chatevents.EventUISurface, chatevents.UISurfacePayload{SurfaceID: id, Provenance: "agent", Message: json.RawMessage(msg)})
+		add(chatevents.EventUIAction, chatevents.UIActionPayload{SurfaceID: id, Name: "go", SourceComponentID: "root", Outcome: "accepted"})
+	}
+	r := RebuildRegistry(evs)
+	last := fmt.Sprintf("q-%d", a2ui.MaxSurfaces+2)
+	if r.Registry.Surface(last) == nil {
+		t.Fatal("answered cards kept their slots: a later card was dropped")
 	}
 }

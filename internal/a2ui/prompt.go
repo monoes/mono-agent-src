@@ -35,7 +35,7 @@ func PromptSnippet() string {
 	b.WriteString("A Button's action is {\"event\":{\"name\":\"submit_form\", \"context\":{...}}}; name is a token of your choice, but never starts with hil., mission. or system. (reserved). ")
 	b.WriteString("context values may be literals or bindings, resolved when the user presses the button.\n")
 	l := DefaultLimits
-	fmt.Fprintf(&b, "Limits: %d messages per call, %d live surfaces, %d components per surface, %d children per container, %d levels of nesting, %d options per picker, %d bytes per string. Over any of them the call is rejected; show less, or answer in markdown.\n",
+	fmt.Fprintf(&b, "Limits: %d messages per call, %d surfaces with buttons awaiting a press, %d components per surface, %d children per container, %d levels of nesting, %d options per picker, %d bytes per string. Over any of them the call is rejected; show less, or answer in markdown.\n",
 		MaxMessagesPerCall, MaxSurfaces, l.MaxComponents, l.MaxChildren, l.MaxDepth, l.MaxOptions, l.MaxStringBytes)
 	b.WriteString("When the user presses a button, the result arrives as the next message to you, as JSON with the action name, the surface and the context. Do not wait for it inside the turn; say what you are waiting for and end your turn. ")
 	b.WriteString("A rejected ui_render tells you why: fix and resend, and after repeated failures answer in markdown instead.\n")

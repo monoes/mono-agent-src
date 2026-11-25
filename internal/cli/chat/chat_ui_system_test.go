@@ -357,6 +357,19 @@ func TestSyncHILWritesNothingBeforeTheConversationStarts(t *testing.T) {
 	}
 }
 
+// Decided cards must not use up the chat's slots, or approvals stop appearing after the first few.
+func TestSyncHILKeepsShowingNewApprovalsAfterManyDecidedOnes(t *testing.T) {
+	r := newSysRig(t)
+	startChat(t, r)
+	for i := 0; i < 2*a2ui.MaxSurfaces+1; i++ {
+		r.cli.outputs["hil list"] = fmt.Sprintf(`[{"id":"i%d","node_name":"n","readonly_data":{},"editable_data":{}}]`, i)
+		res := syncHIL(t, r)
+		if fmt.Sprint(res.Surfaced) != fmt.Sprintf("[hil-i%d]", i) || len(res.Skipped) != 0 {
+			t.Fatalf("approval %d: %+v", i, res)
+		}
+	}
+}
+
 func syncHIL(t *testing.T, r *sysRig) SyncHILResult {
 	t.Helper()
 	res, err := runSyncHIL(context.Background(), r.cfg, r.conv.ID)

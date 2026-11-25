@@ -195,10 +195,21 @@ type UIReplay struct {
 // RebuildRegistry replays a conversation's ui.surface events, in order, into a
 // fresh registry. An event that no longer validates is skipped, so its surface
 // is simply not live (an action for it is refused): replay fails closed per
-// surface, never open. Other event types are ignored.
+// surface, never open. An accepted ui.action on an agent's surface settles it.
+// Other event types are ignored.
 func RebuildRegistry(events []chatevents.Event) *UIReplay {
 	r := &UIReplay{Registry: a2ui.NewRegistry(a2ui.DefaultLimits), Authors: map[string]string{}, Closed: map[string]bool{}}
 	for _, ev := range events {
+		if ev.Type == chatevents.EventUIAction {
+			// An answered agent card frees its slot. A host card is settled by the notice that replaces it.
+			var a chatevents.UIActionPayload
+			if json.Unmarshal(ev.Payload, &a) == nil && a.Outcome == "accepted" {
+				if s := r.Registry.Surface(a.SurfaceID); s != nil && s.Prov == a2ui.FromAgent {
+					r.Registry.Settle(a.SurfaceID)
+				}
+			}
+			continue
+		}
 		if ev.Type != chatevents.EventUISurface {
 			continue
 		}

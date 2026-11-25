@@ -8,8 +8,14 @@ import (
 	"sync"
 )
 
-// MaxSurfaces caps the live surfaces one Registry holds.
+// MaxSurfaces caps the surfaces of one Registry that can still be acted on (see
+// open). Decided notices, answered questions and button-less panels do not count,
+// or a long conversation would stop showing cards.
 const MaxSurfaces = 8
+
+// MaxKeptSurfaces bounds all the surfaces one Registry holds; past it the oldest
+// one that cannot be acted on is forgotten.
+const MaxKeptSurfaces = 200
 
 // Surface is the server-side state of one live surface: the merged component
 // list and the data model. It exists to validate updates and to answer "did
@@ -20,6 +26,23 @@ type Surface struct {
 	SendDataModel bool
 	Components    map[string]map[string]any
 	Data          any
+	// Settled says the user already acted on the surface.
+	Settled bool
+	born    int // creation order, for eviction
+}
+
+// open says whether the surface can still be acted on: not settled, and either
+// holding a Button or not drawn yet.
+func (s *Surface) open() bool {
+	if s.Settled {
+		return false
+	}
+	for _, c := range s.Components {
+		if c["component"] == "Button" {
+			return true
+		}
+	}
+	return len(s.Components) == 0
 }
 
 // Registry tracks the live surfaces of one conversation.
@@ -27,6 +50,7 @@ type Registry struct {
 	mu   sync.Mutex
 	lim  Limits
 	surf map[string]*Surface
+	born int
 }
 
 // NewRegistry returns an empty registry with the given limits.
@@ -49,10 +73,8 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 		if s != nil {
 			return Message{}, fmt.Errorf("a2ui: surface %q already exists", m.SurfaceID)
 		}
-		if len(r.surf) >= MaxSurfaces {
-			return Message{}, fmt.Errorf("a2ui: more than %d live surfaces", MaxSurfaces)
-		}
-		s = &Surface{ID: m.SurfaceID, Prov: prov, SendDataModel: m.SendDataModel,
+		r.born++
+		s = &Surface{born: r.born, ID: m.SurfaceID, Prov: prov, SendDataModel: m.SendDataModel,
 			Components: map[string]map[string]any{}, Data: map[string]any{}}
 	case KindDeleteSurface:
 		if s == nil {
@@ -72,8 +94,47 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 	if err := s.apply(m, r.lim); err != nil {
 		return Message{}, err
 	}
+	if s.open() {
+		n := 0
+		for id, other := range r.surf {
+			if id != s.ID && other.open() {
+				n++
+			}
+		}
+		if n >= MaxSurfaces {
+			return Message{}, fmt.Errorf("a2ui: more than %d live surfaces; delete one first", MaxSurfaces)
+		}
+	}
+	if r.surf[s.ID] == nil && len(r.surf) >= MaxKeptSurfaces {
+		r.evictOldestClosed()
+	}
 	r.surf[s.ID] = s
 	return m, nil
+}
+
+// evictOldestClosed forgets the oldest surface that cannot be acted on. Open
+// surfaces are at most MaxSurfaces, so one always exists at the bound.
+func (r *Registry) evictOldestClosed() {
+	var oldest *Surface
+	for _, s := range r.surf {
+		if !s.open() && (oldest == nil || s.born < oldest.born) {
+			oldest = s
+		}
+	}
+	if oldest != nil {
+		delete(r.surf, oldest.ID)
+	}
+}
+
+// Settle marks a live surface as acted on, which frees its slot.
+func (r *Registry) Settle(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s := r.surf[id]; s != nil {
+		c := s.clone()
+		c.Settled = true
+		r.surf[id] = c
+	}
 }
 
 // Surface returns a copy of a live surface, or nil.
