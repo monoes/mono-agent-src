@@ -195,7 +195,7 @@ func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse
 		}
 		raw, err := b.do(ctx, http.MethodPost, "/chat/completions", enc)
 		var he *httpError
-		if errors.As(err, &he) && he.status == http.StatusBadRequest && b.learnRefusal(he.body) {
+		if errors.As(err, &he) && he.status == http.StatusBadRequest && b.learnRefusal(sent, he.body) {
 			continue
 		}
 		if err != nil {
@@ -245,11 +245,13 @@ func (b *Backend) adapt(body chatRequest) chatRequest {
 	return body
 }
 
-// learnRefusal reads a 400's body: one that names max_tokens (or
-// max_completion_tokens) or temperature, and not logprobs, switches that
-// parameter off for good and reports true, once per parameter. A body that
-// names logprobs or top_logprobs, or neither, is left to the caller.
-func (b *Backend) learnRefusal(body string) bool {
+// learnRefusal reads the body of a 400 to sent: one that names max_tokens
+// (or max_completion_tokens) or temperature, and not logprobs, switches that
+// parameter off for good and reports true when sent still carried it, so each
+// request in flight at the refusal is sent again and none for the same
+// parameter twice. A body that names logprobs or top_logprobs, or neither, is
+// left to the caller.
+func (b *Backend) learnRefusal(sent chatRequest, body string) bool {
 	s := strings.ToLower(body)
 	if strings.Contains(s, "logprobs") {
 		return false
@@ -257,9 +259,9 @@ func (b *Backend) learnRefusal(body string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	switch {
-	case !b.completionTokens && (strings.Contains(s, "max_tokens") || strings.Contains(s, "max_completion_tokens")):
+	case sent.MaxTokens > 0 && (strings.Contains(s, "max_tokens") || strings.Contains(s, "max_completion_tokens")):
 		b.completionTokens = true
-	case !b.noTemperature && strings.Contains(s, "temperature"):
+	case sent.Temperature != nil && strings.Contains(s, "temperature"):
 		b.noTemperature = true
 	default:
 		return false
