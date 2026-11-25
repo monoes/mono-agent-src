@@ -139,7 +139,7 @@ export function applyActionEvent(surfaces, payload) {
 
 // The CLI journals a press (`chat ui action`) and the cards it or `chat ui
 // sync-hil` writes as prompt-less finished turns of their own.
-export const isJournalTurn = turnId => /^(uiaction|uisurface)-/.test(String(turnId || ''))
+export const isJournalTurn = turnId => /^system-(uiaction|uisurface)-/.test(String(turnId || ''))
 
 // foldConversationSurfaces folds the surface log of every turn (oldest first,
 // [{key, state}]) into one picture, so a later turn can update, replace or

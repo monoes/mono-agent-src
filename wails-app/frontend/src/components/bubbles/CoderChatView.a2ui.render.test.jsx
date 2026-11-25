@@ -100,19 +100,19 @@ describe('CoderChatView A2UI wiring', () => {
 
   it('draws nothing for a press turn, and shows it on the agent card', () => {
     const q = { role: 'turn', turnId: 't1', state: turnState('t1', [['ui.surface', structuredQuestion[0]], done]) }
-    const ui = { role: 'turn', turnId: 'uiaction-ab', state: turnState('uiaction-ab', [['ui.action', { surfaceId: 'ask-17', name: 'answer', outcome: 'accepted' }], done]) }
+    const ui = { role: 'turn', turnId: 'system-uiaction-ab', state: turnState('system-uiaction-ab', [['ui.action', { surfaceId: 'ask-17', name: 'answer', outcome: 'accepted' }], done]) }
     const { container } = render(view(conv({ messages: [q, ui] })))
     expect(container.querySelectorAll('.chat-assistant-turn')).toHaveLength(1)
     expect(screen.getByTestId('a2ui-surface')).toHaveAttribute('data-status', 'resolved')
   })
 
   it('draws a synced card without a turn status, and replaces it in place when decided', () => {
-    const synced = { role: 'turn', turnId: 'uisurface-1', state: turnState('uisurface-1', [['ui.surface', hilApproval[0]], done]) }
+    const synced = { role: 'turn', turnId: 'system-uisurface-1', state: turnState('system-uisurface-1', [['ui.surface', hilApproval[0]], done]) }
     const { container, rerender } = render(view(conv({ messages: [synced] })))
     expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument()
     expect(container.textContent).not.toContain('Completed')
     const msg = m => ({ version: '1.0', ...m })
-    const notice = { role: 'turn', turnId: 'uisurface-2', state: turnState('uisurface-2', [
+    const notice = { role: 'turn', turnId: 'system-uisurface-2', state: turnState('system-uisurface-2', [
       ['ui.surface', { surfaceId: 'hil-482', provenance: 'system', message: msg({ deleteSurface: { surfaceId: 'hil-482' } }) }],
       ['ui.surface', { surfaceId: 'hil-482', provenance: 'system', message: msg({ createSurface: { surfaceId: 'hil-482', components: [{ id: 'root', component: 'Badge', text: 'No longer pending', tone: 'neutral' }] } }) }],
       done]) }

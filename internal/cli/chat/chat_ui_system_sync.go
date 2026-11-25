@@ -39,7 +39,7 @@ func newChatUISyncHILCmd(cfg *Deps) *cobra.Command {
 			"system surface into the conversation for each one it has not surfaced yet (surface id hil-<id> or send-<id>), and " +
 			"a notice in place of each surface whose item is no longer pending. Running it again surfaces nothing new. " +
 			"Prints {\"surfaced\":[surface ids],\"resolved\":[surface ids]} (plus \"skipped\" when an item could not be shown) " +
-			"and exits 0.",
+			"and exits 0. A conversation with no turn of its own yet gets no surface.",
 		Example: `  monoagentcli chat ui sync-hil c1 --profile work`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -66,6 +66,15 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 	}
 	if _, err := store.GetConversation(conversationID, profileID); err != nil {
 		return nil, chatStoreErr(err)
+	}
+	// A card written here is a turn of its own, and any turn locks the chat's mode and marks the conversation as
+	// started. So a conversation with no work turn yet gets none; a later sync shows its cards.
+	started, err := store.HasWorkTurn(profileID, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if !started {
+		return &SyncHILResult{Surfaced: []string{}, Resolved: []string{}}, nil
 	}
 	evs, err := store.UIEvents(profileID, conversationID)
 	if err != nil {

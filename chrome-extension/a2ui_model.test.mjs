@@ -118,9 +118,9 @@ test("an event journaled before what the surface already shows does not take it 
   const st = M.newStore();
   const at = (turn, s, message) => ({ seq: 1, turn, at: `2026-11-25T20:00:0${s}.000Z`, type: "ui.surface", payload: { surfaceId: "s", message } });
   M.apply(st, at("live", 5, create({ dataModel: { n: 5 } })));
-  assert.equal(M.apply(st, at("uisurface-old", 1, create({ dataModel: { n: 1 } }))), null);
+  assert.equal(M.apply(st, at("system-uisurface-old", 1, create({ dataModel: { n: 1 } }))), null);
   assert.equal(st.surfaces.get("s").dataModel.n, 5);
-  assert.ok(M.apply(st, at("uisurface-new", 7, data("/n", 7))));
+  assert.ok(M.apply(st, at("system-uisurface-new", 7, data("/n", 7))));
 });
 
 test("a full store makes room from deleted or settled surfaces, never from one with a button", () => {

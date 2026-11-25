@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/a2ui/surfaces"
+	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/hilsend"
@@ -316,6 +317,46 @@ func TestMissionClose(t *testing.T) {
 	}
 }
 
+// startChat gives the conversation a finished work turn; sync-hil writes nothing before one.
+func startChat(t *testing.T, r *sysRig) {
+	t.Helper()
+	if _, _, err := r.store.CreateTurn(r.conv.ID, "default", "work-1", "i", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.store.FinalizeTurn("default", r.conv.ID, "work-1", chatevents.StatusCompleted, "", nil, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncHILWritesNothingBeforeTheConversationStarts(t *testing.T) {
+	r := newSysRig(t)
+	r.cli.outputs["hil list"] = hilListJSON
+	if res := syncHIL(t, r); len(res.Surfaced) != 0 {
+		t.Fatalf("surfaced into an unstarted chat: %+v", res)
+	}
+	// No turn at all: any turn locks the chat's mode (migration 163) and counts as the chat having started.
+	if turns, _, err := r.store.ListTurns(r.conv.ID, "default", "", 10); err != nil || len(turns) != 0 {
+		t.Fatalf("turns = %+v err=%v", turns, err)
+	}
+	startChat(t, r)
+	if res := syncHIL(t, r); len(res.Surfaced) != 1 {
+		t.Fatalf("the card must appear once the chat has started: %+v", res)
+	}
+	turns, _, err := r.store.ListTurns(r.conv.ID, "default", "", 10)
+	if err != nil || len(turns) != 2 {
+		t.Fatalf("turns = %+v err=%v", turns, err)
+	}
+	for _, turn := range turns {
+		if turn.ID == "work-1" {
+			continue
+		}
+		// Readers of the newest or first work turn skip system turns; the card turn must be one.
+		if !turn.IsSystem() || !strings.HasPrefix(turn.ID, ai.UISurfaceTurnPrefix) {
+			t.Fatalf("card turn %q is not a system turn", turn.ID)
+		}
+	}
+}
+
 func syncHIL(t *testing.T, r *sysRig) SyncHILResult {
 	t.Helper()
 	res, err := runSyncHIL(context.Background(), r.cfg, r.conv.ID)
@@ -327,6 +368,7 @@ func syncHIL(t *testing.T, r *sysRig) SyncHILResult {
 
 func TestSyncHILIsIdempotentAndResolvesWhatIsNoLongerPending(t *testing.T) {
 	r := newSysRig(t)
+	startChat(t, r)
 	send := `{"id":"s1","kind":"send","node_name":"x","send":{"kind":"send","id":"s1","state":"pending","action":"dm","channel":"instagram","recipient":{"name":"Ada"},"text":"Hi"}}`
 	r.cli.outputs["hil list"] = `[` + hilListJSON[1:len(hilListJSON)-1] + `,` + send + `]`
 	first := syncHIL(t, r)
@@ -359,6 +401,7 @@ func TestSyncHILIsIdempotentAndResolvesWhatIsNoLongerPending(t *testing.T) {
 
 func TestSyncHILStaysWithinTheSurfaceCapAndSaysWhatItSkipped(t *testing.T) {
 	r := newSysRig(t)
+	startChat(t, r)
 	var items []string
 	for i := 0; i < 10; i++ {
 		items = append(items, fmt.Sprintf(`{"id":"i%d","node_name":"n","readonly_data":{},"editable_data":{}}`, i))
@@ -375,6 +418,7 @@ func TestSyncHILStaysWithinTheSurfaceCapAndSaysWhatItSkipped(t *testing.T) {
 
 func TestSyncHILNeedsAConversationAndTheCLI(t *testing.T) {
 	r := newSysRig(t)
+	startChat(t, r)
 	if _, err := runSyncHIL(context.Background(), r.cfg, "nope"); err == nil {
 		t.Fatal("unknown conversation")
 	}

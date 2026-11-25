@@ -36,7 +36,7 @@ func (s *AIStore) RecordUISurfaces(profileID, conversationID string, ps []chatev
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return nil, fmt.Errorf("chat: ui surface turn id: %w", err)
 	}
-	turnID := "uisurface-" + hex.EncodeToString(rnd[:])
+	turnID := UISurfaceTurnPrefix + hex.EncodeToString(rnd[:])
 	var out []chatevents.Event
 	err := dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
 		tx := dbconn.ConnTx{Ctx: context.Background(), Conn: conn}

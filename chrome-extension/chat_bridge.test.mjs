@@ -461,9 +461,9 @@ test("chat_ui_sync maps to chat.ui_sync", async () => {
 });
 
 test("chat_ui_journal asks for unseen turns and keeps each event's turn and time", async () => {
-  const t = setup({ reply: async () => ({ turns: [{ turn: "uisurface-a", events: [{ seq: 1, type: "ui.surface", at: "2026-01-01T00:00:00Z", payload: { surfaceId: "s" } }] }], more: false }) });
-  const r = await t.send({ type: "chat_ui_journal", profile: "p-work", conversationId: "c-1", seen: ["uiaction-b", 5] });
+  const t = setup({ reply: async () => ({ turns: [{ turn: "system-uisurface-a", events: [{ seq: 1, type: "ui.surface", at: "2026-01-01T00:00:00Z", payload: { surfaceId: "s" } }] }], more: false }) });
+  const r = await t.send({ type: "chat_ui_journal", profile: "p-work", conversationId: "c-1", seen: ["system-uiaction-b", 5] });
   assert.deepEqual(t.calls[0].method, "chat.ui_journal");
-  assert.deepEqual(t.calls[0].params, { conversation: "c-1", seen: ["uiaction-b"], profile: "p-work" });
-  assert.deepEqual([r.ok, r.turns[0].events[0].turn, r.turns[0].events[0].at], [true, "uisurface-a", "2026-01-01T00:00:00Z"]);
+  assert.deepEqual(t.calls[0].params, { conversation: "c-1", seen: ["system-uiaction-b"], profile: "p-work" });
+  assert.deepEqual([r.ok, r.turns[0].events[0].turn, r.turns[0].events[0].at], [true, "system-uisurface-a", "2026-01-01T00:00:00Z"]);
 });

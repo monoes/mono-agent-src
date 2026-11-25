@@ -12,6 +12,15 @@ import (
 	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
+// UIActionTurnPrefix and UISurfaceTurnPrefix start the ids of the turns that
+// only carry cards (a button press, surfaces written outside a running turn).
+// Both are system turns: promptless, and skipped by readers of the
+// conversation's newest or first work turn.
+const (
+	UIActionTurnPrefix  = systemTurnPrefix + "uiaction-"
+	UISurfaceTurnPrefix = systemTurnPrefix + "uisurface-"
+)
+
 // UIEvents returns every ui.surface and ui.action event of a conversation,
 // oldest first across its turns, for rebuilding the live surfaces
 // (dynorg.RebuildRegistry).
@@ -55,7 +64,7 @@ func (s *AIStore) RecordUIAction(profileID, conversationID string, p chatevents.
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return chatevents.Event{}, fmt.Errorf("chat: ui action turn id: %w", err)
 	}
-	turnID := "uiaction-" + hex.EncodeToString(rnd[:])
+	turnID := UIActionTurnPrefix + hex.EncodeToString(rnd[:])
 	var ev chatevents.Event
 	err := dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
 		tx := dbconn.ConnTx{Ctx: context.Background(), Conn: conn}
