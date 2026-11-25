@@ -57,6 +57,7 @@ type fake struct {
 // its handler (to set headers or redirect).
 func newFake(t *testing.T, reply func(n int, r seen) (int, any), wrap ...func(*fake, http.Handler) http.Handler) *fake {
 	t.Helper()
+	forgetQuirks() // the new server may get an earlier one's port
 	f := &fake{reply: reply}
 	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)

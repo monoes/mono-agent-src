@@ -2421,6 +2421,16 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   it only prints the settings. `TestEveryCoderSetFlagIsTheOperators` fails
   for a new flag until it is classified. `coder disable` is anyone's: it
   only turns coder mode off.
+- `coder set --startup-timeout 3m` is how long claude may take to initialize
+  (its SessionStart hooks and MCP servers) in a coder turn, the lead's and
+  its workers' (default 2m; `0` = the default again). The environment
+  variable `MONOAGENT_STARTUP_TIMEOUT` overrides it, and applies to every
+  other claude turn too. Both take a duration with its unit (`3m`, `180s`;
+  at least 1s for the flag), and more than 1h is cut to 1h; an unreadable
+  variable is ignored with a warning. `coder status --json` shows
+  `startupTimeout` (the stored value), `startupTimeoutEffective` and
+  `startupTimeoutSource` (`default`, `set` or `env`). A monomind too old for
+  the flag ignores it.
 - **Access levels.** A conversation has an `access` level, and the turn is
   chosen by it, not by the mode: `scoped` is the sandboxed assistant
   (mono-agent's own tools, canvas, page read), `coding`, `workspace` and
@@ -3465,7 +3475,8 @@ monoagentcli --profile work coder host pursuit status --json     # the pursuit l
      <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).
 - **Good to know:** the host and the turns it starts keep the environment of the terminal that started the host.
   `host stop` leaves turns running: `sessions stop <conv>` first if you want them ended. Queued sends only
-  expire while a host runs. `send` prints `hostStarted: true` unless you pass `--no-host`.
+  expire while a host runs. `send` and `questions answer` print `hostStarted: true` only when that call started a
+  host (a host that was already running gives `false`).
 - **Files:** `<db dir>/coder-host/` holds `host.lock`, `host.json`, `host.log` and `turns/<turn>.log`; the
   logs hold turn output and are never pruned.
 - **Not run by agents:** like `wails dev` and the real coder run, starting the host is the user's own act from
@@ -4536,9 +4547,11 @@ resolver prefix `jev:`.
   `gpt-6-luna`) and `gemini-decisions` (Google's, `POST /v1beta/decisions`,
   model `gemini-decision-1`): the vendor's own calibrated probabilities
   (`native`), `choice`, `noul` and `score`, every question of a request in
-  one call; `base_url` is the host and may be left at the vendor's, a key is
-  required. Gemini wants question keys of `[A-Za-z0-9_-]` and at most 64
-  characters, so the adapter sends cleaned keys and maps the answers back.
+  one call; `base_url` is the host (a trailing `/v1` or `/v1beta` is not
+  doubled) and `jev provider add` fills the vendor's when `--base-url` is
+  left out; a key is required, on this computer too. Gemini wants question
+  keys of `[A-Za-z0-9_-]` and at most 64 characters, so the adapter sends
+  cleaned keys and maps the answers back.
   With no provider configured every surface uses TypeSafe and behaves as before.
 - **Requests in flight and retries.** A request's questions go out at most 8
   at a time, and a sampled question's 5 samples together (Anthropic: one,
@@ -4549,7 +4562,9 @@ resolver prefix `jev:`.
   `max_tokens` or `temperature` is sent again with `max_completion_tokens`
   (16, then 256 once a model spent all 16 reasoning) and no `temperature`,
   and a 400 on log-probabilities is asked once more with 5 alternatives
-  before the adapter samples. A model whose one token is no option label,
+  before the adapter samples. What a server refused for a model (those two
+  parameters, more than 5 alternatives) is remembered by the process for an
+  hour, for every client of it. A model whose one token is no option label,
   with almost no mass on any, fails with "the model did not answer with a
   single option label; a reasoning/thinking model needs a larger budget or a
   non-thinking variant". The client's retry budget holds

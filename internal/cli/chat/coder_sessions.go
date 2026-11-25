@@ -152,26 +152,30 @@ func ensureDynamicOrgForMission(cfg *Deps, id string) (bool, error) {
 
 // enqueue queues one command for the host, starting the host first when asked.
 func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command, error) {
+	out, _, err := enqueueStarting(cfg, c, startHost)
+	return out, err
+}
+
+// enqueueStarting is enqueue that also says whether it started a host.
+func enqueueStarting(cfg *Deps, c coderhost.Command, startHost bool) (out coderhost.Command, hostStarted bool, err error) {
 	if startHost && c.Kind == coderhost.KindSend { // stop, pause and resume are not turn dispatches: they must reach a stale host that runs the turn
 		if err := ensureCurrentHost(cfg); err != nil {
-			return c, err
+			return c, false, err
 		}
 	}
 	db, err := cfg.OpenDB()
 	if err != nil {
-		return c, err
+		return c, false, err
 	}
 	defer db.Close()
-	out, err := coderhost.NewStore(db.DB).Enqueue(c)
+	out, err = coderhost.NewStore(db.DB).Enqueue(c)
 	if err != nil {
-		return c, clicore.InvalidInput("%v", err)
+		return c, false, clicore.InvalidInput("%v", err)
 	}
 	if startHost && c.Kind == coderhost.KindSend { // a stop, pause or resume reaches a host that runs; it never starts one
-		if err := ensureHost(cfg); err != nil {
-			return out, err
-		}
+		hostStarted, err = ensureHostStarted(cfg)
 	}
-	return out, nil
+	return out, hostStarted, err
 }
 
 func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
@@ -224,7 +228,7 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 					return fmt.Errorf("the mission state of this chat could not be read: %w", err)
 				}
 			}
-			c, qerr := enqueue(cfg, coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts, WantsMission: mission}, !noHost)
+			c, hostStarted, qerr := enqueueStarting(cfg, coderhost.Command{ProfileID: profileID, ConversationID: args[0], Kind: coderhost.KindSend, TurnID: turn, Message: args[1], Attachments: atts, WantsMission: mission}, !noHost)
 			if mission && c.ID > 0 { // queued, even if starting the host failed afterwards
 				if err := confirmMission(cfg, c, session); err != nil {
 					failQueuedMission(cfg, c.ID, "mission confirmation could not be recorded: send again")
@@ -237,7 +241,7 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 				}
 				return qerr
 			}
-			out := map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "turnId": c.TurnID, "hostStarted": !noHost}
+			out := map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "turnId": c.TurnID, "hostStarted": hostStarted}
 			if orgSwitched {
 				out["dynamicOrgSwitchedOn"] = true
 				out["notice"] = dynamicOrgNotice

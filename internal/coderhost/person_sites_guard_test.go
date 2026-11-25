@@ -40,7 +40,7 @@ var personIdents = map[string]bool{"answerFromPerson": true, "askFromPerson": tr
 var knownPersonSites = map[string]int{
 	// outside coderhost: queueing
 	"internal/cli/chat/coder_boss_guard.go:enqueueBounded:EnqueueSendBounded": 1, // a person's chat send (t- turn id, no issuer; reserved prefixes refused by enqueueOn)
-	"internal/cli/chat/coder_sessions.go:enqueue:Enqueue":                     1, // the coder send/steer/stop/pause CLI verbs: the person's plain send, same refusal
+	"internal/cli/chat/coder_sessions.go:enqueueStarting:Enqueue":             1, // the coder send/steer/stop/pause CLI verbs: the person's plain send, same refusal
 	// outside coderhost: person helpers, all behind personGate and a ProvePerson of its actor
 	"internal/cli/task/session_person.go:newPersonAskCmd:ProvePerson":                      1, // person ask <plan>: personGate -> ProvePerson -> TellLeadAboutPlan
 	"internal/cli/task/session_person.go:newPersonAskCmd:TellLeadAboutPlan":                1,
@@ -210,7 +210,7 @@ func TestEveryPersonQueueingSiteIsKnown(t *testing.T) {
 	if visited < 500 {
 		t.Fatalf("the guard parsed only %d files of internal/ and cmd/: it would pass on nothing", visited)
 	}
-	for _, k := range []string{"internal/cli/chat/coder_sessions.go:enqueue:Enqueue", "internal/cli/task/session_person_ask.go:newPersonAnswerAskCmd:AnswerAncestorQuestion"} {
+	for _, k := range []string{"internal/cli/chat/coder_sessions.go:enqueueStarting:Enqueue", "internal/cli/task/session_person_ask.go:newPersonAnswerAskCmd:AnswerAncestorQuestion"} {
 		if got[k] == 0 {
 			t.Fatalf("the guard does not see %s: it is not looking where it should", k)
 		}

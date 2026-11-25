@@ -137,6 +137,7 @@ func newChatHistoryCmd(cfg *Deps) *cobra.Command {
 		newChatHistorySetOrgCmd(cfg),
 		newChatHistoryRenameCmd(cfg),
 		newChatHistorySetAccessCmd(cfg),
+		newChatHistorySpendCapCmd(cfg),
 	)
 	return cmd
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, CheckCheck, X, HelpCircle, ShieldQuestion, Flag, Loader, Send, Pencil, FileText, Link2, ExternalLink, User, Workflow } from 'lucide-react'
 import { ChatMarkdown } from '../chat/ChatMarkdown.jsx'
+import { ApprovalCommand } from '../ApprovalCommand.jsx'
 import { formatBytes, safeImageSrc, safeUrl } from '../../lib/askModel.js'
 import * as hil from '../../services/hilApi.js'
 import { askHilRef } from '../../lib/commsStatus.js'
@@ -89,6 +90,7 @@ function DecisionBody({ ask, nameOf, canAct, busy, outcome, onDecide }) {
   return (
     <Frame ask={ask} pending={pending} icon={isGate ? Flag : ShieldQuestion} title={title}>
       {ask.text && <div style={{ marginTop: 4 }}><ChatMarkdown content={ask.text} /></div>}
+      <ApprovalCommand command={ask.command} truncated={ask.command_truncated} cwd={ask.cwd} />
       {pending ? (
         <div className="ask-actions">
           {isGate && (

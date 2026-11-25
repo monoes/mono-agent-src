@@ -42,6 +42,8 @@ type readinessItem struct {
 	Status string `json:"status"` // ok | missing
 	Detail string `json:"detail"`
 	Fix    string `json:"fix,omitempty"` // the exact command or setting, only when missing
+	// CoveredBy names another missing item with the same cause and fix, so a list of what is missing shows one line.
+	CoveredBy string `json:"covered_by,omitempty"`
 }
 
 // readinessPursuit is the pursuit block: only the host-written facts the existing status already reports.
@@ -106,6 +108,10 @@ func buildReadiness(in readinessInput) readinessDoc {
 		pinMiss = c.Facts.PinWhy
 	}
 	add(ItemJudgePin, pinMissing, pinText, pinMiss, pinFix)
+	// A host idle only for want of a judge model: both items say it, with one fix.
+	if host, judge := &doc.Items[len(doc.Items)-2], doc.Items[len(doc.Items)-1]; host.Fix == judgeSetFix && judge.Fix == judgeSetFix {
+		host.CoveredBy = judge.ID
+	}
 	g := in.View.Goal
 	goalMiss := "this mission has no goal yet"
 	if in.View.GoalFound {
@@ -226,7 +232,8 @@ criterion, the goal checker (only when the goal has command checks), the mission
 consent. The blockers are the ones "pursuit preview" and "pursuit begin" refuse for, from the same function. Once the pursuit has begun
 the document also carries its state, why it waits and who has to act, as "pursuit status" does.
 
---json gives {schema_version, profile, session_id, ready, blockers[], items[{id, status, detail, fix?}], pursuit{started, state?, waiting?, why?, needs?, next?}}.
+--json gives {schema_version, profile, session_id, ready, blockers[], items[{id, status, detail, fix?, covered_by?}], pursuit{started, state?, waiting?, why?, needs?, next?}}.
+covered_by names another missing item with the same cause and fix (a host idle only for want of a judge model).
 "ready" is true when every item but consent is ok. Keys are added, never renamed or removed, within one schema_version.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
