@@ -3802,6 +3802,10 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   or gate
   (exit 3 with the operator refusal otherwise; deny stays open), and
   the chat's Bash allowlist leaves out `monomind org approve|gate-approve|answer`.
+  `org approve|deny <org> <role> <action> --request <id>` resolves that one request and
+  is refused when it is no longer pending or monomind lacks `org-decision-attribution`
+  (a request id is never dropped). Without `--request` every pending request of the role
+  and action is resolved, also one queued after you looked; the app always passes the id.
   A called workflow is found with the engine's own lookup
   (`workflow.ResolveSubWorkflow`: by id, else the one workflow of the
   profile with that exact name, files first); anything else counts as
