@@ -2330,7 +2330,10 @@
     "previewFailed": "Preview unavailable",
     "previewLoading": "Loading preview…",
     "open": "Open",
-    "openNamed": "Open {{name}}"
+    "openNamed": "Open {{name}}",
+    "commandLabel": "Command to run",
+    "commandFolder": "Role folder: {{path}}",
+    "commandCut": "Only the start of this command is known: the engine keeps its first 200 characters."
   },
   "comms": {
     "status": {
