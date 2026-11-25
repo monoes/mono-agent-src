@@ -293,7 +293,9 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 			db.Close()
 			return nil, err
 		}
-		cfg.ProfileID = resolved
+		if resolved != cfg.ProfileID { // written only when it changes: commands of one process may open the database concurrently
+			cfg.ProfileID = resolved
+		}
 	}
 	return db, nil
 }
