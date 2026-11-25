@@ -171,7 +171,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	}
 	base := monomind.ExecOptions{
 		Bin: opts.Bin, Settings: monomind.CoderSettings, MaxTurns: settings.MaxTurns, Timeout: settings.timeout(),
-		EffortFlag: opts.EffortFlag, Env: agentSendEnv(journal, "", ""),
+		StartupTimeout: opts.StartupTimeout, EffortFlag: opts.EffortFlag, Env: agentSendEnv(journal, "", ""),
 	}
 	// Every stored worker id must be known before the first worker is made: a new worker that took the id of a stored
 	// one would be saved over it. A conversation whose ids cannot be read gets no conductor this turn.

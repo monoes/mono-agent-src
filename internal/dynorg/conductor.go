@@ -26,7 +26,7 @@ type Config struct {
 	Cwd        string
 	Limits     Limits
 	Staffer    *Staffer
-	Base       monomind.ExecOptions // Bin, Settings, MaxTurns, Timeout, EffortFlag for every worker
+	Base       monomind.ExecOptions // Bin, Settings, MaxTurns, Timeout, StartupTimeout, EffortFlag for every worker
 	ReadAccess bool                 // monomind has --access read (agent-exec-access-read)
 	Exec       ExecFunc
 	Emit       Emitter

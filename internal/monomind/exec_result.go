@@ -144,7 +144,7 @@ func ApplyEventToResult(res *TurnResult, ev Event) {
 		if ev.Fatal {
 			msg := ev.ErrMessage
 			if strings.Contains(msg, "did not initialize") {
-				msg += " — set " + StartupTimeoutEnv + " (e.g. 180s) to give claude longer to start"
+				msg += " — set " + StartupTimeoutEnv + " (e.g. 180s), or for coder turns `coder set --startup-timeout 180s`, to give claude longer to start"
 			}
 			res.Err = &ProtocolError{Code: ev.Code, Message: msg, Fatal: ev.Fatal}
 		} else {

@@ -168,23 +168,25 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 	if err != nil {
 		return err
 	}
+	startupTimeout, _ := settings.resolveStartupTimeout()
 	opts := monomind.ExecOptions{
-		Bin:          bin,
-		Runtime:      rt.ID,
-		Prompt:       t.prompt + attachmentPrompt(t.attachments),
-		Model:        t.model,
-		Effort:       t.effort,
-		EffortFlag:   st.caps.Has(monomind.CapAgentExecEffort),
-		Resume:       t.resume,
-		Cwd:          t.cwd,
-		Access:       monomind.AccessFull,
-		Settings:     monomind.CoderSettings,
-		MaxTurns:     settings.MaxTurns,
-		Timeout:      settings.timeout(),
-		BudgetUSD:    budget,
-		SystemPrompt: systemPrompt,
-		Env:          agentSendEnv(journal, "lead", ""),
-		Attach:       nativeAttachments(st.caps, t.attachments),
+		Bin:            bin,
+		Runtime:        rt.ID,
+		Prompt:         t.prompt + attachmentPrompt(t.attachments),
+		Model:          t.model,
+		Effort:         t.effort,
+		EffortFlag:     st.caps.Has(monomind.CapAgentExecEffort),
+		Resume:         t.resume,
+		Cwd:            t.cwd,
+		Access:         monomind.AccessFull,
+		Settings:       monomind.CoderSettings,
+		MaxTurns:       settings.MaxTurns,
+		Timeout:        settings.timeout(),
+		StartupTimeout: startupTimeout,
+		BudgetUSD:      budget,
+		SystemPrompt:   systemPrompt,
+		Env:            agentSendEnv(journal, "lead", ""),
+		Attach:         nativeAttachments(st.caps, t.attachments),
 	}
 	// The coder kind of browser permissions, vouched for by a token that
 	// counts while this turn runs (its workers get their own, dynorg).
