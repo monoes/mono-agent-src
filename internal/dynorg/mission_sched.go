@@ -173,6 +173,8 @@ type missionState struct {
 	overNoted   map[int64]bool // over-committed sessions the operator notice went out for
 	childNoted  map[int64]bool // sessions the "no child sessions for this lead" notice went out for
 	settling    map[int64]bool // tasks whose ended child session is being taken back
+	// leadSession: the mission the lead's turn runs for (mission_lead_spend.go), 0 while none ran
+	leadSession int64
 }
 
 func (m *missionState) init() {

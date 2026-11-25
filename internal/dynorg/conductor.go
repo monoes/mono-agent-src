@@ -253,6 +253,7 @@ func New(ctx context.Context, cfg Config) *Conductor {
 		ownerID: newOwnerID(),
 	}
 	c.initWriters()
+	c.noteLeadMission(cctx)
 	return c
 }
 

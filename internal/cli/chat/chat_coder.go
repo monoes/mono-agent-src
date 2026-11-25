@@ -230,7 +230,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		}
 	}
 	var closeOrg func()
-	var settleLead func(*monomind.TurnResult)
+	var settleLead func(res *monomind.TurnResult, last bool)
 	if journal != nil && t.orgMode == ai.OrgModeDynamic {
 		var leadEvent func(monomind.Event)
 		closeOrg, leadEvent, settleLead = startDynamicOrg(ctx, cfg, journal, settings, st, rt, t, &opts)
@@ -254,6 +254,11 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		}
 	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
+	if settleLead != nil {
+		// The lead's own turn counts against the mission's budget, as a worker's run does: charged at once, so
+		// that nothing that follows (closing the workers, a long compaction, a crash) can lose it.
+		settleLead(res, false)
+	}
 	if closeOrg != nil {
 		// The lead is done: workers still running are stopped and their
 		// ends journaled before the turn finishes.
@@ -263,9 +268,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		compactContext(ctx, journal, opts, res, err)
 	}
 	if settleLead != nil {
-		// The lead's own turn counts against the mission's budget, as a worker's run does; after the
-		// compaction, whose cost is part of this turn's.
-		settleLead(res)
+		settleLead(res, true) // what the compaction added: its cost is part of this turn's
 	}
 	if journal != nil {
 		if err != nil && res == nil {
