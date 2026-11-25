@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderspend"
@@ -20,18 +21,42 @@ import (
 // turn runs one chat turn and returns what the mission's meter and the conversation's spend say after it.
 func leadSpendMission(t *testing.T, costs string) (turn func(id string) (meter, conversation float64)) {
 	t.Helper()
+	return newLeadSpendRig(t, costs, true).turn
+}
+
+// leadSpendRig is that conversation, its mission's session, and a gate: an exec whose costs line says "hold" as
+// its third word waits before its result until release (atGate waits for it to get there).
+type leadSpendRig struct {
+	turn    func(id string) (meter, conversation float64)
+	meter   func() (float64, tasks.SessionState)
+	atGate  func()
+	release func()
+	store   *tasks.Store
+	session int64
+}
+
+// newLeadSpendRig builds the rig; without approve the mission stays a draft.
+func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
+	t.Helper()
 	t.Setenv("TYPESAFE_API_KEY", "")
 	dbPath := newChatCLITestDB(t)
 	queue := filepath.Join(t.TempDir(), "costs")
 	if err := os.WriteFile(queue, []byte(costs), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	gate := filepath.Join(t.TempDir(), "gate")
 	bin, _ := writeCoderMonomind(t, `  set -- $(head -n 1 '`+queue+`')
   tail -n +2 '`+queue+`' > '`+queue+`.next'; mv '`+queue+`.next' '`+queue+`'
   warn=""
   if [ "$2" = warn ]; then warn=',"peak_context_tokens":250000,"context_warning":true'; fi
   echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":1,"access":"full"}'
   echo '{"v":1,"type":"session","session_id":"th_lead"}'
+  if [ "$3" = hold ]; then
+    : > '`+gate+`.reached'
+    i=0
+    while [ ! -f '`+gate+`.release' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done
+    rm -f '`+gate+`.release'
+  fi
   echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok","cost_usd":'"$1$warn"'}'
   echo '{"v":1,"type":"done","exit_code":0}'`)
 	withCoderCaps(t, append(monomind.CoderCapabilities, monomind.CapAgentExecFullAccessTools, monomind.CapAgentExecAccessRead)...)
@@ -57,24 +82,47 @@ func leadSpendMission(t *testing.T, costs string) (turn func(id string) (meter, 
 	if _, err := store.AddSessionTask(ctx, "default", se.ID, tasks.SessionTaskInput{Title: "T", Notes: "do it", Acceptance: "done", SuggestedExecutor: "lead"}, human); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ApproveSession(ctx, "default", se.ID, human); err != nil {
-		t.Fatal(err)
-	}
-	return func(id string) (float64, float64) {
-		t.Helper()
-		if out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", id, "--", "work"); err != nil {
-			t.Fatalf("turn %s: %v\n%s", id, err, out)
+	if approve {
+		if _, err := store.ApproveSession(ctx, "default", se.ID, human); err != nil {
+			t.Fatal(err)
 		}
+	}
+	rig := leadSpendRig{store: store, session: se.ID}
+	rig.meter = func() (float64, tasks.SessionState) {
+		t.Helper()
 		got, err := store.GetSession(ctx, "default", se.ID, human)
 		if err != nil {
 			t.Fatal(err)
+		}
+		return got.SpentUSD, got.State
+	}
+	rig.turn = func(id string) (float64, float64) {
+		t.Helper()
+		if out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", id, "--", "work"); err != nil {
+			t.Fatalf("turn %s: %v\n%s", id, err, out)
 		}
 		spent, err := coderspend.Spent(db.DB, "default", conv.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return got.SpentUSD, spent
+		meter, _ := rig.meter()
+		return meter, spent
 	}
+	rig.atGate = func() {
+		t.Helper()
+		for deadline := time.Now().Add(20 * time.Second); os.Remove(gate+".reached") != nil; time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the lead's exec never reached its gate")
+			}
+		}
+	}
+	rig.release = func() {
+		t.Helper()
+		if err := os.WriteFile(gate+".release", nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return rig
 }
 
 func wantSpend(t *testing.T, after string, meter, conversation, want float64) {

@@ -2343,7 +2343,9 @@
     "openNamed": "Open {{name}}",
     "commandLabel": "Command to run",
     "commandFolder": "Role folder: {{path}}",
-    "commandCut": "Only the start of this command is known: the engine keeps its first 200 characters."
+    "commandCut": "Only the start of this command is known: the engine keeps its first 200 characters.",
+    "commandRedacted": "monomind hid part of this command ([REDACTED]). The hidden text may include further commands.",
+    "commandMore": "There is more below: scroll the box to read the whole command."
   },
   "comms": {
     "status": {

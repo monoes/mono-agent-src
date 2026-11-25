@@ -204,16 +204,16 @@ type usagePayload struct {
 	CostUSD *float64 `json:"costUsd"`
 }
 
-// Sync records what task id's conversation has spent, per agent, from the
-// cost its turns journaled. A usage.updated snapshot is the agent's running
-// total within its turn, so the turn's figure is the largest it reported,
-// and the agent's spend is the sum over its turns. A worker counts as part of
-// the task however it was spawned. Missing cost is not zero: an agent that
-// never reported one has no row.
-func (l *Ledger) Sync(ctx context.Context, taskID, conversationID string) error {
+// spending is what task id's conversation has spent, per agent, from the
+// cost its turns journaled: what Sync records. A usage.updated snapshot is the
+// agent's running total within its turn, so the turn's figure is the largest
+// it reported, and the agent's spend is the sum over its turns. A worker counts
+// as part of the task however it was spawned. Missing cost is not zero: an
+// agent that never reported one has no entry. It writes nothing.
+func (l *Ledger) spending(ctx context.Context, taskID, conversationID string) (map[string]float64, error) {
 	rows, err := l.DB.QueryContext(ctx, `SELECT turn_id, payload FROM ai_chat_events WHERE conversation_id = ? AND type = 'usage.updated'`, conversationID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	perTurn := map[[2]string]float64{}
 	for rows.Next() {
@@ -246,6 +246,44 @@ func (l *Ledger) Sync(ctx context.Context, taskID, conversationID string) error 
 	var first string
 	if l.DB.QueryRowContext(ctx, `SELECT task_id FROM ai_budget_reservations WHERE conversation_id = ? ORDER BY created_at, rowid LIMIT 1`, conversationID).Scan(&first) == nil && first != taskID {
 		perAgent = map[string]float64{"": 0}
+	}
+	return perAgent, nil
+}
+
+// spent is the task's spend as Sync would leave it: the recorded rows, with
+// what the journal says now in place of theirs. It writes nothing.
+func (l *Ledger) spent(ctx context.Context, taskID, conversationID string) (float64, error) {
+	perAgent, err := l.spending(ctx, taskID, conversationID)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := l.DB.QueryContext(ctx, `SELECT agent_id, spent_usd FROM ai_budget_spend WHERE task_id = ?`, taskID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	total := 0.0
+	for rows.Next() {
+		var agent string
+		var usd float64
+		if err := rows.Scan(&agent, &usd); err != nil {
+			return 0, err
+		}
+		if _, journaled := perAgent[agent]; !journaled {
+			total += usd
+		}
+	}
+	for _, usd := range perAgent {
+		total += usd
+	}
+	return total, rows.Err()
+}
+
+// Sync records what spending says of task id's conversation.
+func (l *Ledger) Sync(ctx context.Context, taskID, conversationID string) error {
+	perAgent, err := l.spending(ctx, taskID, conversationID)
+	if err != nil {
+		return err
 	}
 	roles := map[string]string{}
 	wr, err := l.DB.QueryContext(ctx, `SELECT agent_id, role FROM ai_chat_org_workers WHERE conversation_id = ?`, conversationID)

@@ -18,6 +18,7 @@ type turn struct {
 	model, state string
 	q            jev.Question
 	sampled      bool // some request of the turn was sampled
+	tried        trial
 
 	mu     sync.Mutex // guards usage and served: a question's samples run at once
 	usage  jev.Usage
@@ -171,16 +172,19 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 		return t.sample(ctx, user, labels, false)
 	}
 	k := t.b.k()
-	res, err := t.b.complete(ctx, t.request(user, 0, k))
+	res, err := t.b.complete(ctx, &t.tried, t.request(user, 0, k))
 	t.add(res)
 	var he *httpError
 	if errors.As(err, &he) && he.status == 400 && k > retryTopK {
 		// Some hosts cap top_logprobs below what was asked and refuse the
 		// rest: ask once more for retryTopK before giving logprobs up.
-		if res, err = t.b.complete(ctx, t.request(user, 0, retryTopK)); err == nil {
+		named := namesTopLogprobs(he.body)
+		if res, err = t.b.complete(ctx, &t.tried, t.request(user, 0, retryTopK)); err == nil {
 			t.b.learnK(retryTopK, k)
 			k = retryTopK
-			remember(t.b.base, t.model, func(q *quirks) { q.topLogprobs = retryTopK })
+			if named {
+				remember(t.b.base, t.model, func(q *quirks) { q.topLogprobs = retryTopK })
+			}
 		}
 		t.add(res)
 	}
@@ -239,7 +243,7 @@ func (t *turn) sample(ctx context.Context, user string, labels []string, learn b
 	body := t.request(user, 1, 0)
 	got := make([]*chatResponse, samples)
 	one := func(ctx context.Context, i int) error {
-		res, err := t.b.complete(ctx, body)
+		res, err := t.b.complete(ctx, &t.tried, body)
 		t.add(res)
 		got[i] = res
 		return err

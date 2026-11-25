@@ -2425,9 +2425,12 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   (its SessionStart hooks and MCP servers) in a coder turn, the lead's and
   its workers' (default 2m; `0` = the default again). The environment
   variable `MONOAGENT_STARTUP_TIMEOUT` overrides it, and applies to every
-  other claude turn too. `coder status --json` shows `startupTimeout` (the
-  stored value), `startupTimeoutEffective` and `startupTimeoutSource`
-  (`default`, `set` or `env`). A monomind too old for the flag ignores it.
+  other claude turn too. Both take a duration with its unit (`3m`, `180s`;
+  at least 1s for the flag), and more than 1h is cut to 1h; an unreadable
+  variable is ignored with a warning. `coder status --json` shows
+  `startupTimeout` (the stored value), `startupTimeoutEffective` and
+  `startupTimeoutSource` (`default`, `set` or `env`). A monomind too old for
+  the flag ignores it.
 - **Access levels.** A conversation has an `access` level, and the turn is
   chosen by it, not by the mode: `scoped` is the sandboxed assistant
   (mono-agent's own tools, canvas, page read), `coding`, `workspace` and

@@ -6,7 +6,8 @@ import { mono, label, hint, errText, okText, input, testError, hostOf, isThisCom
 
 // A preset fills the kind, the base URL, a hosted service's model (and a name
 // when the name field is empty or still the last preset's). The key is sent
-// once, on Add, and the field is cleared when the provider is saved. A key is
+// once, on Add, and the field is cleared when the provider is saved, and when
+// the preset, the kind or the base URL's host changes. A key is
 // required unless the base URL is on this computer (the CLI refuses a keyless
 // provider on another host), and always for a kind in KEYED_KINDS (the CLI
 // refuses those without one anywhere). A name that is already saved asks first: the
@@ -72,6 +73,9 @@ export default function JevAddProviderForm({ kinds, existing = [], busy, run, re
   const [replacing, setReplacing] = useState(null)
   // The confirm names a host: it goes when the form it describes changes.
   useEffect(() => { setReplacing(null) }, [name, kind, base, key])
+  // A key was typed for one target: it never follows the form to another.
+  const origin = originOf(base.trim())
+  useEffect(() => { setKey('') }, [presetId, kind, origin])
 
   const kindOptions = kind && !kinds.includes(kind) ? [kind, ...kinds] : kinds
   const pick = (id) => {

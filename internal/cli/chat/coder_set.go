@@ -229,7 +229,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&root, "workspace-root", "", "Folder new test workspaces are created in (operator only)")
 	c.Flags().IntVar(&maxTurns, "max-turns", 0, "Agent turn cap per message (operator only)")
 	c.Flags().StringVar(&timeout, "timeout", "", "Wall-clock cap per message (e.g. 60m; operator only)")
-	c.Flags().StringVar(&startup, "startup-timeout", "", "How long claude may take to initialize (its SessionStart hooks and MCP servers) in a coder turn, e.g. 3m (default 2m; 0 = the default again; "+monomind.StartupTimeoutEnv+" overrides it; operator only)")
+	c.Flags().StringVar(&startup, "startup-timeout", "", "How long claude may take to initialize (its SessionStart hooks and MCP servers) in a coder turn, e.g. 3m (default 2m; at most 1h; 0 = the default again; "+monomind.StartupTimeoutEnv+" overrides it; operator only)")
 	c.Flags().Float64Var(&budget, "budget-usd", 0, "Spend cap per message in USD (0 = none; operator only)")
 	c.Flags().IntVar(&orgMax, "org-max-agents", 0, "Dynamic org: workers the lead may spawn per message (default 6; operator only)")
 	c.Flags().IntVar(&orgConc, "org-max-concurrent", 0, "Dynamic org: workers running at once (default 3; operator only)")
