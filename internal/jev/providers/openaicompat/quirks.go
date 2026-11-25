@@ -171,7 +171,7 @@ func namesUnsupported(body, param string) bool {
 	if unsupportedCode.MatchString(s) && regexp.MustCompile(`"param"\s*:\s*"`+param+`"`).MatchString(s) {
 		return true
 	}
-	name := `\\?['"`+"`"+`]?\b` + param + `\b\\?['"`+"`"+`]?`
+	name := `\\?['"` + "`" + `]?\b` + param + `\b\\?['"` + "`" + `]?`
 	before := `(unsupported (parameter|value|argument)|unrecognized( request)? arguments?( supplied)?|unknown (parameter|argument)|(does not|doesn't) support( the)?( parameter)?)\s*:?\s*`
 	after := `(\s+parameter)?\s+((is\s+)?(not supported|unsupported|not allowed|not permitted|deprecated)|(does not|doesn't) support)`
 	return regexp.MustCompile(before+name).MatchString(s) || regexp.MustCompile(name+after).MatchString(s)

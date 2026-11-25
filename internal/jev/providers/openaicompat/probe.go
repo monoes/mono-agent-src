@@ -17,7 +17,7 @@ import (
 // not answer at all.
 func (b *Backend) Probe(ctx context.Context) (jev.Capabilities, error) {
 	t := &turn{b: b, model: b.model, state: `{"a":2,"b":1}`,
-		q: jev.Question{Type: jev.TypeNoul, Instructions: "Is a greater than b?"},
+		q:     jev.Question{Type: jev.TypeNoul, Instructions: "Is a greater than b?"},
 		tried: trial{probe: true}}
 	opts, _ := optionsOf(t.q)
 	user := t.prompt(opts, []string{"Yes", "No"}, false)
