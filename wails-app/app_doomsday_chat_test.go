@@ -10,7 +10,11 @@ import (
 	"testing"
 )
 
-const newChatSpec = `{"runtime":"claude","model":"","effort":"","access":"full","cwd":"/tmp/work"}`
+// newChatCwd goes through no symbolic link on any system (it does not exist),
+// as parseChat requires; /tmp is one on macOS.
+const newChatCwd = "/nonexistent-monoagent-test/work"
+
+const newChatSpec = `{"runtime":"claude","model":"","effort":"","access":"full","cwd":"` + newChatCwd + `"}`
 
 func (g *grantRig) renderFor(charter, chatID, spec string) string {
 	g.t.Helper()
@@ -53,7 +57,7 @@ func TestTheDialogNamesTheChat(t *testing.T) {
 // A chat to be made is made only after the person said yes; a decline or a wrong token makes none.
 func TestAChatToBeMadeIsMadeOnlyAfterYes(t *testing.T) {
 	g := newGrantRig(t)
-	g.startBehaves(`case "$*" in *"history create"*|*"create --workflow"*) echo '{"id":"new-chat-1","runtimeId":"claude","access":"full","cwd":"/tmp/work","mode":"coder"}';; *) echo '{"run_id":"work/1"}';; esac`)
+	g.startBehaves(`case "$*" in *"history create"*|*"create --workflow"*) echo '{"id":"new-chat-1","runtimeId":"claude","access":"full","cwd":"` + newChatCwd + `","mode":"coder"}';; *) echo '{"run_id":"work/1"}';; esac`)
 	created := func() bool { return strings.Contains(readFile(g.t, g.log), "create|") }
 	tok := g.renderFor(dmCharter, "", newChatSpec)
 	g.answer = false
@@ -120,7 +124,7 @@ func TestTheNewChatTextShowsEverythingThatIsMade(t *testing.T) {
 // may have started keeps it (the run's boss stands behind it); a delete that fails hands the chat to the page.
 func TestAFailedStartRemovesTheChatItMade(t *testing.T) {
 	script := func(startBody, deleteBody string) string {
-		return `case "$*" in *"create --workflow"*) echo '{"id":"new-chat-1","runtimeId":"claude","access":"full","cwd":"/tmp/work","mode":"coder"}';; *"history delete"*) ` + deleteBody + `;; *) ` + startBody + `;; esac`
+		return `case "$*" in *"create --workflow"*) echo '{"id":"new-chat-1","runtimeId":"claude","access":"full","cwd":"` + newChatCwd + `","mode":"coder"}';; *"history delete"*) ` + deleteBody + `;; *) ` + startBody + `;; esac`
 	}
 	refused := `echo '{"error":"the entry is refused","code":"invalid_input"}'; exit 3`
 	for name, c := range map[string]struct {
