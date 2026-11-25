@@ -51,6 +51,7 @@ func NewCommand(d Deps) *cobra.Command {
 		newOrgQuestionsCmd(root),
 		newOrgApprovalsCmd(root),
 		newOrgGatesCmd(root),
+		newOrgPendingCmd(env),
 		newOrgDecisionsCmd(root),
 		newOrgMemoryCmd(root),
 		newOrgAnswerCmd(root),
