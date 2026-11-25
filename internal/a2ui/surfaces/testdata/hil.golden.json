@@ -1,0 +1,160 @@
+{
+  "createSurface": {
+    "catalogId": "https://monoes.me/a2ui/catalogs/mono/v1/catalog.json",
+    "components": [
+      {
+        "component": "Text",
+        "id": "title",
+        "text": "Send welcome DM",
+        "variant": "body"
+      },
+      {
+        "component": "Text",
+        "id": "sub",
+        "text": "Workflow: Outreach",
+        "variant": "caption"
+      },
+      {
+        "component": "Divider",
+        "id": "div"
+      },
+      {
+        "component": "Text",
+        "id": "ro-0-k",
+        "text": "followers",
+        "variant": "caption"
+      },
+      {
+        "component": "Text",
+        "id": "ro-0-v",
+        "text": "1200",
+        "variant": "body"
+      },
+      {
+        "component": "Text",
+        "id": "ro-1-k",
+        "text": "note",
+        "variant": "caption"
+      },
+      {
+        "component": "Text",
+        "id": "ro-1-v",
+        "text": "vip",
+        "variant": "body"
+      },
+      {
+        "component": "Text",
+        "id": "ro-2-k",
+        "text": "recipient",
+        "variant": "caption"
+      },
+      {
+        "component": "Text",
+        "id": "ro-2-v",
+        "text": "@sara",
+        "variant": "body"
+      },
+      {
+        "component": "TextField",
+        "id": "ef-0",
+        "label": "delay_minutes",
+        "value": {
+          "@path": "/edit/delay_minutes"
+        },
+        "variant": "shortText"
+      },
+      {
+        "component": "TextField",
+        "id": "ef-1",
+        "label": "message",
+        "value": {
+          "@path": "/edit/message"
+        },
+        "variant": "shortText"
+      },
+      {
+        "component": "Text",
+        "id": "btn-approve-l",
+        "text": "Approve"
+      },
+      {
+        "action": {
+          "event": {
+            "context": {
+              "delay_minutes": {
+                "@path": "/edit/delay_minutes"
+              },
+              "id": "482",
+              "message": {
+                "@path": "/edit/message"
+              }
+            },
+            "name": "hil.approve"
+          }
+        },
+        "child": "btn-approve-l",
+        "component": "Button",
+        "id": "btn-approve",
+        "variant": "primary"
+      },
+      {
+        "component": "Text",
+        "id": "btn-reject-l",
+        "text": "Reject"
+      },
+      {
+        "action": {
+          "event": {
+            "context": {
+              "id": "482"
+            },
+            "name": "hil.reject"
+          }
+        },
+        "child": "btn-reject-l",
+        "component": "Button",
+        "id": "btn-reject",
+        "variant": "danger"
+      },
+      {
+        "children": [
+          "btn-approve",
+          "btn-reject"
+        ],
+        "component": "Row",
+        "id": "actions"
+      },
+      {
+        "children": [
+          "title",
+          "sub",
+          "div",
+          "ro-0-k",
+          "ro-0-v",
+          "ro-1-k",
+          "ro-1-v",
+          "ro-2-k",
+          "ro-2-v",
+          "ef-0",
+          "ef-1",
+          "actions"
+        ],
+        "component": "Column",
+        "id": "body"
+      },
+      {
+        "child": "body",
+        "component": "Card",
+        "id": "root"
+      }
+    ],
+    "dataModel": {
+      "edit": {
+        "delay_minutes": "5",
+        "message": "Hi Sara, welcome!"
+      }
+    },
+    "surfaceId": "hil-482"
+  },
+  "version": "1.0"
+}

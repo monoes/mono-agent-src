@@ -58,6 +58,8 @@ type Config struct {
 	// Doomsday puts org_merge under a run's dispatch gate (doomsday_merge.go); nil
 	// (the default) leaves merges as they were.
 	Doomsday *DoomsdayMerge
+	// UI turns on the ui_render tool for the lead and the workers (ui_tool.go); nil leaves it off.
+	UI *UIConfig
 	// DoomsdayFor finds the run a merge belongs to when Doomsday is not fixed: nil result, no run (merges are
 	// as they were); an error refuses the merge. It is set only by an engine built with the mode.
 	DoomsdayFor func(ctx context.Context) (*DoomsdayMerge, error)
@@ -100,6 +102,10 @@ type Conductor struct {
 	mergeMu sync.Mutex
 	// subagents journals the workers' native subagents (monomind#387).
 	subagents Subagents
+	// ui is the live A2UI registry of the ui_render tool (ui_tool.go).
+	ui *uiState
+	// uiProgress debounces the mission cards' progress updates (ui_system.go).
+	uiProgress progressTracker
 	// The workers' profile context (ProfileContext), kept once per turn and
 	// asked for again after org_roster: its database queries and the
 	// extension probe would otherwise run at every spawn (profileContext).

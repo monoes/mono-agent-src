@@ -32,6 +32,9 @@ import (
 //	chat.stop   {conversation}            -> {stopped: bool}   (ok when idle)
 //	chat.events {profile?, conversation, after_seq?, turn?}
 //	            -> {turn, events:[{seq,type,payload}], turn_active}
+//	chat.ui_action {profile, conversation, action}   (chat_ui.go)
+//	chat.ui_sync   {profile, conversation}
+//	chat.ui_journal {profile, conversation, seen?}
 //
 // The page context is text from a web page: it is fenced as untrusted data in
 // front of the message (chat_context.go), and every turn gets the page-read
@@ -85,6 +88,8 @@ type ChatEvent struct {
 	Seq     int64           `json:"seq"`
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
+	// At is when it was journaled (RFC 3339); the panel orders cards of different turns by it.
+	At string `json:"at,omitempty"`
 }
 
 // ChatEventsPage is what ListEvents returns.
@@ -126,6 +131,10 @@ func (s *Server) SetChatBackend(b ChatBackend) {
 		delete(s.handlers, MethodChatSend)
 		delete(s.handlers, MethodChatStop)
 		delete(s.handlers, MethodChatEvents)
+		delete(s.handlers, MethodChatUIAction)
+		delete(s.handlers, MethodChatUISync)
+		delete(s.handlers, MethodChatUIJournal)
+		delete(s.methodTimeouts, MethodChatUIJournal)
 		delete(s.methodTimeouts, MethodChatSend)
 		delete(s.methodTimeouts, MethodChatEvents)
 		s.handlerMu.Unlock()
@@ -135,6 +144,11 @@ func (s *Server) SetChatBackend(b ChatBackend) {
 	s.HandleRequestWithTimeout(MethodChatSend, cb.handleSend, chatSendTimeout)
 	s.HandleRequestWithTimeout(MethodChatEvents, cb.handleEvents, chatQueryTimeout)
 	s.HandleRequest(MethodChatStop, cb.handleStop)
+	if ub, ok := b.(ChatUIBackend); ok {
+		s.HandleRequestWithTimeout(MethodChatUIAction, cb.uiAction(ub), chatQueryTimeout)
+		s.HandleRequestWithTimeout(MethodChatUISync, cb.uiSync(ub), chatQueryTimeout)
+		s.HandleRequestWithTimeout(MethodChatUIJournal, cb.uiJournal(ub), chatQueryTimeout)
+	}
 }
 
 func randHex(n int) string {
@@ -373,8 +387,9 @@ func (cb *chatBridge) handleSend(ctx context.Context, req *Request, progress Pro
 			Seq          int64           `json:"seq"`
 			Conversation string          `json:"conversation"`
 			Turn         string          `json:"turn"`
+			At           string          `json:"at,omitempty"`
 			Payload      json.RawMessage `json:"payload"`
-		}{ev.Seq, conv, spec.Turn, payload}); merr == nil {
+		}{ev.Seq, conv, spec.Turn, ev.At, payload}); merr == nil {
 			progress(ev.Type, string(b))
 		}
 	})

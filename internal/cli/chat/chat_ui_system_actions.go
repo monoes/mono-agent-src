@@ -1,0 +1,155 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/monoes/mono-agent/internal/a2ui"
+	"github.com/monoes/mono-agent/internal/a2ui/surfaces"
+	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/ai/chatevents"
+)
+
+// answer runs system.answer: it hands the card's answers to the worker that
+// asked, through the same AddAnswer the text answer of `chat turn answer`
+// uses. One question gives its answer as it is; several give each question
+// followed by its answer, one block per question, separated by a blank line.
+func (e *sysEnv) answer(ctx context.Context, a a2ui.Action, surf *a2ui.Surface) error {
+	cmd, ref, conv, err := e.route(ctx, a)
+	if err != nil {
+		return err
+	}
+	agentID, qid, ok := splitAskID(cmd.ID)
+	if !ok {
+		return fmt.Errorf("%q is not a question id", cmd.ID)
+	}
+	text, err := answerText(surf, cmd.Fields)
+	if err != nil {
+		return err
+	}
+	store, _, closeDB, err := openChatHistory(e.cfg)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	turnID, open, err := openQuestionOf(store, conv.Profile, conv.ID, agentID)
+	if err != nil {
+		return err
+	}
+	if open != qid {
+		return fmt.Errorf("question %s of %s is not open any more", qid, agentID)
+	}
+	if err := store.AddAnswer(conv.Profile, conv.ID, turnID, agentID, qid, text); err != nil {
+		if errors.Is(err, ai.ErrAlreadyAnswered) {
+			return fmt.Errorf("question %s was already answered", qid)
+		}
+		return err
+	}
+	e.finish(conv, ref, a.SurfaceID, "Answered", "success")
+	return nil
+}
+
+// splitAskID splits "<agent>.<qid>" at its last dot.
+func splitAskID(id string) (agentID, qid string, ok bool) {
+	i := strings.LastIndex(id, ".")
+	if i <= 0 || i == len(id)-1 {
+		return "", "", false
+	}
+	return id[:i], id[i+1:], true
+}
+
+func answerText(surf *a2ui.Surface, fields map[string]string) (string, error) {
+	var parts []string
+	for i := 0; i < surfaces.MaxAskQuestions; i++ {
+		key := surfaces.AnswerKey(i)
+		q, has := surf.Components["q-"+key]
+		if !has {
+			break
+		}
+		ans := strings.TrimSpace(fields[key])
+		qt, _ := q["text"].(string)
+		parts = append(parts, qt+"\n"+ans)
+		if ans == "" {
+			parts[len(parts)-1] = ""
+		}
+	}
+	var asked, answered int
+	var blocks []string
+	for i, p := range parts {
+		asked++
+		if p == "" {
+			continue
+		}
+		answered++
+		if len(parts) == 1 {
+			blocks = append(blocks, strings.TrimSpace(fields[surfaces.AnswerKey(i)]))
+		} else {
+			blocks = append(blocks, p)
+		}
+	}
+	if asked == 0 || answered == 0 {
+		return "", errors.New("answer at least one question")
+	}
+	return strings.Join(blocks, "\n\n"), nil
+}
+
+// mission runs the buttons of the mission cards. approve, stop and close run
+// `task session approve|stop|close <id>`, the commands the Mission cards of
+// the app call. edit has no command: it asks the caller to send the user
+// message "I want to change the plan of mission #<id>." as the conversation's
+// next turn (the plan stays as it is and the card stays).
+func (e *sysEnv) mission(ctx context.Context, a a2ui.Action, surf *a2ui.Surface) error {
+	cmd, ref, conv, err := e.route(ctx, a)
+	if err != nil {
+		return err
+	}
+	if cmd.Kind == "mission.edit" {
+		conv.out.Message = "I want to change the plan of mission #" + cmd.ID + "."
+		return nil
+	}
+	verb := strings.TrimPrefix(cmd.Kind, "mission.")
+	if _, err := e.run(ctx, "task", "session", verb, cmd.ID); err != nil {
+		return err
+	}
+	switch cmd.Kind {
+	case "mission.approve":
+		e.runningCard(conv, ref, surf)
+	case "mission.stop":
+		e.finish(conv, ref, a.SurfaceID, "Mission stopped by you", "neutral")
+	case "mission.close":
+		e.finish(conv, ref, a.SurfaceID, "Mission closed by you", "success")
+	}
+	return nil
+}
+
+// runningCard replaces the approved plan card with the running mission's card,
+// built from what the plan card held.
+func (e *sysEnv) runningCard(conv uiConv, ref chatevents.UIRef, surf *a2ui.Surface) {
+	sid, err := strconv.ParseInt(ref.ID, 10, 64)
+	if err != nil {
+		return
+	}
+	str := func(id string) string { s, _ := surf.Components[id]["text"].(string); return s }
+	mission, _ := surf.Data.(map[string]any)["mission"].(map[string]any)
+	num := func(k string) float64 {
+		n, _ := json.Number(fmt.Sprint(mission[k])).Float64()
+		return n
+	}
+	p := chatevents.MissionPlanPayload{SessionID: sid, Title: str("title"), Goal: str("goal"),
+		TaskCount: int(num("total")), EstimatedBudgetUSD: num("estimated")}
+	msgs, err := surfaces.MissionRunning(p, num("budget"))
+	if err != nil {
+		e.finish(conv, ref, surfaces.MissionSurfaceID(sid), "Mission approved by you", "success")
+		return
+	}
+	store, _, closeDB, err := openChatHistory(e.cfg)
+	if err != nil {
+		return
+	}
+	defer closeDB()
+	_ = recordMessages(store, conv, ref, msgs)
+}

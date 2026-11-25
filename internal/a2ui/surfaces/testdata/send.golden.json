@@ -1,0 +1,148 @@
+{
+  "createSurface": {
+    "catalogId": "https://monoes.me/a2ui/catalogs/mono/v1/catalog.json",
+    "components": [
+      {
+        "component": "Badge",
+        "id": "action",
+        "text": "dm",
+        "tone": "warning"
+      },
+      {
+        "component": "Text",
+        "id": "who",
+        "text": "To: Ada",
+        "variant": "body"
+      },
+      {
+        "component": "Text",
+        "id": "via",
+        "text": "Via: instagram (acme)",
+        "variant": "caption"
+      },
+      {
+        "children": [
+          "action",
+          "who"
+        ],
+        "component": "Row",
+        "id": "head"
+      },
+      {
+        "component": "Text",
+        "id": "by",
+        "text": "Prepared by: an agent (claims: \"outreach\")",
+        "variant": "caption"
+      },
+      {
+        "component": "TextField",
+        "id": "subject",
+        "label": "Subject",
+        "value": {
+          "@path": "/send/subject"
+        },
+        "variant": "shortText"
+      },
+      {
+        "component": "TextField",
+        "id": "text",
+        "label": "Message",
+        "value": {
+          "@path": "/send/text"
+        },
+        "variant": "longText"
+      },
+      {
+        "component": "Text",
+        "id": "att-0",
+        "text": "Attachment: image cover.png (12034 bytes)",
+        "variant": "caption"
+      },
+      {
+        "component": "Text",
+        "id": "det-0",
+        "text": "cc: bob@example.com",
+        "variant": "caption"
+      },
+      {
+        "component": "Text",
+        "id": "btn-approve-l",
+        "text": "Approve"
+      },
+      {
+        "action": {
+          "event": {
+            "context": {
+              "id": "7c1e",
+              "subject": {
+                "@path": "/send/subject"
+              },
+              "text": {
+                "@path": "/send/text"
+              }
+            },
+            "name": "hil.approve"
+          }
+        },
+        "child": "btn-approve-l",
+        "component": "Button",
+        "id": "btn-approve",
+        "variant": "primary"
+      },
+      {
+        "component": "Text",
+        "id": "btn-reject-l",
+        "text": "Reject"
+      },
+      {
+        "action": {
+          "event": {
+            "context": {
+              "id": "7c1e"
+            },
+            "name": "hil.reject"
+          }
+        },
+        "child": "btn-reject-l",
+        "component": "Button",
+        "id": "btn-reject",
+        "variant": "danger"
+      },
+      {
+        "children": [
+          "btn-approve",
+          "btn-reject"
+        ],
+        "component": "Row",
+        "id": "actions"
+      },
+      {
+        "children": [
+          "head",
+          "via",
+          "by",
+          "subject",
+          "text",
+          "att-0",
+          "det-0",
+          "actions"
+        ],
+        "component": "Column",
+        "id": "body"
+      },
+      {
+        "child": "body",
+        "component": "Card",
+        "id": "root"
+      }
+    ],
+    "dataModel": {
+      "send": {
+        "subject": "Hello",
+        "text": "Hi Ada, loved your post"
+      }
+    },
+    "surfaceId": "send-7c1e"
+  },
+  "version": "1.0"
+}

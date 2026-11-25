@@ -62,6 +62,7 @@ func (c *Conductor) missionTick(mc *MissionRun) {
 			continue
 		}
 		c.startlessTick(sid, se.State)
+		c.missionProgressSurface(c.ctx, mc, se)
 		switch {
 		case se.State == tasks.SessionStopped || se.State == tasks.SessionFailed || se.State == tasks.SessionDone || se.Archived:
 			c.stopSessionWorkers(sid, "the session is "+string(se.State))

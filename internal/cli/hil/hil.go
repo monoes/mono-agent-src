@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/monoes/mono-agent/internal/hilscrub"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -139,7 +140,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			}
 
 			if d.JSONOutput() {
-				enc := json.NewEncoder(os.Stdout)
+				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				if items == nil {
 					items = []hilItem{}
@@ -358,7 +359,7 @@ func (d Deps) newHILApproveCmd() *cobra.Command {
 				return d.NotFound("HIL item %q not found or already resolved", args[0])
 			}
 			_ = commsync.SetStatus(cmd.Context(), db.DB, args[0], commsync.Approved, commsync.Detail{Edited: check})
-			return printDecision(d.JSONOutput(), args[0], "approved")
+			return printDecision(cmd.OutOrStdout(), d.JSONOutput(), args[0], "approved")
 		},
 	}
 	cmd.Flags().StringVar(&editedData, "data", "", "JSON object overriding the item's editable data")
@@ -400,7 +401,7 @@ func (d Deps) newHILRejectCmd() *cobra.Command {
 				return d.NotFound("HIL item %q not found or already resolved", args[0])
 			}
 			_ = commsync.SetStatus(cmd.Context(), db.DB, args[0], commsync.Rejected, commsync.Detail{})
-			return printDecision(d.JSONOutput(), args[0], "rejected")
+			return printDecision(cmd.OutOrStdout(), d.JSONOutput(), args[0], "rejected")
 		},
 	}
 }
@@ -412,22 +413,22 @@ const noDaemonHint = "No daemon is running, so the paused run stays WAITING unti
 
 // printDecision reports an approved or rejected item, with noDaemonHint
 // when no daemon will resume its run (a "hint" field with --json).
-func printDecision(jsonOut bool, id, status string) error {
+func printDecision(w io.Writer, jsonOut bool, id, status string) error {
 	_, live := daemonhb.Read()
 	if jsonOut {
 		rec := map[string]string{"id": id, "status": status}
 		if !live {
 			rec["hint"] = noDaemonHint
 		}
-		return json.NewEncoder(os.Stdout).Encode(rec)
+		return json.NewEncoder(w).Encode(rec)
 	}
 	verb := "Approved"
 	if status == "rejected" {
 		verb = "Rejected"
 	}
-	fmt.Printf("%s HIL item %s\n", verb, id)
+	fmt.Fprintf(w, "%s HIL item %s\n", verb, id)
 	if !live {
-		fmt.Printf("Hint: %s\n", noDaemonHint)
+		fmt.Fprintf(w, "Hint: %s\n", noDaemonHint)
 	}
 	return nil
 }
