@@ -31,8 +31,9 @@ func (r TaskRoom) Left() float64 {
 	return 0
 }
 
-// Room reads the room of task in.TaskID, reserving nothing: the figures
-// AdmitTurn grants a follow-up turn from, and what a chat shows beforehand.
+// Room reads the room of task in.TaskID, reserving and writing nothing: the
+// figures AdmitTurn grants a follow-up turn from, and what a chat shows
+// beforehand.
 func (l *Ledger) Room(ctx context.Context, in Admission) (TaskRoom, error) {
 	var taskCap float64
 	err := l.DB.QueryRowContext(ctx, `SELECT budget_usd FROM ai_tasks WHERE id = ?`, in.TaskID).Scan(&taskCap)
@@ -42,11 +43,8 @@ func (l *Ledger) Room(ctx context.Context, in Admission) (TaskRoom, error) {
 	if err != nil {
 		return TaskRoom{}, err
 	}
-	if err := l.Sync(ctx, in.TaskID, in.ConversationID); err != nil {
-		return TaskRoom{}, err
-	}
 	var out TaskRoom
-	if err := l.DB.QueryRowContext(ctx, `SELECT COALESCE(SUM(spent_usd), 0) FROM ai_budget_spend WHERE task_id = ?`, in.TaskID).Scan(&out.SpentUSD); err != nil {
+	if out.SpentUSD, err = l.spent(ctx, in.TaskID, in.ConversationID); err != nil {
 		return TaskRoom{}, err
 	}
 	eff, err := l.Resolve(in.Kind, in.ConversationID, in.Role)
@@ -84,6 +82,9 @@ func (l *Ledger) AdmitTurn(ctx context.Context, in Admission, turnCap float64) (
 			in.Requested = turnCap
 		}
 		return l.Admit(ctx, in)
+	}
+	if err := l.Sync(ctx, in.TaskID, in.ConversationID); err != nil {
+		return 0, err
 	}
 	room, err := l.Room(ctx, in)
 	if err != nil {
