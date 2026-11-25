@@ -91,10 +91,13 @@ func spendCapOfConversation(ctx context.Context, db *sql.DB, profileID string, c
 		}
 		out.lower(spendCapSession, left, total)
 	}
-	if settings.BudgetUSD > 0 {
+	enforceable := budget.Enforceable(conv.RuntimeID)
+	// A runtime that can't hold a cap drops the per-message one, so it never
+	// stands in front of a session's or task's cap, which refuses the turn.
+	if settings.BudgetUSD > 0 && (enforceable || !out.Bounded) {
 		out.lower(spendCapMessage, settings.BudgetUSD, 0)
 	}
-	if out.Bounded && !budget.Enforceable(conv.RuntimeID) {
+	if out.Bounded && !enforceable {
 		out.UnenforceableOn = conv.RuntimeID
 	}
 	if !taskBound && conv.OrgMode == ai.OrgModeDynamic {

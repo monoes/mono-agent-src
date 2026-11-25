@@ -83,6 +83,16 @@ func TestSpendCapOfAPlainCoderChat(t *testing.T) {
 	}
 }
 
+// Kilo drops the per-message cap but refuses a turn a session budget caps, so
+// the session's limit is the one named even when the dropped cap is lower.
+func TestSpendCapOfAKiloSessionNamesTheCapThatRefuses(t *testing.T) {
+	db, conv := spendCapRig(t, ai.AccessFull, "kilo", coderSettings{BudgetUSD: 0.5})
+	setSessionBudget(t, db, conv, 3)
+	if got := spendCapOf(t, db, conv); got.Source != "session" || got.UnenforceableOn != "kilo" {
+		t.Errorf("kilo session: %+v", got)
+	}
+}
+
 func TestSpendCapOfADynamicOrgChatNamesTheWorkersCap(t *testing.T) {
 	db, conv := spendCapRig(t, ai.AccessFull, "claude", coderSettings{BudgetUSD: 0.5, OrgBudgetUSD: 2})
 	if err := openTestChatStore(t, db).SetConversationOrgMode(conv, "default", ai.OrgModeDynamic); err != nil {
