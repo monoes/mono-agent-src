@@ -257,6 +257,37 @@ describe('OrgDesigner automations and live view', () => {
     await waitFor(() => expect(document.querySelector('[data-od-node-id="lead"] [data-live-status="working"]')).toBeInTheDocument())
   })
 
+  // #1766: before an org's first run `org logs` says there is no run.
+  it('says "No run yet" before the first run, with no spinner and no working count', async () => {
+    api.getOrgLogs.mockResolvedValue({ v: 1, org: 'growth', run: null, items: [], no_run: true })
+    await renderDesigner()
+    fireEvent.click(screen.getByRole('tab', { name: /Live/ }))
+    expect(await screen.findByTestId('live-no-run')).toHaveTextContent('No run yet')
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('live-summary')).not.toBeInTheDocument()
+    expect(document.querySelector('.spinner')).not.toBeInTheDocument()
+  })
+
+  it('drops "No run yet" as soon as a live event arrives', async () => {
+    let emit = null
+    onOrgEvent.mockImplementation((cb) => { emit = cb; return () => { emit = null } })
+    api.getOrgLogs.mockResolvedValue({ v: 1, org: 'growth', run: null, items: [], no_run: true })
+    await renderDesigner()
+    fireEvent.click(screen.getByRole('tab', { name: /Live/ }))
+    await screen.findByTestId('live-no-run')
+    act(() => emit({ orgName: 'growth', event: { id: 'x2', ts: 6, type: 'status', from: 'lead', reason: 'state-change', data: { from: 'idle', to: 'working' } } }))
+    await waitFor(() => expect(screen.getByTestId('live-summary')).toHaveTextContent('1 working'))
+    expect(screen.queryByTestId('live-no-run')).not.toBeInTheDocument()
+  })
+
+  it('does not count working roles while the run is still loading', async () => {
+    api.getOrgLogs.mockReturnValue(new Promise(() => {}))
+    await renderDesigner()
+    fireEvent.click(screen.getByRole('tab', { name: /Live/ }))
+    expect(await screen.findByText('Loading…')).toBeInTheDocument()
+    expect(screen.queryByTestId('live-summary')).not.toBeInTheDocument()
+  })
+
   it('switches to the grants matrix', async () => {
     await renderDesigner()
     fireEvent.click(screen.getByRole('tab', { name: /Grants/ }))

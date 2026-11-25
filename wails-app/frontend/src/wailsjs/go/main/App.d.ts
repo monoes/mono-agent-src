@@ -120,6 +120,8 @@ export function CancelAITask(arg1:string):Promise<main.AITask>;
 
 export function CancelWorkflow(arg1:string):Promise<void>;
 
+export function ChatSpendCap(arg1:string):Promise<string>;
+
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function ChooseAutomationExportPath(arg1:string):Promise<string>;

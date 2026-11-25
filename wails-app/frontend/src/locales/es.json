@@ -1574,9 +1574,16 @@
       "none": "Predeterminado del runtime",
       "fixed": "Se fija al crear el chat.",
       "spend": "Gasto",
-      "spendTask": "{{spent}} de {{cap}} (límite de esta tarea)",
-      "spendGlobal": "{{spent}} de {{cap}} (límite global)",
-      "noCap": "Sin límite de gasto.",
+      "spendTask": "Hasta {{cap}} para el siguiente mensaje: lo que queda del límite de {{total}} de esta tarea.",
+      "spendTaskUsedUp": "No queda nada por gastar en esta tarea: un mensaje no se ejecuta.",
+      "spendSession": "Hasta {{cap}} para el siguiente mensaje: lo que queda del presupuesto de sesión de {{total}} de este chat.",
+      "spendSessionUsedUp": "El presupuesto de sesión de {{total}} de este chat está agotado: un mensaje no se ejecuta.",
+      "spendMessage": "Hasta {{cap}} por mensaje (presupuesto del coder).",
+      "spendNone": "Ningún límite de gasto acota los mensajes de este chat.",
+      "spendUnknown": "No se pudo leer el límite de gasto.",
+      "spendDropped": "{{runtime}} no puede aplicar un límite de gasto, así que este límite no se aplica.",
+      "spendRefused": "{{runtime}} no puede aplicar un límite de gasto, así que un mensaje con este límite no se ejecuta.",
+      "spendWorkers": "Trabajadores de la organización: hasta {{cap}} más por mensaje.",
       "budgetsLink": "Presupuestos de tareas de IA en Ajustes",
       "lowerCap": "Bajar límite",
       "lowerLabel": "Nuevo límite de este chat (USD)",
@@ -2333,7 +2340,10 @@
     "previewFailed": "Vista previa no disponible",
     "previewLoading": "Cargando vista previa…",
     "open": "Abrir",
-    "openNamed": "Abrir {{name}}"
+    "openNamed": "Abrir {{name}}",
+    "commandLabel": "Comando que se ejecutará",
+    "commandFolder": "Carpeta del rol: {{path}}",
+    "commandCut": "Solo se conoce el principio de este comando: el motor guarda sus primeros 200 caracteres."
   },
   "comms": {
     "status": {

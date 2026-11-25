@@ -278,12 +278,13 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			hostStarted := false
 			if !noHost {
-				if err := ensureHost(cfg); err != nil {
+				if hostStarted, err = ensureHostStarted(cfg); err != nil {
 					return fmt.Errorf("the answer is queued as command %d and is delivered when a coder host runs; the host could not be started: %w", cmdID, err)
 				}
 			}
-			res := map[string]any{"question": out, "commandId": cmdID, "hostStarted": !noHost}
+			res := map[string]any{"question": out, "commandId": cmdID, "hostStarted": hostStarted}
 			if warning != "" {
 				res["released"] = false // machine-readable: the answer was accepted, the session state was not updated
 				res["warning"] = warning

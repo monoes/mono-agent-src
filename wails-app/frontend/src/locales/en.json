@@ -1574,9 +1574,16 @@
       "none": "Runtime default",
       "fixed": "Fixed when the chat was created.",
       "spend": "Spend",
-      "spendTask": "{{spent}} of {{cap}} (this task's cap)",
-      "spendGlobal": "{{spent}} of {{cap}} (global cap)",
-      "noCap": "No spend cap set.",
+      "spendTask": "Up to {{cap}} for the next message: what is left of this task's {{total}} cap.",
+      "spendTaskUsedUp": "Nothing is left to spend on this task: a message does not run.",
+      "spendSession": "Up to {{cap}} for the next message: what is left of this chat's {{total}} session budget.",
+      "spendSessionUsedUp": "This chat's {{total}} session budget is used up: a message does not run.",
+      "spendMessage": "Up to {{cap}} per message (coder budget).",
+      "spendNone": "No spend cap bounds this chat's messages.",
+      "spendUnknown": "The spend cap could not be read.",
+      "spendDropped": "{{runtime}} cannot enforce a spend cap, so this cap is not applied.",
+      "spendRefused": "{{runtime}} cannot enforce a spend cap, so a message under this cap does not run.",
+      "spendWorkers": "Org workers: up to {{cap}} more per message.",
       "budgetsLink": "AI task budgets in Settings",
       "lowerCap": "Lower cap",
       "lowerLabel": "New cap for this chat (USD)",
@@ -2333,7 +2340,10 @@
     "previewFailed": "Preview unavailable",
     "previewLoading": "Loading preview…",
     "open": "Open",
-    "openNamed": "Open {{name}}"
+    "openNamed": "Open {{name}}",
+    "commandLabel": "Command to run",
+    "commandFolder": "Role folder: {{path}}",
+    "commandCut": "Only the start of this command is known: the engine keeps its first 200 characters."
   },
   "comms": {
     "status": {

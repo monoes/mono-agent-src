@@ -11,6 +11,7 @@ import DecisionsFeed from './DecisionsFeed.jsx'
 import FullAccessSummary from './FullAccessSummary.jsx'
 import OrgToolActivity from './OrgToolActivity.jsx'
 import SectionBudgetPanel from './SectionBudgetPanel.jsx'
+import OrgEstimatePanel from './OrgEstimatePanel.jsx'
 import { isToolActivity } from './orgToolActivity.js'
 import { Card, OutcomeBanner, itemsOf, extractFinalMessage } from './orgsPanelParts.jsx'
 
@@ -28,7 +29,11 @@ export default function OrgTabBody({
                   <>
                     <FullAccessSummary orgName={selected} status={data.overview} onChanged={() => loadTab(selected, 'overview')} />
                     {!selectedRun ? (
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No completed runs yet.</div>
+                      <>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No completed runs yet.</div>
+                        {/* Only a known "never run": the estimate starts `org run` up to its estimate. */}
+                        {data.overview?.status === 'never run' && <OrgEstimatePanel key={selected} orgName={selected} />}
+                      </>
                     ) : selectedRun === 'live' ? (
                       <>
                         <OutcomeBanner

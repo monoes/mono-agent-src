@@ -3472,7 +3472,8 @@ monoagentcli --profile work coder host pursuit status --json     # the pursuit l
      <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).
 - **Good to know:** the host and the turns it starts keep the environment of the terminal that started the host.
   `host stop` leaves turns running: `sessions stop <conv>` first if you want them ended. Queued sends only
-  expire while a host runs. `send` prints `hostStarted: true` unless you pass `--no-host`.
+  expire while a host runs. `send` and `questions answer` print `hostStarted: true` only when that call started a
+  host (a host that was already running gives `false`).
 - **Files:** `<db dir>/coder-host/` holds `host.lock`, `host.json`, `host.log` and `turns/<turn>.log`; the
   logs hold turn output and are never pruned.
 - **Not run by agents:** like `wails dev` and the real coder run, starting the host is the user's own act from
