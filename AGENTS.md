@@ -2421,6 +2421,13 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   it only prints the settings. `TestEveryCoderSetFlagIsTheOperators` fails
   for a new flag until it is classified. `coder disable` is anyone's: it
   only turns coder mode off.
+- `coder set --startup-timeout 3m` is how long claude may take to initialize
+  (its SessionStart hooks and MCP servers) in a coder turn, the lead's and
+  its workers' (default 2m; `0` = the default again). The environment
+  variable `MONOAGENT_STARTUP_TIMEOUT` overrides it, and applies to every
+  other claude turn too. `coder status --json` shows `startupTimeout` (the
+  stored value), `startupTimeoutEffective` and `startupTimeoutSource`
+  (`default`, `set` or `env`). A monomind too old for the flag ignores it.
 - **Access levels.** A conversation has an `access` level, and the turn is
   chosen by it, not by the mode: `scoped` is the sandboxed assistant
   (mono-agent's own tools, canvas, page read), `coding`, `workspace` and

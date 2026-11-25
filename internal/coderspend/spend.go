@@ -76,6 +76,50 @@ func Spent(q Querier, profileID, conversationID string) (float64, error) {
 	}
 	rows.Close()
 
+	lead, workers, err := turnCosts(q, profileID, conversationID)
+	if err != nil {
+		return 0, err
+	}
+	running, _ := RunningCap(q, profileID, conversationID)
+	total := 0.0
+	workerSum := map[string]float64{} // per turn
+	for k, v := range workers {
+		workerSum[k[0]] += v
+	}
+	for turn, c := range caps {
+		if v, reported := lead[turn]; reported {
+			total += v + workerSum[turn]
+		} else if turn != running {
+			total += max(c, workerSum[turn]) // no usage event at all: the whole cap, or its workers if they cost more
+		} else {
+			total += workerSum[turn]
+		}
+		delete(lead, turn)
+		delete(workerSum, turn)
+	}
+	for _, v := range lead {
+		total += v // turns that ran before the session had a budget
+	}
+	for _, v := range workerSum {
+		total += v
+	}
+	return total, nil
+}
+
+// LeadTurn is what the lead of one turn added: the figure Spent counts for it, without its workers. reported is
+// false when the turn journaled no cost.
+func LeadTurn(q Querier, profileID, conversationID, turnID string) (usd float64, reported bool, err error) {
+	lead, _, err := turnCosts(q, profileID, conversationID)
+	if err != nil {
+		return 0, false, err
+	}
+	usd, reported = lead[turnID]
+	return usd, reported, nil
+}
+
+// turnCosts reads what the conversation's turns reported they cost: what each turn's lead added (turn -> usd) and
+// each worker's figure ((turn, worker) -> usd). A turn or worker that reported no cost has no entry.
+func turnCosts(q Querier, profileID, conversationID string) (map[string]float64, map[[2]string]float64, error) {
 	lead := map[string]float64{}       // turn -> its largest reported total
 	workers := map[[2]string]float64{} // (turn, worker) -> its largest finished cost
 	sessions := map[string]string{}    // turn -> the claude session it ran in (its first session.bound)
@@ -83,13 +127,13 @@ func Spent(q Querier, profileID, conversationID string) (float64, error) {
 	ev, err := q.Query(`SELECT turn_id, type, payload, created_at FROM ai_chat_events
 		WHERE profile_id = ? AND conversation_id = ? AND type IN ('usage.updated', 'agent.finished', 'session.bound')`, profileID, conversationID)
 	if err != nil {
-		return 0, err
+		return nil, nil, err
 	}
 	for ev.Next() {
 		var turn, typ, raw, at string
 		if err := ev.Scan(&turn, &typ, &raw, &at); err != nil {
 			ev.Close()
-			return 0, err
+			return nil, nil, err
 		}
 		if first, seen := started[turn]; !seen || at < first {
 			started[turn] = at
@@ -121,30 +165,7 @@ func Spent(q Querier, profileID, conversationID string) (float64, error) {
 	}
 	ev.Close()
 	deltaOfResumedSessions(lead, sessions, started)
-	running, _ := RunningCap(q, profileID, conversationID)
-	total := 0.0
-	workerSum := map[string]float64{} // per turn
-	for k, v := range workers {
-		workerSum[k[0]] += v
-	}
-	for turn, c := range caps {
-		if v, reported := lead[turn]; reported {
-			total += v + workerSum[turn]
-		} else if turn != running {
-			total += max(c, workerSum[turn]) // no usage event at all: the whole cap, or its workers if they cost more
-		} else {
-			total += workerSum[turn]
-		}
-		delete(lead, turn)
-		delete(workerSum, turn)
-	}
-	for _, v := range lead {
-		total += v // turns that ran before the session had a budget
-	}
-	for _, v := range workerSum {
-		total += v
-	}
-	return total, nil
+	return lead, workers, nil
 }
 
 // cumulativeRuntime is the runtime whose reported cost is a running total for the whole runtime session, not for

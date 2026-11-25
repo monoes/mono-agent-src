@@ -349,7 +349,7 @@ func compactContext(ctx context.Context, journal *turnJournal, opts monomind.Exe
 	journal.notice(noticeCoderStatus, "Compacting the conversation…", chatevents.SeverityInfo)
 	r, err := monomind.Exec(cctx, opts, func(monomind.Event) {})
 	if r != nil {
-		journal.addUsage(r)
+		journal.addUsage(r, res.SessionID)
 	}
 	if err != nil || r == nil || r.Err != nil || r.SessionID != res.SessionID {
 		fail()
@@ -359,8 +359,11 @@ func compactContext(ctx context.Context, journal *turnJournal, opts monomind.Exe
 }
 
 // addUsage folds a follow-up call's (the compaction's) usage into the turn's
-// total and journals the new total as the turn's result snapshot.
-func (j *turnJournal) addUsage(r *monomind.TurnResult) {
+// total and journals the new total as the turn's result snapshot. sessionID is
+// the runtime session the turn ran in: claude reports a resumed session's cost
+// as its running total (#1744), so a figure of that session that is not below
+// the turn's already holds it and replaces it instead of adding to it.
+func (j *turnJournal) addUsage(r *monomind.TurnResult, sessionID string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.finished {
@@ -374,7 +377,11 @@ func (j *turnJournal) addUsage(r *monomind.TurnResult) {
 		u.OutputTokens, u.HasOutputTokens = u.OutputTokens+r.OutputTokens, true
 	}
 	if r.HasCostUSD {
-		u.CostUSD, u.HasCostUSD = u.CostUSD+r.CostUSD, true
+		total := u.CostUSD + r.CostUSD
+		if j.runtimeID == "claude" && r.SessionID == sessionID && r.CostUSD >= u.CostUSD {
+			total = r.CostUSD
+		}
+		u.CostUSD, u.HasCostUSD = total, true
 		j.usageLocked("result")
 	}
 }
