@@ -8,7 +8,8 @@ import { mono, label, hint, errText, okText, input, testError, hostOf, isThisCom
 // when the name field is empty or still the last preset's). The key is sent
 // once, on Add, and the field is cleared when the provider is saved. A key is
 // required unless the base URL is on this computer (the CLI refuses a keyless
-// provider on another host). A name that is already saved asks first: the
+// provider on another host), and always for a kind in KEYED_KINDS (the CLI
+// refuses those without one anywhere). A name that is already saved asks first: the
 // binding then passes --yes, the consent `jev provider add` asks for when the
 // host, or an in-use provider's kind, URL or key, changes.
 export const PRESETS = [
@@ -20,8 +21,12 @@ export const PRESETS = [
   { id: 'lmstudio', kind: 'openai', base: 'http://localhost:1234/v1', name: 'lmstudio', local: true },
   { id: 'anthropic', kind: 'anthropic', base: 'https://api.anthropic.com', model: 'claude-3-5-haiku-latest', name: 'anthropic', needsKey: true },
   { id: 'hf', kind: 'hf-zeroshot', base: '', name: 'hf-zeroshot' },
+  { id: 'openaiDecisions', kind: 'openai-decisions', base: 'https://api.openai.com', model: 'gpt-6-luna', name: 'openai-decisions', needsKey: true },
+  { id: 'geminiDecisions', kind: 'gemini-decisions', base: 'https://generativelanguage.googleapis.com', model: 'gemini-decision-1', name: 'gemini-decisions', needsKey: true },
   { id: 'custom', kind: '', base: '', name: '' },
 ]
+
+const KEYED_KINDS = ['openai-decisions', 'gemini-decisions']
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
 
@@ -83,7 +88,8 @@ export default function JevAddProviderForm({ kinds, existing = [], busy, run, re
   const modelPlaceholder = preset.local ? t('settings.jev.providers.modelLocalPlaceholder') : ''
   const usdIn = priceIn.bad ? null : parsePrice(priceIn.v)
   const usdOut = priceOut.bad ? null : parsePrice(priceOut.v)
-  const keyRequired = !isThisComputer(base.trim())
+  const keyedKind = KEYED_KINDS.includes(kind)
+  const keyRequired = keyedKind || !isThisComputer(base.trim())
   const keyMissing = keyRequired && !!base.trim() && !key.trim()
   const valid = NAME_RE.test(name) && !!kind && !!base.trim() && !keyMissing &&
     usdIn != null && usdOut != null
@@ -162,7 +168,7 @@ export default function JevAddProviderForm({ kinds, existing = [], busy, run, re
           aria-required={keyRequired} aria-invalid={keyMissing} aria-describedby={keyMissing ? id('key-hint') : undefined}
           placeholder={keyRequired ? t('settings.jev.providers.keyPlaceholder') : t('settings.jev.providers.keyLocalPlaceholder')}
           onChange={e => setKey(e.target.value)} style={input} />
-        {keyMissing && <span id={id('key-hint')} style={hint}>{t('settings.jev.providers.keyNeeded')}</span>}
+        {keyMissing && <span id={id('key-hint')} style={hint}>{t(keyedKind ? 'settings.jev.providers.keyNeededKind' : 'settings.jev.providers.keyNeeded')}</span>}
       </Field>
       <details data-testid="jev-add-pricing">
         <summary style={{ ...label, cursor: 'pointer' }}>{t('settings.jev.providers.pricing')}</summary>

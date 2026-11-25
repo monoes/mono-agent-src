@@ -800,6 +800,8 @@
           "lmstudio": "LM Studio en este ordenador",
           "anthropic": "Anthropic",
           "hf": "Hugging Face zero-shot",
+          "openaiDecisions": "API de decisiones de OpenAI",
+          "geminiDecisions": "API de decisiones de Gemini",
           "custom": "Personalizado"
         },
         "name": "Nombre",
@@ -848,6 +850,7 @@
         "switchDynorg": "Los chats de coder de organización dinámica que piden a Jev que asigne a sus trabajadores (superficie dynorg), en todos los perfiles que no eligen un proveedor para ella: la tarea y los roles candidatos.",
         "defaultUnusable": "El proveedor predeterminado {{name}} no se puede usar: {{error}}",
         "keyNeeded": "Un proveedor en otro servidor necesita una clave. Solo un servidor en este ordenador (localhost, 127.0.0.1 o [::1]) puede ir sin clave.",
+        "keyNeededKind": "Este tipo de proveedor siempre necesita una clave.",
         "replaceTitle": "Reemplazar el proveedor {{name}}",
         "replaceMoved": "Reemplazar el proveedor {{name}}: su servidor cambia de {{from}} a {{to}}. A partir de ahora su clave y los datos de todo lo que lo usa van a {{to}}.",
         "replaceSameHost": "¿Reemplazar el proveedor {{name}}? El tipo, la URL base, el modelo y la clave de este formulario sustituyen a los suyos para todo lo que lo usa; sigue enviando a {{host}}.",

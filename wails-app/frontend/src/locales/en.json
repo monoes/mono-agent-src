@@ -800,6 +800,8 @@
           "lmstudio": "LM Studio on this computer",
           "anthropic": "Anthropic",
           "hf": "Hugging Face zero-shot",
+          "openaiDecisions": "OpenAI Decisions API",
+          "geminiDecisions": "Gemini Decisions API",
           "custom": "Custom"
         },
         "name": "Name",
@@ -848,6 +850,7 @@
         "switchDynorg": "Dynamic-org coder chats that ask Jev to staff their workers (surface dynorg), in every profile that does not choose a provider for it: the task and the candidate roles.",
         "defaultUnusable": "The default provider {{name}} cannot be used: {{error}}",
         "keyNeeded": "A provider on another host needs a key. Only a server on this computer (localhost, 127.0.0.1 or [::1]) may be keyless.",
+        "keyNeededKind": "This kind of provider always needs a key.",
         "replaceTitle": "Replace provider {{name}}",
         "replaceMoved": "Replace provider {{name}}: its host changes from {{from}} to {{to}}. From now on its key and the data of everything that uses it go to {{to}}.",
         "replaceSameHost": "Replace provider {{name}}? This form's kind, base URL, model and key replace its own for everything that uses it; it still sends to {{host}}.",
