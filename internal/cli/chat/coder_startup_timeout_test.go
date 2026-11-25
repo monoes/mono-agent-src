@@ -52,12 +52,19 @@ func TestCoderStartupTimeoutSetting(t *testing.T) {
 	check(status("status"), "3m0s", "4m0s", "env")
 	t.Setenv(monomind.StartupTimeoutEnv, "")
 
-	for _, bad := range []string{"", "-1s", "500ms", "soon"} {
+	// "3mins" and "3 min" are not read as 3 seconds, nor a bare number as seconds.
+	for _, bad := range []string{"", "-1s", "-90", "500ms", "soon", "3mins", "3 min", "90", "1e3", "3m!"} {
 		if out, code := runCoderCLI(t, dbPath, "set", "--startup-timeout="+bad); code != 3 {
 			t.Errorf("--startup-timeout=%q accepted (exit %d): %s", bad, code, out)
 		}
 	}
 	check(status("status"), "3m0s", "3m0s", "set")
+	check(status("set", "--startup-timeout", "700h"), "1h0m0s", "1h0m0s", "set") // monomind's timer overflows far above it
+	t.Setenv(monomind.StartupTimeoutEnv, "3mins")
+	check(status("status"), "1h0m0s", "1h0m0s", "set") // an unreadable override is none
+	t.Setenv(monomind.StartupTimeoutEnv, "")
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, StartupTimeout: "3 min"})
+	check(status("status"), "3 min", "2m0s", "default") // so is an unreadable stored value
 	check(status("set", "--startup-timeout", "0"), "", "2m0s", "default")
 }
 
