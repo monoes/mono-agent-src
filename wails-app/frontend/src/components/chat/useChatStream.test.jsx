@@ -321,7 +321,7 @@ describe('reduceTurnEvents', () => {
   it('returns the untouched initial state for an empty event list', () => {
     expect(reduceTurnEvents([])).toEqual({
       scope: null, parts: [], calls: {}, notices: [], usage: null, session: null,
-      terminal: null, sandbox: null, stage: null, agents: {}, agentCalls: {}, missions: [], startedAt: null, lastEventAt: null, lastSeq: 0,
+      terminal: null, sandbox: null, stage: null, agents: {}, agentCalls: {}, missions: [], surfaces: [], surfaceLog: [], startedAt: null, lastEventAt: null, lastSeq: 0,
     })
   })
 })

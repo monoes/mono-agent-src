@@ -94,6 +94,22 @@ export const TOPICS = [
     danger: { level: 3, quip: 'Auto-approve means a polite wrong guess goes out as you. Review what it decided at least once.' },
   },
   {
+    id: 'cards',
+    emoji: '🃏',
+    title: 'Interactive cards in chat',
+    blurb: 'Buttons, forms and approvals right inside a chat.',
+    quip: 'A card is a chat message that grew buttons. Read it before you press them.',
+    steps: [
+      step('Some chats show cards: small panels with text, fields and buttons. A team chat can show them for a form, a choice, a question from a team member, or a mission\'s plan, progress and report. Any chat you have open in this app also shows the approvals waiting in its profile.', go('communications')),
+      step('A card marked "from monoagent" was built by monoagent from a real record: a pending approval, a team member\'s question or a mission. A card marked "from agent" was written by the AI.', go('communications')),
+      step('Only "from monoagent" cards can approve or reject. An agent can write any label on its own button, "Approve" included, but pressing it only tells the agent what you pressed. It approves nothing.', go('communications')),
+      step('On an approval card, Approve and Reject run the same commands as monoagentcli hil approve and hil reject, including your edits to its fields. Approving a send sends it for real. Mission cards run task session approve, stop or close; Edit plan sends a chat message asking to change the plan.', go('tasks')),
+      step('A button on an agent card answers the question that agent is waiting on. Otherwise your press is sent as your next chat message, after the current turn if one is running; only your latest press is held. If a press is refused, you are told why.', go('communications')),
+      step('An approval card for something already decided turns into a note with no buttons: after you press it, or, if you decided elsewhere, at the next check. The app checks about every 10 seconds while the chat is open and its window is focused.', go('communications')),
+      step('A card may shorten long read-only details. An approval with too much editable text, or one more than a chat can hold, gets no card; decide it in Communications. From a terminal, monoagentcli chat ui show <conversation> --profile <name> prints a chat\'s open cards as text and changes nothing.', go('communications')),
+    ],
+  },
+  {
     id: 'orgs',
     emoji: '🏢',
     title: 'Orgs',

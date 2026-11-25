@@ -294,6 +294,10 @@ export function GetChatConversationRecord(arg1:string):Promise<main.ChatConversa
 
 export function GetChatEvents(arg1:string,arg2:string,arg3:number,arg4:number):Promise<string>;
 
+export function ChatUIAction(arg1:string,arg2:string):Promise<string>;
+
+export function ChatUISyncHIL(arg1:string):Promise<string>;
+
 export function GetChatMissionToggle(arg1:string):Promise<string>;
 
 export function GetChatModeOptions(arg1:string):Promise<string>;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, notify, onChatEvent } from '../../services/api.js'
+import { isJournalTurn } from '../../lib/a2uiModel.js'
 import { useChatStream, loadTurnState } from '../chat/useChatStream.js'
 import { initialChatState } from '../chat/chatReducer.js'
 import { newTurnId } from '../chat/turnIds.js'
@@ -79,7 +80,8 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
         if (state) built.push({ role: 'turn', turnId: turn.id, state, ownedByThisInstance: turn.ownedByThisInstance !== false })
       }
       if (cancelled) return
-      setMessages(built)
+      // A journal turn refreshUI read while this was loading stays.
+      setMessages(prev => [...built, ...prev.filter(m => isJournalTurn(m.turnId) && !built.some(b => b.turnId === m.turnId) && m.conversationId === conversationId)])
       setActiveTurnId(running)
     }).catch(err => {
       if (!cancelled) setLoadError(String(err?.message || err))
@@ -197,5 +199,32 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     return true
   }, [])
 
-  return { reset, addSystemNotice, messages, announcement, liveTurn, activeTurnId, streaming: !!activeTurnId, stopRequested, loading, loadError, send, stop, conversationId: convId }
+  // refreshUI reads the journal turns the CLI wrote beside the conversation
+  // (a button press, a synced or settled approval card): no event stream
+  // carries them. Only turns not shown yet are added.
+  const shownRef = useRef(messages)
+  shownRef.current = messages
+  const convRef = useRef(convId)
+  convRef.current = convId
+  const refreshUI = useCallback(async () => {
+    const id = convRef.current
+    if (!id) return
+    try {
+      const res = await api.getChatTurns(id, '', 50)
+      const fresh = (Array.isArray(res?.items) ? res.items : []).slice().reverse()
+        .filter(turn => isJournalTurn(turn.id) && !shownRef.current.some(m => m.turnId === turn.id))
+      const added = []
+      for (const turn of fresh) {
+        // eslint-disable-next-line no-await-in-loop
+        const state = await loadTurnState(id, turn)
+        if (state) added.push({ role: 'turn', turnId: turn.id, conversationId: id, state, ownedByThisInstance: true })
+      }
+      if (!added.length || convRef.current !== id) return
+      setMessages(msgs => [...msgs, ...added.filter(a => !msgs.some(m => m.turnId === a.turnId))])
+    } catch (e) {
+      console.warn('a2ui: reading journal turns failed', e)
+    }
+  }, [])
+
+  return { refreshUI, reset, addSystemNotice, messages, announcement, liveTurn, activeTurnId, streaming: !!activeTurnId, stopRequested, loading, loadError, send, stop, conversationId: convId }
 }

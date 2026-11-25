@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { AlertTriangle, Info, AlertCircle, Loader, FolderOpen } from 'lucide-react'
 import { ChatMarkdown } from './ChatMarkdown.jsx'
 import { ToolActivityCard } from './ToolActivityCard.jsx'
@@ -5,6 +6,7 @@ import { CoderBackgroundBanner } from './CoderBackgroundBanner.jsx'
 import { SandboxBadge } from './SandboxBadge.jsx'
 import { AgentRow } from './AgentRow.jsx'
 import { ChatBlocksScope } from './blocks/context.js'
+import { A2UISurface } from '../a2ui/A2UISurface.jsx'
 
 const NOTICE_ICON = {
   info: Info,
@@ -50,12 +52,21 @@ function NoticeBanner({ notice }) {
 //
 // onNavigate (the app's navigate) lets a tool card that ran monoagentcli on
 // one of the app's tabs link to it (#473).
+// onA2UIAction(actionEnvelope): CALL SITE for a pressed A2UI button. The
+// envelope is the v1.0 {version, action:{name,surfaceId,sourceComponentId,
+// timestamp,context}} object; the chat view will pass a Wails binding here
+// (CoderChatView passes useA2UIActions). surfaces: this turn's cards after the
+// conversation-wide fold (default: the turn's own). Default: the renderer logs it.
 // entityLinks: false when the view already shows result cards (the coder
 // chat's artifact cards), so a card does not also link its entity.
-export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate, entityLinks = true }) {
+export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate, entityLinks = true, onA2UIAction, surfaces: conversationSurfaces }) {
   const { parts, calls } = state
   const notices = state.notices || []
-  if (parts.length === 0 && notices.length === 0 && !state.sandbox) return null
+  const surfaces = agentFilter && agentFilter !== 'lead' ? [] : (conversationSurfaces || state.surfaces || [])
+  if (parts.length === 0 && notices.length === 0 && !state.sandbox && surfaces.length === 0) return null
+  const surfacesAt = (i, last) => surfaces.filter(sf => (last ? sf.partIndex >= i : sf.partIndex === i)).map(sf => (
+    <A2UISurface key={`a2ui-${sf.surfaceId}`} surface={sf} onAction={onA2UIAction} />
+  ))
 
   const childrenOf = {}
   for (const part of parts) {
@@ -102,7 +113,7 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
           {readyNote}
         </div>
       )}
-      {parts.map((part, i) => {
+      {parts.map((part, i) => <Fragment key={`p-${i}`}>{surfacesAt(i, false)}{(() => {
         if (agentFilter && (part.kind === 'agent' ? agentFilter === 'lead' || part.agentId !== agentFilter : agentFilter !== 'lead')) return null
         if (part.kind === 'text') {
           return part.text ? (
@@ -115,7 +126,8 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
         const call = calls[part.callId]
         if (!call || childrenOf[call.parentCallId]) return null
         return renderCall(call)
-      })}
+      })()}</Fragment>)}
+      {surfacesAt(parts.length, true)}
       {showStatus && (
         <div data-testid="coder-status-line" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
           <Loader size={10} className="chat-spin" style={{ color: '#00b4d8' }} />

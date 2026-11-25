@@ -3596,5 +3596,35 @@
     "curlImporting": "Importando…",
     "curlImport": "Importar (reemplaza los ajustes de la solicitud)",
     "curlCancel": "Cancelar"
+  },
+  "a2ui": {
+    "fromSystem": "de monoagent",
+    "fromAgent": "del agente",
+    "done": "hecho",
+    "unsupported": "componente no compatible",
+    "truncated": "Tarjeta recortada: demasiado grande para mostrarla entera.",
+    "failed": "No se pudo mostrar esta tarjeta.",
+    "textField": "Campo de texto",
+    "checkBox": "Casilla",
+    "chooseOne": "Elige una opción",
+    "chooseAny": "Elige las que quieras",
+    "filterOptions": "Filtrar opciones",
+    "optionsShown": "{{shown}} de {{total}} opciones visibles",
+    "noOptions": "Ninguna opción coincide.",
+    "progress": "Progreso",
+    "progressValue": "{{value}} de {{max}}",
+    "tone": {
+      "info": "Información",
+      "success": "Correcto",
+      "warning": "Advertencia",
+      "danger": "Alerta"
+    },
+    "lockedSent": "Enviado. Esperando respuesta.",
+    "lockedDone": "Ya respondida. Estos botones están desactivados.",
+    "announceDone": "Tarjeta respondida: {{title}}",
+    "announceUpdated": "Tarjeta actualizada: {{title}}",
+    "stale": "Esa tarjeta ya no está abierta.",
+    "rejected": "Se rechazó esa acción.",
+    "queued": "Tu elección está en cola y se enviará cuando termine el turno actual."
   }
 }

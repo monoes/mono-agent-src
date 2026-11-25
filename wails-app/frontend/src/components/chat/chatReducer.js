@@ -5,6 +5,7 @@
 // ascending-sequence order. Kept pure so it is directly unit-testable
 // without mocking Wails.
 import { stageReducer } from '../../lib/orgStage.js'
+import { applySurfaceEvent, applyActionEvent } from '../../lib/a2uiModel.js'
 
 export function initialChatState() {
   return {
@@ -18,6 +19,8 @@ export function initialChatState() {
     sandbox: null,           // the CLI's monomind.SandboxStatus* verdict ('sandboxed', 'scoped', …); null = none asked for
     stage: null,             // the org stage (#228, lib/orgStage.js); null until an event it uses
     missions: [],            // mission.propose / mission.plan / mission.report events: [{type, payload, at}]
+    surfaces: [],            // ui.surface/ui.action (A2UI): folded surfaces, see lib/a2uiModel.js; partIndex = parts.length at creation
+    surfaceLog: [],          // the turn's ui.surface/ui.action events, for the conversation-wide fold (a later turn can change an earlier card)
     agents: {},              // dynamic org (#226): agentId -> { role, runtime, model, access, status, brief, report, tools, lastTool, … }
     agentCalls: {},          // their tool calls, callId -> call (the org stage's drawer shows them)
     startedAt: null,          // turn.started's "at", for local elapsed-time display
@@ -205,6 +208,18 @@ function eventPatch(state, ev) {
     case 'mission.plan':
     case 'mission.report':
       return { missions: [...(state.missions || []), { type: ev.type, payload, at: ev.at }] }
+
+    case 'ui.surface':
+      return {
+        surfaces: applySurfaceEvent(state.surfaces || [], payload, ev.seq, state.parts.length),
+        surfaceLog: [...(state.surfaceLog || []), { type: 'surface', payload, at: ev.at, partIndex: state.parts.length }],
+      }
+
+    case 'ui.action':
+      return {
+        surfaces: applyActionEvent(state.surfaces || [], payload),
+        surfaceLog: [...(state.surfaceLog || []), { type: 'action', payload, at: ev.at, partIndex: state.parts.length }],
+      }
 
     case 'turn.finished':
       return {

@@ -3596,5 +3596,35 @@
     "curlImporting": "Importing…",
     "curlImport": "Import (replaces the request settings)",
     "curlCancel": "Cancel"
+  },
+  "a2ui": {
+    "fromSystem": "from monoagent",
+    "fromAgent": "from agent",
+    "done": "done",
+    "unsupported": "unsupported component",
+    "truncated": "Card truncated: too large to show in full.",
+    "failed": "This card could not be displayed.",
+    "textField": "Text field",
+    "checkBox": "Checkbox",
+    "chooseOne": "Choose one",
+    "chooseAny": "Choose any",
+    "filterOptions": "Filter options",
+    "optionsShown": "{{shown}} of {{total}} options shown",
+    "noOptions": "No options match.",
+    "progress": "Progress",
+    "progressValue": "{{value}} of {{max}}",
+    "tone": {
+      "info": "Info",
+      "success": "Success",
+      "warning": "Warning",
+      "danger": "Alert"
+    },
+    "lockedSent": "Sent. Waiting for a response.",
+    "lockedDone": "Already answered. These buttons are off.",
+    "announceDone": "Card answered: {{title}}",
+    "announceUpdated": "Card updated: {{title}}",
+    "stale": "That card is no longer open.",
+    "rejected": "That action was refused.",
+    "queued": "Your choice is queued and will be sent when the current turn ends."
   }
 }

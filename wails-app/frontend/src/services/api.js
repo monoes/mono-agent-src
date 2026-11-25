@@ -258,6 +258,11 @@ export const api = {
     GoApp.StopChatAgent(conversationID, turnID, agentID).then(parseStreamResult),
   listChatConversations: (cursor = '', limit = 50) =>
     GoApp.ListChatConversations(cursor, limit).then(parseStreamResult),
+  // A2UI surfaces: a pressed button's v1.0 envelope, and the HIL items that still need a card. Both run the CLI.
+  chatUIAction: (conversationID, envelope) =>
+    GoApp.ChatUIAction(conversationID, JSON.stringify(envelope)).then(parseStreamResult),
+  chatUISyncHIL: (conversationID) =>
+    GoApp.ChatUISyncHIL(conversationID).then(parseStreamResult),
   getChatTurns: (conversationID, cursor = '', limit = 50) =>
     GoApp.GetChatTurns(conversationID, cursor, limit).then(parseStreamResult),
   getChatEvents: (conversationID, turnID, afterSeq = 0, limit = 200) =>
