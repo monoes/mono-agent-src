@@ -440,3 +440,30 @@ test("bad pictures are refused before anything is asked, and free the profile", 
   assert.deepEqual(t.calls, []);
   assert.equal((await t.send({ type: "chat_send", message: "hi" })).ok, true, "the profile is free");
 });
+
+test("chat_ui_action maps the panel's message to chat.ui_action and returns the document", async () => {
+  const action = { version: "1.0", action: { name: "submit_form", surfaceId: "s1", sourceComponentId: "ok", context: {} } };
+  const t = setup({ reply: async () => ({ outcome: "accepted", delivered: "next_turn", message: "hi" }) });
+  const r = await t.send({ type: "chat_ui_action", profile: "p-work", conversationId: "c-1", action });
+  assert.deepEqual(t.calls[0].method, "chat.ui_action");
+  assert.deepEqual(t.calls[0].params, { conversation: "c-1", action, profile: "p-work" });
+  assert.deepEqual([r.ok, r.outcome, r.delivered, r.message], [true, "accepted", "next_turn", "hi"]);
+  assert.equal((await t.send({ type: "chat_ui_action", profile: "p-work", action })).ok, false, "no conversation");
+  assert.equal((await t.send({ type: "chat_ui_action", profile: "p-work", conversationId: "c-1" })).ok, false, "no action");
+  assert.equal(t.calls.length, 1);
+});
+
+test("chat_ui_sync maps to chat.ui_sync", async () => {
+  const t = setup({ reply: async () => ({ surfaced: ["hil-1"], resolved: [] }) });
+  const r = await t.send({ type: "chat_ui_sync", profile: "p-work", conversationId: "c-1" });
+  assert.deepEqual(t.calls[0], { method: "chat.ui_sync", params: { conversation: "c-1", profile: "p-work" }, opts: t.calls[0].opts });
+  assert.deepEqual([r.ok, r.surfaced], [true, ["hil-1"]]);
+});
+
+test("chat_ui_journal asks for unseen turns and keeps each event's turn and time", async () => {
+  const t = setup({ reply: async () => ({ turns: [{ turn: "uisurface-a", events: [{ seq: 1, type: "ui.surface", at: "2026-01-01T00:00:00Z", payload: { surfaceId: "s" } }] }], more: false }) });
+  const r = await t.send({ type: "chat_ui_journal", profile: "p-work", conversationId: "c-1", seen: ["uiaction-b", 5] });
+  assert.deepEqual(t.calls[0].method, "chat.ui_journal");
+  assert.deepEqual(t.calls[0].params, { conversation: "c-1", seen: ["uiaction-b"], profile: "p-work" });
+  assert.deepEqual([r.ok, r.turns[0].events[0].turn, r.turns[0].events[0].at], [true, "uisurface-a", "2026-01-01T00:00:00Z"]);
+});

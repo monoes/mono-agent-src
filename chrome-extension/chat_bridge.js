@@ -15,6 +15,9 @@
  *   chat_send          {data}     {conversation, turn, text} when the turn ends;
  *                      `images` ([{mime,data}], chat_look.js) go with it, re-checked here
  *   chat_stop, chat_events
+ *   chat_ui_action     {conversationId, action}  an A2UI button press -> chat.ui_action -> {ok, outcome, delivered?, message?, reason?}
+ *   chat_ui_sync       {conversationId}          surface/resolve pending approvals -> chat.ui_sync -> {ok, surfaced, resolved}
+ *   chat_ui_journal    {conversationId, seen}    cards written outside a running turn -> chat.ui_journal -> {ok, turns, more}
  *
  * Runtime and model are the side panel's "AI for summaries" choice
  * (summary_ai.js), read from storage here so the panel and the right-click
@@ -333,6 +336,29 @@
       const turn = data && data.turn !== undefined && data.turn !== null ? String(data.turn) : "";
       return { ok: true, turn, events: Core().normalizeEvents(data && data.events, turn), turn_active: !!(data && data.turn_active) };
     },
+  };
+
+  // A2UI surfaces (a2ui_render.js): the press of a button, and the approvals waiting in the conversation.
+  const uiCall = async (method, msg, extra) => {
+    const conversation = String(msg.conversationId || msg.conversation || "");
+    if (!conversation) throw new Error("there is no conversation");
+    const params = Object.assign({ conversation }, extra);
+    const data = await root.MonoAsk.request(method, withProfile(params, profileOf(msg)), { timeoutMs: 20000, idleTimeoutMs: 20000 });
+    return Object.assign({}, data && typeof data === "object" ? data : {}, { ok: true });
+  };
+  handlers.chat_ui_action = (msg) => {
+    if (!msg.action || typeof msg.action !== "object") return Promise.reject(new Error("there is no action to send"));
+    return uiCall("chat.ui_action", msg, { action: msg.action });
+  };
+  handlers.chat_ui_sync = (msg) => uiCall("chat.ui_sync", msg, {});
+  handlers.chat_ui_journal = async (msg) => {
+    const seen = (Array.isArray(msg.seen) ? msg.seen : []).filter((id) => typeof id === "string").slice(-200);
+    const r = await uiCall("chat.ui_journal", msg, { seen });
+    const turns = (Array.isArray(r.turns) ? r.turns : []).map((t) => {
+      const turn = String((t && t.turn) || "");
+      return { turn, events: Core().normalizeEvents(t && t.events, turn) };
+    });
+    return { ok: true, turns: turns.filter((t) => t.turn), more: !!r.more };
   };
 
   root.MonoChat = { install, readPage, handlers };

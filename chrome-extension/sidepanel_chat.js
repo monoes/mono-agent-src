@@ -80,6 +80,117 @@
   let pending = [];
   const nodes = new Map(); // message id -> { root, sig }
 
+  // A2UI surfaces (a2ui_render.js) ride the chat as ui.surface / ui.action events. Without
+  // the scripts, or without such an event, none of this does anything.
+  const A2 = globalThis.MonoA2UIModel && globalThis.MonoA2UIRender && globalThis.MonoA2UIRender.timeline ? globalThis.MonoA2UIRender : null;
+  const onUiAction = (envelope) => pressSurface(envelope);
+  const ui = A2 ? A2.timeline(document, { onAction: onUiAction }) : null;
+  const uiKey = () => `chatUi:${profile || "_"}`;
+  const uiSave = () => (ui && ui.has() ? chrome.storage.local.set({ [uiKey()]: ui.dump(chat.conversation) }) : Promise.resolve());
+  const lastMessageId = () => (chat.messages.length ? chat.messages[chat.messages.length - 1].id : "");
+  /** uiFeed hands a ui.* event to the surfaces, after the chat state took it (so chat.turn is known). */
+  function uiFeed(ev) {
+    if (!ui || !ev || (ev.type !== "ui.surface" && ev.type !== "ui.action")) return false;
+    return ui.ingest(Object.assign({}, ev, { turn: ev.turn || chat.turn }), lastMessageId());
+  }
+  // Messages a surface press asked to send as the next user message while a reply was still running: they go out, in order, when it ends.
+  const uiQueue = [];
+  const UI_QUEUE_MAX = 5;
+
+  /** pressSurface sends a button press to the backend and acts on the answer. */
+  async function pressSurface(envelope) {
+    const act = envelope && envelope.action;
+    if (!ui || !act || !chat.conversation) return;
+    const sid = act.surfaceId;
+    {
+      const r = await ask({ type: "chat_ui_action", profile, conversationId: chat.conversation, action: envelope });
+      if (!r || r.ok === false) {
+        ui.setNote(sid, `${act.name}: ${(r && r.error) || "could not be sent"}`);
+      } else if (r.outcome === "rejected" || r.outcome === "stale") {
+        ui.setNote(sid, `${act.name}: ${r.outcome}${r.reason ? ` (${r.reason})` : ""}`);
+      } else {
+        ui.setNote(sid, "");
+        if (r.delivered === "next_turn" && typeof r.message === "string" && r.message) {
+          if (!busy()) await send(r.message, false, { noPage: true, images: [] });
+          else if (uiQueue.length < UI_QUEUE_MAX) uiQueue.push(r.message);
+        } else sync(); // an answer to an open question: the turn goes on, pick up what it says
+      }
+    }
+    await uiJournal(); // the press, and what it changed, are journal turns
+    save();
+    draw();
+  }
+
+  /**
+   * uiJournal reads the cards written outside a running turn (sync-hil, a press):
+   * finished turns of their own that never stream. They go to the surfaces only,
+   * never into the transcript's turn and seq.
+   */
+  let uiReading = false;
+  async function uiJournal() {
+    if (!ui || uiReading || !chat.conversation) return;
+    uiReading = true;
+    const mine = loadSeq;
+    try {
+      for (let more = true, rounds = 0; more && rounds < 10; rounds++) {
+        const r = await ask({ type: "chat_ui_journal", profile, conversationId: chat.conversation, seen: ui.journalSeen() });
+        if (mine !== loadSeq || !r || r.ok === false) return;
+        let changed = false;
+        for (const t of r.turns || []) {
+          for (const ev of t.events) if (uiFeed(Object.assign({}, ev, { turn: t.turn }))) changed = true;
+          ui.markJournal(t.turn);
+        }
+        if (changed) {
+          save();
+          draw();
+        }
+        more = !!r.more && (r.turns || []).length > 0;
+      }
+    } finally {
+      uiReading = false;
+    }
+  }
+
+  /** flushUiQueue sends the next queued press message once nothing is running. */
+  function flushUiQueue() {
+    if (uiQueue.length && !busy() && availability === "ready") send(uiQueue.shift(), false, { noPage: true, images: [] });
+  }
+
+  // Approvals waiting in this conversation become surfaces, answered ones resolve: asked when the chat opens
+  // and every 10 s while the panel is visible, one call at a time.
+  const UI_SYNC_MS = 10000;
+  let uiSyncTimer = null;
+  let uiSyncing = false;
+  const panelVisible = () => document.visibilityState !== "hidden";
+  async function uiSyncTick() {
+    if (!ui || uiSyncing || !panelVisible() || availability !== "ready" || !chat.conversation || active) return;
+    uiSyncing = true;
+    const mine = loadSeq;
+    try {
+      await ask({ type: "chat_ui_sync", profile, conversationId: chat.conversation });
+      // Read even when this sync changed nothing: the desktop app writes journal turns too.
+      if (mine === loadSeq) await uiJournal();
+    } finally {
+      uiSyncing = false;
+    }
+  }
+  function uiSyncStart() {
+    if (!ui || uiSyncTimer) return;
+    uiSyncTick();
+    uiSyncTimer = setInterval(uiSyncTick, UI_SYNC_MS);
+  }
+  function uiSyncStop() {
+    clearInterval(uiSyncTimer);
+    uiSyncTimer = null;
+  }
+  document.addEventListener("visibilitychange", () => (panelVisible() ? uiSyncStart() : uiSyncStop()));
+
+  async function uiLoad() {
+    if (!ui) return;
+    const got = await chrome.storage.local.get(uiKey());
+    ui.restore(got && got[uiKey()], chat.conversation);
+  }
+
   const currentProfile = () => (typeof profiles !== "undefined" && profiles && profiles.current ? profiles.current.id || "" : "");
   const pageNow = () => (typeof page !== "undefined" && page ? page : null);
   const pageShareable = () => {
@@ -152,8 +263,12 @@
         nodes.delete(id);
       }
     }
-    // `empty` is always the first child; messages follow it in order.
-    let cursor = empty.nextSibling;
+    // `empty` is always the first child; messages follow it in order. Surface slots sit between them and are not ours to move.
+    const skip = (c) => {
+      while (c && c.dataset && c.dataset.a2ui) c = c.nextSibling;
+      return c;
+    };
+    let cursor = skip(empty.nextSibling);
     for (const m of chat.messages) {
       let n = nodes.get(m.id);
       const sig = signature(m);
@@ -168,10 +283,11 @@
         n = { root: fresh, sig };
         nodes.set(m.id, n);
       }
-      if (cursor === n.root) cursor = cursor.nextSibling;
+      if (cursor === n.root) cursor = skip(cursor.nextSibling);
       else log.insertBefore(n.root, cursor);
     }
-    empty.hidden = chat.messages.length > 0;
+    if (ui) ui.place(log, empty, (id) => (nodes.get(id) ? nodes.get(id).root : null));
+    empty.hidden = chat.messages.length > 0 || (!!ui && ui.has());
     log.setAttribute("aria-busy", busy() ? "true" : "false");
     if (nearBottom) log.scrollTop = log.scrollHeight;
   }
@@ -218,7 +334,7 @@
 
   // ── storage and the backend ──────────────────────────────────────
 
-  const save = () => Core.saveState(chrome.storage.local, profile, chat);
+  const save = () => (uiSave(), Core.saveState(chrome.storage.local, profile, chat));
 
   // What a click on a card does; the recording cards follow the Record section.
   const record = globalThis.MonoPanelRecord || null;
@@ -228,7 +344,10 @@
   /** applyAll folds events in and tells whether anything changed. */
   function applyAll(events) {
     let changed = false;
-    for (const ev of events) if (Core.applyEvent(chat, ev)) changed = true;
+    for (const ev of events) {
+      if (Core.applyEvent(chat, ev)) changed = true;
+      if (uiFeed(ev)) changed = true;
+    }
     return changed;
   }
 
@@ -255,6 +374,7 @@
       save();
     }
     draw();
+    if (!remote) flushUiQueue();
     clearTimeout(pollTimer);
     if (remote) pollTimer = setTimeout(sync, POLL_MS);
   }
@@ -266,6 +386,8 @@
     active = null;
     remote = false;
     chat = await Core.loadState(chrome.storage.local, profile);
+    if (mine !== loadSeq) return;
+    await uiLoad();
     if (mine !== loadSeq) return;
     // Only a conversation's first message shares the page by default, and a
     // first message whose reply failed was never read: its retry shares it too.
@@ -289,7 +411,10 @@
     }
     availability = ready.state || "offline";
     draw();
-    if (availability === "ready") await sync();
+    if (availability === "ready") {
+      await sync();
+      if (panelVisible()) uiSyncStart();
+    }
   }
 
   // ── sending ──────────────────────────────────────────────────────
@@ -442,6 +567,7 @@
     // The turn may have outlived this request (the worker slept, the socket
     // dropped): ask the backend where it stands.
     if (!answer.ok && chat.conversation) sync();
+    flushUiQueue();
     return answer.ok ? { sent: true } : { sent: false, error: describeFailure(answer) };
   }
 
@@ -507,7 +633,12 @@
   async function newChat() {
     if (busy()) return;
     ++loadSeq;
+    uiQueue.length = 0;
     chat = Core.newState(null);
+    if (ui) {
+      ui.reset();
+      chrome.storage.local.remove(uiKey());
+    }
     usePage = true; // a new conversation shares its first page
     refusal = "";
     pending = [];
@@ -524,7 +655,12 @@
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || msg.type !== "chat_progress" || !active || msg.tag !== active.tag) return;
     const ev = Core.parseProgress(msg.progress);
-    if (ev && Core.applyEvent(chat, ev)) draw();
+    if (!ev) return;
+    const changed = Core.applyEvent(chat, ev);
+    if (uiFeed(ev)) {
+      save();
+      draw();
+    } else if (changed) draw();
   });
 
   input.addEventListener("keydown", (event) => {

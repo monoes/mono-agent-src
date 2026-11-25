@@ -1,0 +1,303 @@
+/**
+ * MonoAgent — A2UI surfaces in the chat (a2ui_render.js). Built from the
+ * panel's tokens (sidepanel.css); narrow-width first: everything wraps and
+ * nothing is wider than the log.
+ */
+
+.chat-msg.a2ui-slot {
+  align-self: stretch;
+  max-width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.a2ui,
+.a2ui * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.a2ui {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.a2ui-from {
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+}
+
+.a2ui-note,
+.a2ui-status {
+  margin-top: var(--sp-2);
+  font-size: var(--t-xs);
+  color: var(--warn);
+}
+
+.a2ui-status {
+  margin-top: 0;
+  color: var(--ink-2);
+}
+
+/* Empty live regions stay in the accessibility tree; they only take no room. */
+.a2ui-note:empty {
+  margin: 0;
+}
+
+/* Inside the card's column, whose gap it would otherwise add. */
+.a2ui-status:empty {
+  margin: calc(-1 * var(--sp-2)) 0 0;
+}
+
+.a2ui-muted {
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+/* Two classes: .chat-msg p (sidepanel_chat.css) would otherwise add paragraph margins. */
+.a2ui .a2ui-text {
+  margin: 0;
+  font-size: var(--t-base);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.a2ui .a2ui-caption {
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+}
+
+.a2ui-row,
+.a2ui-col {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.a2ui-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.a2ui-col {
+  flex-direction: column;
+}
+
+.a2ui-card {
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.a2ui-error {
+  color: var(--err);
+  background: var(--err-wash);
+}
+
+.a2ui-divider {
+  margin: var(--sp-1) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.a2ui-divider.a2ui-vertical {
+  align-self: stretch;
+  border-top: 0;
+  border-left: 1px solid var(--line);
+}
+
+.a2ui-btn {
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-base);
+  cursor: pointer;
+}
+
+.a2ui-btn .a2ui-text {
+  white-space: normal;
+}
+
+.a2ui-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.a2ui-btn[aria-disabled="true"] {
+  border-style: dashed;
+  opacity: 0.65;
+  cursor: default;
+}
+
+.a2ui-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.a2ui-btn-borderless {
+  border-color: transparent;
+  background: none;
+  color: var(--accent-ink);
+}
+
+.a2ui-btn-danger {
+  background: var(--err-wash);
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.a2ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.a2ui-checkrow,
+.a2ui-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* The box comes first on screen: a CheckBox has its label first in the DOM, a choice its input. */
+.a2ui-checkrow {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.a2ui-label {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.a2ui-input {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-base);
+}
+
+textarea.a2ui-input {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.a2ui-input:focus-visible,
+.a2ui-check:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.a2ui-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.a2ui-legend {
+  margin-bottom: var(--sp-1);
+  padding: 0;
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+}
+
+.a2ui-chips .a2ui-choice {
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+
+.a2ui-chips .a2ui-choice:has(:checked) {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.a2ui-chips .a2ui-choice:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.a2ui-choice[hidden] {
+  display: none;
+}
+
+.a2ui-nomatch:empty {
+  position: absolute;
+}
+
+.a2ui-chips {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.a2ui-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.a2ui-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.a2ui-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.a2ui-mark {
+  margin-right: var(--sp-1);
+  font-weight: 700;
+}
+
+.a2ui-badge {
+  align-self: flex-start;
+  padding: 1px var(--sp-3);
+  border-radius: 999px;
+  font-size: var(--t-xs);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.a2ui-tone-info {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.a2ui-tone-success {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+
+.a2ui-tone-warning {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+
+.a2ui-tone-danger {
+  background: var(--err-wash);
+  color: var(--err);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .a2ui-fill {
+    transition: width 0.2s ease;
+  }
+}
