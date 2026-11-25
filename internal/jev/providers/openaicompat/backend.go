@@ -86,12 +86,6 @@ type Backend struct {
 	mu      sync.Mutex
 	sampled bool // the provider gives no log-probabilities
 	topK    int  // how many alternatives a response carries
-	// completionTokens and noTemperature record a model that refused
-	// max_tokens or temperature (complete).
-	completionTokens, noTemperature bool
-	// largeBudget records a model that spent completionBudget reasoning and
-	// answered nothing: it gets largeCompletionBudget from then on.
-	largeBudget bool
 }
 
 var (
@@ -153,6 +147,10 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 	model := req.Model
 	if model == "" {
 		model = b.model
+	}
+	// A cap an earlier client found on top_logprobs plans this call too.
+	if most := recall(b.base, model).topLogprobs; most > 0 {
+		b.learnK(most, defaultTopK)
 	}
 	var (
 		sampledAny atomic.Bool

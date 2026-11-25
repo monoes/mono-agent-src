@@ -211,9 +211,7 @@ func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse
 		if sent.MaxCompletionTokens == completionBudget && strings.TrimSpace(res.text()) == "" {
 			// The model spent the whole budget reasoning: ask this once more
 			// with the larger one, and keep it. The tokens spent are billed.
-			b.mu.Lock()
-			b.largeBudget = true
-			b.mu.Unlock()
+			remember(b.base, body.Model, func(q *quirks) { q.largeBudget = true })
 			spent.PromptTokens, spent.CompletionTokens = res.Usage.PromptTokens, res.Usage.CompletionTokens
 			continue
 		}
@@ -231,15 +229,14 @@ const (
 
 // adapt shapes body for what the provider refused so far.
 func (b *Backend) adapt(body chatRequest) chatRequest {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.completionTokens && body.MaxTokens > 0 {
+	q := recall(b.base, body.Model)
+	if q.completionTokens && body.MaxTokens > 0 {
 		body.MaxTokens, body.MaxCompletionTokens = 0, completionBudget
-		if b.largeBudget {
+		if q.largeBudget {
 			body.MaxCompletionTokens = largeCompletionBudget
 		}
 	}
-	if b.noTemperature {
+	if q.noTemperature {
 		body.Temperature = nil
 	}
 	return body
@@ -247,7 +244,7 @@ func (b *Backend) adapt(body chatRequest) chatRequest {
 
 // learnRefusal reads the body of a 400 to sent: one that names max_tokens
 // (or max_completion_tokens) or temperature, and not logprobs, switches that
-// parameter off for good and reports true when sent still carried it, so each
+// parameter off (remember) and reports true when sent still carried it, so each
 // request in flight at the refusal is sent again and none for the same
 // parameter twice. A body that names logprobs or top_logprobs, or neither, is
 // left to the caller.
@@ -256,13 +253,11 @@ func (b *Backend) learnRefusal(sent chatRequest, body string) bool {
 	if strings.Contains(s, "logprobs") {
 		return false
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
 	switch {
 	case sent.MaxTokens > 0 && (strings.Contains(s, "max_tokens") || strings.Contains(s, "max_completion_tokens")):
-		b.completionTokens = true
+		remember(b.base, sent.Model, func(q *quirks) { q.completionTokens = true })
 	case sent.Temperature != nil && strings.Contains(s, "temperature"):
-		b.noTemperature = true
+		remember(b.base, sent.Model, func(q *quirks) { q.noTemperature = true })
 	default:
 		return false
 	}

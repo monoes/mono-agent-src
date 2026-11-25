@@ -4551,7 +4551,9 @@ resolver prefix `jev:`.
   `max_tokens` or `temperature` is sent again with `max_completion_tokens`
   (16, then 256 once a model spent all 16 reasoning) and no `temperature`,
   and a 400 on log-probabilities is asked once more with 5 alternatives
-  before the adapter samples. A model whose one token is no option label,
+  before the adapter samples. What a server refused for a model (those two
+  parameters, more than 5 alternatives) is remembered by the process for an
+  hour, for every client of it. A model whose one token is no option label,
   with almost no mass on any, fails with "the model did not answer with a
   single option label; a reasoning/thinking model needs a larger budget or a
   non-thinking variant". The client's retry budget holds
