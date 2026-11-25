@@ -68,12 +68,20 @@ func chatTurnArgv(s ChatTurnSpec) []string {
 
 // run execs the CLI to completion and returns stdout.
 func (b *cliChatBackend) run(ctx context.Context, args ...string) ([]byte, error) {
+	return b.runStdin(ctx, nil, args...)
+}
+
+// runStdin is run with stdin fed to the command (none when nil).
+func (b *cliChatBackend) runStdin(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	bin, err := b.binary()
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.WaitDelay = monomindWaitDelay
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

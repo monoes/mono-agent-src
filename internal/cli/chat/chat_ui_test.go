@@ -67,7 +67,7 @@ func uiPress(name string) string {
 func (r *uiRig) press(t *testing.T, raw string) (UIActionResult, error) {
 	t.Helper()
 	cmd := newChatUIActionCmd(r.cfg, r.sys)
-	cmd.SetArgs([]string{r.conv.ID, "--json", raw})
+	cmd.SetArgs([]string{r.conv.ID, "--action", raw})
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	var err error
 	out := captureStdout(t, func() { err = cmd.Execute() })
@@ -256,7 +256,7 @@ func TestUIActionIsTheUsersAndMalformedInputIsRefusedUnjournaled(t *testing.T) {
 		}
 	}
 	cmd := newChatUIActionCmd(r.cfg, r.sys)
-	cmd.SetArgs([]string{"no-such-conversation", "--json", uiPress("submit_form")})
+	cmd.SetArgs([]string{"no-such-conversation", "--action", uiPress("submit_form")})
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	var err error
 	captureStdout(t, func() { err = cmd.Execute() })

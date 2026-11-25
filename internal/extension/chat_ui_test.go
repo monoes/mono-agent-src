@@ -3,6 +3,8 @@ package extension
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -108,7 +110,8 @@ func TestChatUISync(t *testing.T) {
 }
 
 func TestCLIBackendUIArgv(t *testing.T) {
-	bin, log := fakeCLI(t, `echo '{"outcome":"accepted"}'`)
+	stdin := filepath.Join(t.TempDir(), "stdin")
+	bin, log := fakeCLI(t, `case "$*" in *" ui action "*) cat > '`+stdin+`';; esac; echo '{"outcome":"accepted"}'`)
 	b := &cliChatBackend{bin: bin}
 	out, err := b.UIAction(context.Background(), "p-work", "c1", []byte(`{"version":"1.0"}`))
 	if err != nil || string(out) != `{"outcome":"accepted"}` {
@@ -118,8 +121,11 @@ func TestCLIBackendUIArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := readLog(t, log)
-	if lines[0] != `--profile=p-work chat ui action --json={"version":"1.0"} -- c1` {
+	if lines[0] != "--profile=p-work --json chat ui action --action - -- c1" {
 		t.Fatalf("action argv = %q", lines[0])
+	}
+	if got, err := os.ReadFile(stdin); err != nil || string(got) != `{"version":"1.0"}` {
+		t.Fatalf("action stdin = %q err=%v", got, err)
 	}
 	if lines[1] != "--profile=p-work --json chat ui sync-hil -- c1" {
 		t.Fatalf("sync argv = %q", lines[1])
@@ -137,9 +143,9 @@ func TestCLIBackendUIReadsIndentedOutput(t *testing.T) {
 
 const journalCLI = `
 case "$*" in
-*history\ turns*) echo '{"items":[{"id":"uisurface-b"},{"id":"uiaction-a"},{"id":"ext-t-1"}]}';;
-*uisurface-b*) echo '{"items":[{"seq":1,"type":"ui.surface","at":"2026-01-01T00:00:00.100Z","payload":{}}],"turn":{"status":"completed"}}';;
-*uiaction-a*) echo '{"items":[{"seq":1,"type":"ui.action","at":"2026-01-01T00:00:00.200Z","payload":{}}],"turn":{"status":"completed"}}';;
+*history\ turns*) echo '{"items":[{"id":"system-uisurface-b"},{"id":"system-uiaction-a"},{"id":"ext-t-1"}]}';;
+*system-uisurface-b*) echo '{"items":[{"seq":1,"type":"ui.surface","at":"2026-01-01T00:00:00.100Z","payload":{}}],"turn":{"status":"completed"}}';;
+*system-uiaction-a*) echo '{"items":[{"seq":1,"type":"ui.action","at":"2026-01-01T00:00:00.200Z","payload":{}}],"turn":{"status":"completed"}}';;
 *ext-t-1*) echo '{"items":[{"seq":3,"type":"notice","payload":{}}],"turn":{"status":"completed"}}';;
 esac
 `
@@ -155,14 +161,14 @@ func TestCLIBackendJournalTurns(t *testing.T) {
 	}
 	// All of them, in the order they were journaled (not the list's id order).
 	page, err := b.UIJournal(ctx, "p-work", "c1", nil)
-	if err != nil || len(page.Turns) != 2 || page.Turns[0].Turn != "uisurface-b" || page.Turns[1].Turn != "uiaction-a" || page.More {
+	if err != nil || len(page.Turns) != 2 || page.Turns[0].Turn != "system-uisurface-b" || page.Turns[1].Turn != "system-uiaction-a" || page.More {
 		t.Fatalf("page=%+v err=%v", page, err)
 	}
 	if page.Turns[0].Events[0].At == "" {
 		t.Fatal("the events lost their time")
 	}
-	page, err = b.UIJournal(ctx, "p-work", "c1", map[string]bool{"uisurface-b": true})
-	if err != nil || len(page.Turns) != 1 || page.Turns[0].Turn != "uiaction-a" {
+	page, err = b.UIJournal(ctx, "p-work", "c1", map[string]bool{"system-uisurface-b": true})
+	if err != nil || len(page.Turns) != 1 || page.Turns[0].Turn != "system-uiaction-a" {
 		t.Fatalf("unseen=%+v err=%v", page, err)
 	}
 }
@@ -170,8 +176,8 @@ func TestCLIBackendJournalTurns(t *testing.T) {
 func TestChatUIJournalParams(t *testing.T) {
 	f := &fakeUIChat{}
 	srv := chatSrv(f)
-	ok := map[string]any{"profile": "p-work", "conversation": "c1", "seen": []any{"uiaction-a"}}
-	if _, err := callChat(t, srv, MethodChatUIJournal, ok, nil); err != nil || !f.journalSeen["uiaction-a"] {
+	ok := map[string]any{"profile": "p-work", "conversation": "c1", "seen": []any{"system-uiaction-a"}}
+	if _, err := callChat(t, srv, MethodChatUIJournal, ok, nil); err != nil || !f.journalSeen["system-uiaction-a"] {
 		t.Fatalf("err=%v seen=%v", err, f.journalSeen)
 	}
 	for name, seen := range map[string]any{"not a list": "x", "bad id": []any{"-- x"}, "number": []any{1}, "too many": make([]any, 201)} {

@@ -56,7 +56,7 @@ type ChatUIJournalPage struct {
 // isJournalTurn tells the turns `chat ui action` and `chat ui sync-hil` write
 // (ai.RecordUIAction, ai.RecordUISurfaces) from the conversation's own.
 func isJournalTurn(id string) bool {
-	return strings.HasPrefix(id, "uiaction-") || strings.HasPrefix(id, "uisurface-")
+	return strings.HasPrefix(id, "system-uiaction-") || strings.HasPrefix(id, "system-uisurface-")
 }
 
 // ChatUIBackend is the optional half of a ChatBackend that runs the surface
@@ -137,22 +137,18 @@ func (cb *chatBridge) uiSync(b ChatUIBackend) RequestHandler {
 	}
 }
 
-// uiActionArgv passes the envelope as the flag's value: `chat ui action` takes
-// it from --json only. It carries the person's edits, so it is as visible in a
-// process listing as any argv word (the page text of chat.send goes over stdin
-// because that command offers it).
-func uiActionArgv(profile, conversation string, action []byte) []string {
-	// No bare global --json here: `chat ui action` shadows it with its own string flag, so a bare one
-	// before the subcommand would swallow the next word. The command prints JSON regardless.
-	return []string{"--profile=" + profile, "chat", "ui", "action", "--json=" + string(action), "--", conversation}
+// uiActionArgv reads the envelope from stdin: it carries the person's edits, which must not show in a process
+// listing.
+func uiActionArgv(profile, conversation string) []string {
+	return append(chatBase(profile), "chat", "ui", "action", "--action", "-", "--", conversation)
 }
 
 func uiSyncArgv(profile, conversation string) []string {
 	return append(chatBase(profile), "chat", "ui", "sync-hil", "--", conversation)
 }
 
-func (b *cliChatBackend) uiRun(ctx context.Context, argv []string) (json.RawMessage, error) {
-	out, err := b.run(ctx, argv...)
+func (b *cliChatBackend) uiRun(ctx context.Context, stdin []byte, argv []string) (json.RawMessage, error) {
+	out, err := b.runStdin(ctx, stdin, argv...)
 	if err != nil {
 		return nil, err
 	}
@@ -166,11 +162,11 @@ func (b *cliChatBackend) uiRun(ctx context.Context, argv []string) (json.RawMess
 }
 
 func (b *cliChatBackend) UIAction(ctx context.Context, profile, conversation string, action []byte) (json.RawMessage, error) {
-	return b.uiRun(ctx, uiActionArgv(profile, conversation, action))
+	return b.uiRun(ctx, action, uiActionArgv(profile, conversation))
 }
 
 func (b *cliChatBackend) UISync(ctx context.Context, profile, conversation string) (json.RawMessage, error) {
-	return b.uiRun(ctx, uiSyncArgv(profile, conversation))
+	return b.uiRun(ctx, nil, uiSyncArgv(profile, conversation))
 }
 
 // turnIDs lists the conversation's turns, newest first.

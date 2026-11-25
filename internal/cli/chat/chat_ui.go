@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"sync"
@@ -93,7 +94,7 @@ func newChatUICmd(cfg *Deps) *cobra.Command {
 func newChatUIActionCmd(cfg *Deps, sys *SystemActions) *cobra.Command {
 	var raw string
 	cmd := &cobra.Command{
-		Use:   "action <conversation-id> --json <action-envelope>",
+		Use:   "action <conversation-id> --action <envelope|->",
 		Short: "Send the user's button press on a surface back",
 		Long: "Takes the renderer's A2UI action envelope {\"version\":\"1.0\",\"action\":{name, surfaceId, sourceComponentId, context, ...}}, " +
 			"checks it against the conversation's live surfaces (rebuilt from its journal: the surface must be live and its " +
@@ -104,7 +105,7 @@ func newChatUIActionCmd(cfg *Deps, sys *SystemActions) *cobra.Command {
 			"the caller sends as the conversation's next user message (\"delivered\":\"next_turn\"). A press on a system surface " +
 			"(hil., mission., system.) is never run here: it goes to the handler registered for its prefix, if any. " +
 			clicore.OperatorOnlyHelp,
-		Example: `  monoagentcli chat ui action c1 --profile work --json '{"version":"1.0","action":{"name":"submit_form","surfaceId":"s1","sourceComponentId":"ok","context":{}}}'`,
+		Example: `  monoagentcli chat ui action c1 --profile work --action '{"version":"1.0","action":{"name":"submit_form","surfaceId":"s1","sourceComponentId":"ok","context":{}}}'`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// requireUser asks the turn-aware refusal first, so a process the gate cannot place is refused as
@@ -112,17 +113,34 @@ func newChatUIActionCmd(cfg *Deps, sys *SystemActions) *cobra.Command {
 			if err := requireUser(cfg, "press a button on a surface"); err != nil {
 				return err
 			}
-			res, err := runUIAction(cmd.Context(), cfg, sys, args[0], []byte(raw))
+			env, err := readUIAction(raw, cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
+			res, err := runUIAction(cmd.Context(), cfg, sys, args[0], env)
 			if err != nil {
 				return err
 			}
 			return clicore.PrintJSON(res)
 		},
 	}
-	// Shadows the global --json (output is JSON here anyway), as `org create` does.
-	cmd.Flags().StringVar(&raw, "json", "", "The action envelope")
-	_ = cmd.MarkFlagRequired("json")
+	// Not --json: that is the global output flag, which callers put before the subcommand.
+	cmd.Flags().StringVar(&raw, "action", "", "The action envelope, or - to read it from stdin (which keeps it out of process listings)")
+	_ = cmd.MarkFlagRequired("action")
 	return cmd
+}
+
+// readUIAction returns the envelope: the flag's value, or stdin for "-". It reads one byte past the cap so that
+// ParseAction refuses an oversized envelope instead of a cut one.
+func readUIAction(flag string, stdin io.Reader) ([]byte, error) {
+	if flag != "-" {
+		return []byte(flag), nil
+	}
+	b, err := io.ReadAll(io.LimitReader(stdin, int64(a2ui.DefaultLimits.MaxActionBytes)+1))
+	if err != nil {
+		return nil, clicore.InvalidInput("read the action from stdin: %v", err)
+	}
+	return b, nil
 }
 
 // UIActionResult is what `chat ui action` prints.

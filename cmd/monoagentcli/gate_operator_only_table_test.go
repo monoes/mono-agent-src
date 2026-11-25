@@ -46,7 +46,7 @@ func operatorOnlyRows() []opRow {
 		// A refused turn written into a transcript: forged text there reads as the host's own message.
 		{path: "chat history refused", build: newChatCmd, args: []string{"history", "refused", "c1", "--reason", "x"}},
 		// A button press on a surface: it can approve what an agent asked for, so only the user.
-		{path: "chat ui action", build: newChatCmd, args: []string{"ui", "action", "c1", "--json", "{}"}},
+		{path: "chat ui action", build: newChatCmd, args: []string{"ui", "action", "c1", "--action", "{}"}},
 		{path: "coder sessions steer", build: newCoderCmd, args: []string{"sessions", "steer", "c1", "x"}},
 		{path: "doomsday boss new", build: newDoomsdayCmd, args: []string{"boss", "new", "--conversation", "c1"}},
 		{path: "doomsday rubric", build: newDoomsdayCmd, args: []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}},
