@@ -83,7 +83,7 @@ status)
 	sqlite3 -header -column "$DB" "select id, status, edited_data from hil_pending order by created_at"
 	;;
 proof)
-	need unshare
+	[ "${A2UI_NO_UNSHARE:-}" = 1 ] || need unshare
 	[ -z "${CLAUDECODE:-}" ] || die "this shell belongs to an agent (CLAUDECODE is set); run the proof in your own terminal"
 	p=$(profile_id)
 	n=$(date +%H%M%S)
@@ -91,8 +91,12 @@ proof)
 	id=p-$n
 	sqlite3 "$DB" "insert into ai_chat_conversations(id,profile_id,backend,created_at,updated_at,mode,cwd) values('$conv','$p','agent',datetime('now'),datetime('now'),'coder','$DIR');"
 	seed_approval "$id" "Hi Sara, thanks for commenting!"
-	# the proof runs with no network at all
-	iso() { testenv unshare -rn "$BIN" "$@" 2>&1 | grep -v 'login will be required' || true; }
+	# The proof runs with no network at all. If every press answers operator_only although this is your own
+	# terminal, the gate may not be able to see this shell from inside the namespace: run again with
+	# A2UI_NO_UNSHARE=1 (the test world still points the platform at a closed port).
+	local_net=(unshare -rn)
+	[ "${A2UI_NO_UNSHARE:-}" = 1 ] && local_net=()
+	iso() { testenv "${local_net[@]}" "$BIN" "$@" 2>&1 | grep -v 'login will be required' || true; }
 	press() { # name component context
 		printf '{"version":"1.0","action":{"name":"%s","surfaceId":"hil-%s","sourceComponentId":"%s","timestamp":"2026-01-01T00:00:00Z","context":%s}}' "$1" "$id" "$2" "$3" |
 			iso chat ui action --action - --profile "$p" -- "$conv" | tr -d '\n'
