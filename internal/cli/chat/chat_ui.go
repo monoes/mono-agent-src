@@ -199,7 +199,7 @@ func runUIAction(ctx context.Context, cfg *Deps, sys *SystemActions, conversatio
 	if prefix := prefixOf(act.Name); surf.Prov == a2ui.FromSystem || prefix != "" {
 		return systemAction(ctx, sys, act, surf, prefix, record)
 	}
-	return agentAction(store, profileID, conversationID, act, replay.Authors[act.SurfaceID], record)
+	return agentAction(store, profileID, conversationID, act, surf, replay.Authors[act.SurfaceID], record)
 }
 
 // systemAction never runs the action: it hands it to the prefix's handler. The
@@ -227,8 +227,8 @@ func systemAction(ctx context.Context, sys *SystemActions, act a2ui.Action, surf
 // (the turn passes the answer on within a second), otherwise the next user
 // message, which the caller sends (this process cannot write a running turn's
 // journal, and a finished conversation has nothing waiting).
-func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.Action, author string, record func(*UIActionResult) (*UIActionResult, error)) (*UIActionResult, error) {
-	text := actionMessage(act)
+func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.Action, surf *a2ui.Surface, author string, record func(*UIActionResult) (*UIActionResult, error)) (*UIActionResult, error) {
+	text := actionMessage(act, surf)
 	res := &UIActionResult{Outcome: outcomeAccepted, Delivered: "next_turn", Message: text, AgentID: author}
 	if author != "" {
 		turnID, qid, err := openQuestionOf(store, profileID, conversationID, author)
@@ -242,12 +242,6 @@ func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.A
 		}
 	}
 	return record(res)
-}
-
-// actionMessage is the text an agent reads for a button press.
-func actionMessage(a a2ui.Action) string {
-	body, _ := json.Marshal(map[string]any{"name": a.Name, "surfaceId": a.SurfaceID, "sourceComponentId": a.SourceComponentID, "context": a.Context, "timestamp": a.Timestamp})
-	return "The user pressed a button on your surface. " + string(body)
 }
 
 // openQuestionOf finds the open question of a worker in the conversation's
