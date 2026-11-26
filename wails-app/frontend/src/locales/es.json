@@ -3646,7 +3646,9 @@
     "announceUpdated": "Tarjeta actualizada: {{title}}",
     "stale": "Esa tarjeta ya no está abierta.",
     "rejected": "Se rechazó esa acción.",
-    "queued": "Tu elección está en cola y se enviará cuando termine el turno actual."
+    "queued": "Tu elección está en cola y se enviará cuando termine el turno actual.",
+    "pressFailed": "No se completó la acción de la tarjeta",
+    "queuedTitle": "Elección en espera"
   },
   "chatWarnings": {
     "fullAccess": "Acceso completo: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",

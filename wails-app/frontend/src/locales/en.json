@@ -3646,7 +3646,9 @@
     "announceUpdated": "Card updated: {{title}}",
     "stale": "That card is no longer open.",
     "rejected": "That action was refused.",
-    "queued": "Your choice is queued and will be sent when the current turn ends."
+    "queued": "Your choice is queued and will be sent when the current turn ends.",
+    "pressFailed": "Card action not completed",
+    "queuedTitle": "Choice queued"
   },
   "chatWarnings": {
     "fullAccess": "Full access: this chat can run any command and change any file on this computer as you.",

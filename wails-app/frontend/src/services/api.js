@@ -112,9 +112,10 @@ function reportError(op, e) {
 // notify surfaces a message on the same toast bus for non-API failures, so UI
 // code can report errors without a blocking native alert(). code is the
 // CLI's error code, when it gave one (e.g. agent_not_setup, which the toast
-// answers with a link to the AI agents page).
-export function notify(op, message, code = '') {
-  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op, message: String(message), code: code || message?.code || '' } }))
+// answers with a link to the AI agents page). title, already translated,
+// replaces the "Failed: <op>" heading.
+export function notify(op, message, code = '', title = '') {
+  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op, message: String(message), code: code || message?.code || '', title } }))
 }
 
 // startedRun turns a run binding's promise into { ok } / { ok: false, error }.

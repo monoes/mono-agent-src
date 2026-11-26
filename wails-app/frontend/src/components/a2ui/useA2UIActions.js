@@ -24,17 +24,17 @@ export function useA2UIActions({ conversationId, send, streaming, onChanged }) {
     try {
       res = await api.chatUIAction(conversationId, envelope)
     } catch (e) {
-      notify('a2ui', e?.message || String(e))
+      notify('a2ui', e?.message || String(e), '', t('a2ui.pressFailed'))
       return
     }
     changedRef.current?.()
     if (res?.outcome === 'rejected' || res?.outcome === 'stale') {
-      notify('a2ui', res.reason || t(res.outcome === 'stale' ? 'a2ui.stale' : 'a2ui.rejected'))
+      notify('a2ui', res.reason || t(res.outcome === 'stale' ? 'a2ui.stale' : 'a2ui.rejected'), '', t('a2ui.pressFailed'))
     }
     if (res?.outcome === 'accepted' && res.delivered === 'next_turn' && res.message) {
       if (streamingRef.current) {
         held.current = res.message
-        notify('a2ui', t('a2ui.queued'))
+        notify('a2ui', t('a2ui.queued'), '', t('a2ui.queuedTitle'))
       } else {
         sendRef.current(res.message)
       }

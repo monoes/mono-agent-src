@@ -75,9 +75,16 @@ describe('CoderChatView A2UI wiring', () => {
     const c = conv()
     render(view(c))
     approve()
-    await waitFor(() => expect(notify).toHaveBeenCalledWith('a2ui', 'not allowed here'))
+    await waitFor(() => expect(notify).toHaveBeenCalledWith('a2ui', 'not allowed here', '', 'Card action not completed'))
     expect(c.send).not.toHaveBeenCalled()
     expect(screen.getByTestId('a2ui-surface')).toHaveAttribute('data-status', 'live')
+  })
+
+  it('gives a press the app could not run the same title, and keeps its reason', async () => {
+    api.chatUIAction.mockRejectedValue(new Error('no such conversation'))
+    render(view(conv()))
+    approve()
+    await waitFor(() => expect(notify).toHaveBeenCalledWith('a2ui', 'no such conversation', '', 'Card action not completed'))
   })
 
   it('holds a next_turn message while a turn runs and sends it when the turn ends', async () => {
@@ -85,7 +92,7 @@ describe('CoderChatView A2UI wiring', () => {
     const c = conv({ streaming: true, activeTurnId: 't2', liveTurn: initialChatState() })
     const { rerender } = render(view(c))
     approve()
-    await waitFor(() => expect(notify).toHaveBeenCalledWith('a2ui', expect.stringMatching(/queued/)))
+    await waitFor(() => expect(notify).toHaveBeenCalledWith('a2ui', expect.stringMatching(/queued/), '', 'Choice queued'))
     expect(c.send).not.toHaveBeenCalled()
     rerender(view({ ...c, streaming: false, activeTurnId: '' }))
     await waitFor(() => expect(c.send).toHaveBeenCalledWith('later', []))
