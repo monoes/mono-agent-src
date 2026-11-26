@@ -22,7 +22,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
   RejectDraftPersonMessage: vi.fn(),
 }))
 vi.mock('../../services/api.js', () => ({
-  api: { getPendingPeopleApprovals: vi.fn(), listOrgDesigns: vi.fn(), readHILScreenshot: vi.fn(), openURL: vi.fn() },
+  api: { getPendingPeopleApprovals: vi.fn(), listOrgPending: vi.fn(), readHILScreenshot: vi.fn(), openURL: vi.fn() },
   notify: vi.fn(),
 }))
 vi.mock('../../lib/usePageVisible.js', () => ({
@@ -36,7 +36,7 @@ beforeEach(() => {
   WailsApp.ApproveHIL.mockResolvedValue()
   WailsApp.RejectHIL.mockResolvedValue()
   api.getPendingPeopleApprovals.mockResolvedValue([])
-  api.listOrgDesigns.mockResolvedValue({ items: [] })
+  api.listOrgPending.mockResolvedValue({ items: [] })
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 

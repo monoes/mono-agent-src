@@ -22,7 +22,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
 vi.mock('../services/api.js', () => ({
   api: {
     getPendingPeopleApprovals: vi.fn(), approvePendingPerson: vi.fn(), rejectPendingPerson: vi.fn(),
-    listOrgDesigns: vi.fn(), getOrgQuestions: vi.fn(), getOrgApprovals: vi.fn(), getOrgGates: vi.fn(),
+    listOrgPending: vi.fn(),
     answerOrgQuestion: vi.fn(), approveOrgAction: vi.fn(), denyOrgAction: vi.fn(),
     gateApproveOrgAction: vi.fn(), gateRejectOrgAction: vi.fn(),
   },
@@ -61,7 +61,7 @@ describe('auto_decide skip reasons', () => {
     WailsApp.GetHILItems.mockResolvedValue([hil('h1', 'Timed out step', NO_ANSWER), hil('h2', 'Org step', REMOTE)])
     WailsApp.GetDraftPersonMessages.mockResolvedValue([])
     api.getPendingPeopleApprovals.mockResolvedValue([])
-    api.listOrgDesigns.mockResolvedValue({ items: [] })
+    api.listOrgPending.mockResolvedValue({ items: [] })
     render(<HumanInLoop embedded isOpen={true} onClose={() => {}} />)
     await waitFor(() => expect(screen.getAllByTestId('hil-auto-decide-skipped')).toHaveLength(2))
     const [a, b] = screen.getAllByTestId('hil-auto-decide-skipped')

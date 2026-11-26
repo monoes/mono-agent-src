@@ -48,55 +48,18 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
         GetHILItems(),
         GetDraftPersonMessages(),
         api.getPendingPeopleApprovals(),
-        api.listOrgDesigns(),
+        api.listOrgPending(),
       ])
 
       const newHil = (hilRes.status === 'fulfilled' && Array.isArray(hilRes.value)) ? hilRes.value : []
       const newDrafts = (draftRes.status === 'fulfilled' && Array.isArray(draftRes.value)) ? draftRes.value : []
       const newLeads = (leadRes.status === 'fulfilled' && Array.isArray(leadRes.value)) ? leadRes.value : []
 
-      let newOrgItems = []
-      if (orgsRes.status === 'fulfilled' && orgsRes.value) {
-        const orgList = Array.isArray(orgsRes.value.items)
-          ? orgsRes.value.items
-          : (Array.isArray(orgsRes.value) ? orgsRes.value : [])
-        const orgPromises = orgList.map(async (org) => {
-          const orgName = org.name
-          if (!orgName) return []
-          try {
-            const [qRes, aRes, gRes] = await Promise.allSettled([
-              api.getOrgQuestions(orgName),
-              api.getOrgApprovals(orgName),
-              api.getOrgGates(orgName),
-            ])
-            const questions = qRes.status === 'fulfilled' ? (qRes.value?.questions || []) : []
-            const approvals = aRes.status === 'fulfilled' ? (aRes.value?.approvals || []) : []
-            const gates = gRes.status === 'fulfilled' ? (gRes.value?.gates || []) : []
-
-            const res = []
-            for (const q of questions) {
-              if (q.answer == null && !q.answeredAt) {
-                res.push({ kind: 'question', id: q.questionId, orgName, role: q.role, question: q.question, text: q.question, raw: q })
-              }
-            }
-            for (const a of approvals) {
-              if (a.approved == null) {
-                res.push({ kind: 'approval', id: a.requestId || `${a.roleId}:${a.action}`, orgName, role: a.roleId, action: a.action, summary: a.question || `Approve ${a.action}?`, text: a.question || `Approve ${a.action}?`, raw: a })
-              }
-            }
-            for (const g of gates) {
-              if (g.status === 'pending') {
-                res.push({ kind: 'gate', id: g.id, orgName, role: g.roleId, name: g.name, text: g.name || g.id, raw: g })
-              }
-            }
-            return res
-          } catch {
-            return []
-          }
-        })
-        const orgResults = await Promise.all(orgPromises)
-        newOrgItems = orgResults.flat()
-      }
+      // `org pending` has done the reading; a card only renders its entry.
+      const orgs = orgsRes.status === 'fulfilled' ? orgsRes.value : null
+      const newOrgItems = (orgs?.items || []).map(it => ({ ...it, id: it.ref, orgName: it.org }))
+      const orgErrors = orgs?.error || (orgs?.errors || []).map(e => `Org ${e.org}: ${e.error}`).join('; ')
+      if (orgErrors) setError(orgErrors)
 
       setItems(sortBySuggestion(newHil))
       setDrafts(newDrafts)
@@ -195,56 +158,36 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
     }
   }
 
-  // Org resolution
-  const handleAnswerQuestion = async (orgName, questionId, text) => {
+  // Org resolution. The org bindings answer {error} instead of throwing, and
+  // a card goes away only once its resolution succeeded.
+  const resolveOrg = async (orgName, ref, run, done, failed) => {
     try {
-      await api.answerOrgQuestion(orgName, questionId, text)
-      setOrgItems(prev => prev.filter(i => !(i.orgName === orgName && i.id === questionId)))
-      notify('org', 'Question answered')
+      const res = await run()
+      if (res?.error) throw new Error(res.error)
+      setOrgItems(prev => prev.filter(i => !(i.orgName === orgName && i.id === ref)))
+      notify('org', done)
     } catch (e) {
-      setError(e?.message ?? 'Failed to answer question')
+      const why = e?.message || failed
+      setError(why)
+      notify('org', why)
     }
   }
 
-  const handleApproveAction = async (orgName, role, action) => {
-    try {
-      await api.approveOrgAction(orgName, role, action)
-      setOrgItems(prev => prev.filter(i => !(i.orgName === orgName && i.role === role && i.action === action)))
-      notify('org', `Approved ${action}`)
-    } catch (e) {
-      setError(e?.message ?? 'Failed to approve action')
-    }
-  }
+  const handleAnswerQuestion = (orgName, questionId, text) => resolveOrg(orgName, questionId,
+    () => api.answerOrgQuestion(orgName, questionId, text), 'Question answered', 'Failed to answer question')
 
-  const handleDenyAction = async (orgName, role, action) => {
-    try {
-      await api.denyOrgAction(orgName, role, action)
-      setOrgItems(prev => prev.filter(i => !(i.orgName === orgName && i.role === role && i.action === action)))
-      notify('org', `Denied ${action}`)
-    } catch (e) {
-      setError(e?.message ?? 'Failed to deny action')
-    }
-  }
+  // An approval is resolved by its request id: that call and no other.
+  const handleApproveAction = ({ orgName, id, role, action, request_id: requestID }) => resolveOrg(orgName, id,
+    () => api.approveOrgAction(orgName, role, action, requestID), `Approved ${action}`, 'Failed to approve action')
 
-  const handleApproveGate = async (orgName, gateId) => {
-    try {
-      await api.gateApproveOrgAction(orgName, gateId)
-      setOrgItems(prev => prev.filter(i => !(i.orgName === orgName && i.id === gateId)))
-      notify('org', 'Gate approved')
-    } catch (e) {
-      setError(e?.message ?? 'Failed to approve gate')
-    }
-  }
+  const handleDenyAction = ({ orgName, id, role, action, request_id: requestID }) => resolveOrg(orgName, id,
+    () => api.denyOrgAction(orgName, role, action, requestID), `Denied ${action}`, 'Failed to deny action')
 
-  const handleRejectGate = async (orgName, gateId) => {
-    try {
-      await api.gateRejectOrgAction(orgName, gateId)
-      setOrgItems(prev => prev.filter(i => !(i.orgName === orgName && i.id === gateId)))
-      notify('org', 'Gate rejected')
-    } catch (e) {
-      setError(e?.message ?? 'Failed to reject gate')
-    }
-  }
+  const handleApproveGate = (orgName, gateId) => resolveOrg(orgName, gateId,
+    () => api.gateApproveOrgAction(orgName, gateId), 'Gate approved', 'Failed to approve gate')
+
+  const handleRejectGate = (orgName, gateId) => resolveOrg(orgName, gateId,
+    () => api.gateRejectOrgAction(orgName, gateId), 'Gate rejected', 'Failed to reject gate')
 
   if (embedded && !isOpen) return null
 

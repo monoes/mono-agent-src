@@ -44,6 +44,17 @@ function useMoreBelow(command) {
   return { ref, more, measure }
 }
 
+// ApprovalInput is the arguments of a call that is no shell command, as
+// monomind recorded them, with the same escapes as a command.
+export function ApprovalInput({ input }) {
+  if (!input || Object.keys(input).length === 0) return null
+  return (
+    <pre data-testid="approval-input" tabIndex={0} style={{ margin: '4px 0 0', maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: mono, fontSize: 11, color: 'var(--text)', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '6px 8px' }}>
+      {visible(JSON.stringify(input, null, 2))}
+    </pre>
+  )
+}
+
 // ApprovalCommand is what an approval of a shell call would run: the command,
 // the folder the org file gives the role, and warnings when only the start of
 // the command is known, when monomind hid part of it and when the box does not
