@@ -80,7 +80,7 @@ type turnJournal struct {
 	out            io.Writer
 	warnTo         io.Writer // the turn's stderr warnings
 
-	mu           sync.Mutex
+	mu            sync.Mutex
 	coalescer     *chatevents.TextCoalescer
 	usage         monomind.TurnResult
 	partSeq       int
