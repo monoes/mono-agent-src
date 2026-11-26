@@ -19,7 +19,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
 }))
 
 vi.mock('../services/api.js', () => ({
-  api: { getPendingPeopleApprovals: vi.fn(), listOrgDesigns: vi.fn() },
+  api: { getPendingPeopleApprovals: vi.fn(), listOrgDesigns: vi.fn(), listOrgPending: vi.fn() },
   notify: vi.fn(),
 }))
 
@@ -44,6 +44,7 @@ describe('Human in Loop, all profiles', () => {
     WailsApp.GetDraftPersonMessages.mockResolvedValue([])
     api.getPendingPeopleApprovals.mockResolvedValue([])
     api.listOrgDesigns.mockResolvedValue({ items: [] })
+    api.listOrgPending.mockResolvedValue({ items: [] })
   })
   afterEach(cleanup)
 
