@@ -181,12 +181,15 @@ func (j *turnJournal) tick() {
 	}
 }
 
-func (j *turnJournal) usageLocked(source string) {
+func (j *turnJournal) usageLocked(source string) { j.journalUsageLocked(source, nil) }
+
+// journalUsageLocked journals the turn's usage so far; followUp is set after a follow-up exec (addUsage).
+func (j *turnJournal) journalUsageLocked(source string, followUp *chatevents.FollowUpUsage) {
 	r := &j.usage
 	if !r.HasInputTokens && !r.HasOutputTokens && !r.HasCostUSD {
 		return
 	}
-	p := chatevents.UsageUpdatedPayload{Source: source}
+	p := chatevents.UsageUpdatedPayload{Source: source, FollowUp: followUp}
 	if r.HasInputTokens {
 		v := r.InputTokens
 		p.InputTokens = &v

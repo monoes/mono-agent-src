@@ -131,12 +131,40 @@ type ResultFields struct {
 	AgentLaunches *AgentLaunches `json:"agent_launches,omitempty"`
 }
 
-// ModelUsage is one model's token usage in ResultFields.ModelUsage.
+// ModelUsage is one model's token usage in ResultFields.ModelUsage. On the claude runtime these are the runtime
+// session's running counters, as its cost_usd is (a resume that restored the total carries both over).
 type ModelUsage struct {
 	Input         int64 `json:"input"`
 	Output        int64 `json:"output"`
 	CacheRead     int64 `json:"cache_read"`
 	CacheCreation int64 `json:"cache_creation"`
+	// Partial: one of the four counters was not reported, so its 0 says nothing.
+	Partial bool `json:"partial,omitempty"`
+}
+
+// UnmarshalJSON records in Partial whether every counter was present.
+func (m *ModelUsage) UnmarshalJSON(data []byte) error {
+	var w struct {
+		Input         *int64 `json:"input"`
+		Output        *int64 `json:"output"`
+		CacheRead     *int64 `json:"cache_read"`
+		CacheCreation *int64 `json:"cache_creation"`
+		Partial       bool   `json:"partial"`
+	}
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	*m = ModelUsage{Partial: w.Partial}
+	for _, c := range []struct{ from, to *int64 }{
+		{w.Input, &m.Input}, {w.Output, &m.Output}, {w.CacheRead, &m.CacheRead}, {w.CacheCreation, &m.CacheCreation},
+	} {
+		if c.from == nil {
+			m.Partial = true
+			continue
+		}
+		*c.to = *c.from
+	}
+	return nil
 }
 
 // AgentLaunches counts a turn's agent launches, reviews counted apart.
