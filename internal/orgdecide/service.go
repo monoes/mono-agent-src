@@ -404,6 +404,9 @@ func (s *Service) decide(ctx context.Context, profileID, root, org, runID, level
 		}
 		return s.toPerson(ctx, profileID, org, it)(record("human", VerdictEscalated, "", fmt.Sprintf("%s routes %s items to a person", level, it.Tier), nil, nil))
 	case RouteRule:
+		if err := noRequestID(org, it); err != nil {
+			return s.toPerson(ctx, profileID, org, it)(record("rule", VerdictEscalated, "", err.Error(), nil, nil))
+		}
 		reason := fmt.Sprintf("%s items are approved by rule at %s", it.Tier, level)
 		if err := s.apply(ctx, root, org, it, true, "", "rule", reason); err != nil {
 			return nil, err
@@ -466,6 +469,10 @@ func (s *Service) decide(ctx context.Context, profileID, root, org, runID, level
 		return s.fail(ctx, root, org, level, a, it, record, resolver, derr.Error(), &cost, &lat)
 	}
 	v := outcome.Verdict
+	if err := noRequestID(org, it); err != nil && (v.Verdict == "approve" || v.Verdict == "answer") {
+		why := fmt.Sprintf("%s; the decider would approve it: %s", err, v.Rationale)
+		return s.toPerson(ctx, profileID, org, it)(record(resolver, VerdictEscalated, "", why, &cost, &lat))
+	}
 	switch v.Verdict {
 	case "escalate":
 		return s.toPerson(ctx, profileID, org, it)(record(resolver, VerdictEscalated, "", v.Rationale, &cost, &lat))

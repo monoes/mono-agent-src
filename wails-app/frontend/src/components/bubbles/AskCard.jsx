@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, CheckCheck, X, HelpCircle, ShieldQuestion, Flag, Loader, Send, Pencil, FileText, Link2, ExternalLink, User, Workflow } from 'lucide-react'
 import { ChatMarkdown } from '../chat/ChatMarkdown.jsx'
-import { ApprovalCommand } from '../ApprovalCommand.jsx'
+import { ApprovalCall } from '../ApprovalCommand.jsx'
+import { NoRequestID } from '../NoRequestID.jsx'
 import { formatBytes, safeImageSrc, safeUrl } from '../../lib/askModel.js'
 import * as hil from '../../services/hilApi.js'
 import { askHilRef } from '../../lib/commsStatus.js'
@@ -79,28 +80,33 @@ function QuestionBody({ ask, nameOf, canAct, readOnly, busy, outcome, onAnswer, 
   )
 }
 
-function DecisionBody({ ask, nameOf, canAct, busy, outcome, onDecide }) {
+function DecisionBody({ ask, nameOf, org, canAct, busy, outcome, onDecide }) {
   const { t } = useTranslation()
   const [note, setNote] = useState('')
   const pending = ask.pending && !outcome?.state
   const isGate = ask.kind === 'gate'
+  // Only a request with an id can be approved on its own.
+  const noRequestID = !isGate && !ask.request_id
   const title = isGate
     ? t('orgBubble.gateTitle', { name: nameOf(ask.role), gate: ask.name || ask.ref })
     : t('orgBubble.approvalTitle', { name: nameOf(ask.role), action: ask.action })
   return (
     <Frame ask={ask} pending={pending} icon={isGate ? Flag : ShieldQuestion} title={title}>
       {ask.text && <div style={{ marginTop: 4 }}><ChatMarkdown content={ask.text} /></div>}
-      <ApprovalCommand command={ask.command} truncated={ask.command_truncated} cwd={ask.cwd} />
+      <ApprovalCall command={ask.command} truncated={ask.command_truncated} cwd={ask.cwd} input={ask.input} />
+      {pending && noRequestID && <NoRequestID org={org} role={ask.role} action={ask.action} canDeny />}
       {pending ? (
         <div className="ask-actions">
           {isGate && (
             <input type="text" className="ask-input" value={note} onChange={e => setNote(e.target.value)} disabled={!canAct || busy}
               aria-label={t('orgBubble.noteLabel')} placeholder={t('orgBubble.notePlaceholder')} />
           )}
-          <button type="button" className="btn btn-primary btn-sm" data-testid="org-chat-approve" disabled={!canAct || busy}
-            onClick={() => onDecide?.(ask, true, { note: note.trim() })} style={{ gap: 4 }}>
-            {busy ? <Loader size={11} className="spin" /> : <Check size={11} />} {t('orgBubble.approve')}
-          </button>
+          {!noRequestID && (
+            <button type="button" className="btn btn-primary btn-sm" data-testid="org-chat-approve" disabled={!canAct || busy}
+              onClick={() => onDecide?.(ask, true, { note: note.trim() })} style={{ gap: 4 }}>
+              {busy ? <Loader size={11} className="spin" /> : <Check size={11} />} {t('orgBubble.approve')}
+            </button>
+          )}
           <button type="button" className="btn btn-ghost btn-sm" data-testid="org-chat-deny" disabled={!canAct || busy}
             onClick={() => onDecide?.(ask, false, { note: note.trim() })} style={{ gap: 4 }}>
             <X size={11} /> {isGate ? t('orgBubble.reject') : t('orgBubble.deny')}
@@ -365,13 +371,14 @@ function SendBody({ ask, nameOf, canAct, readOnly, busy, outcome, onDecide, onNa
 //   ask      an item (lib/askModel.js, or an `org chat history` item)
 //   readOnly a finished run's record: nothing in the card may act (a stopped
 //            live org still lets a question be dismissed, so canAct is not enough)
+//   org      the org an approval belongs to (named when it has no request id)
 //   onAnswer(ask, text)  onDismiss(ask)  onDecide(ask, approve, {note, editText, data})
-export function AskCard({ ask, nameOf = id => id, canAct = true, readOnly = false, busy = false, outcome, onAnswer, onDismiss, onDecide, onNavigate }) {
+export function AskCard({ ask, org, nameOf = id => id, canAct = true, readOnly = false, busy = false, outcome, onAnswer, onDismiss, onDecide, onNavigate }) {
   const shared = { ask, nameOf, canAct, readOnly, busy, outcome }
   switch (ask.kind) {
     case 'question': return <QuestionBody {...shared} onAnswer={onAnswer} onDismiss={onDismiss} />
     case 'approval':
-    case 'gate': return <DecisionBody {...shared} onDecide={onDecide} />
+    case 'gate': return <DecisionBody {...shared} org={org} onDecide={onDecide} />
     case 'hil': return <HilBody {...shared} onDecide={onDecide} onNavigate={onNavigate} />
     case 'send': return <SendBody {...shared} onDecide={onDecide} onNavigate={onNavigate} />
     default: return null

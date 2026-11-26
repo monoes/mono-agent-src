@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 )
 
 // ResolveOptions attributes a resolution (capability
@@ -24,6 +25,30 @@ func attributionArgs(ctx context.Context, opts ResolveOptions) []string {
 		return nil
 	}
 	return []string{"--by", opts.By}
+}
+
+// NoRequestIDError refuses approving a call monomind recorded no request id
+// for: without --request, `org approve` releases every pending call of the
+// role and action, one the approver never saw included. The chat and the
+// autonomy decider return it; denying stays open, and releasing them all stays
+// the operator's own `org approve <org> <role> <action>`.
+type NoRequestIDError struct{ Org, Role, Action string }
+
+var plainName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]*$`)
+
+func (e *NoRequestIDError) Error() string {
+	// The names come from monomind: an odd one is left out of the command a
+	// person might paste into a shell.
+	word := func(s, placeholder string) string {
+		if plainName.MatchString(s) {
+			return s
+		}
+		return placeholder
+	}
+	return fmt.Sprintf("monomind recorded no request id for this %q call of %q, so approving it would release every pending one, "+
+		"also one that was never shown; nothing was sent. Deny it, or update monomind. To release every pending one anyway, run "+
+		"`monoagentcli --profile <profile> org approve %s %s %s` yourself in your own terminal (operator only)",
+		e.Action, e.Role, word(e.Org, "<org>"), word(e.Role, "<role>"), word(e.Action, "<action>"))
 }
 
 // resolveApproval runs `org approve|deny`. A RequestID is never dropped:

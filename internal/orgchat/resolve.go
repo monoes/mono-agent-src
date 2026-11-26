@@ -80,9 +80,20 @@ func (e *NotRunningError) Error() string {
 	return fmt.Sprintf("org %q is not running (status: %s); nothing was sent — start or resume it, then try again", e.Org, st)
 }
 
+// UnnamedRefError refuses approving an approval by a ref other than its
+// request id (a bare role:action): it names whichever call is pending now,
+// which need not be the one the approver saw.
+type UnnamedRefError struct{ Org, Ref, RequestID string }
+
+func (e *UnnamedRefError) Error() string {
+	return fmt.Sprintf("%q does not name one request, so nothing was sent; look at it with `org approvals %s`, then approve it by its request id %q",
+		e.Ref, e.Org, e.RequestID)
+}
+
 // Request resolves one item: answer a question (Text), dismiss one
 // (Dismiss; Text is the optional reason), or approve or deny (Approve) an
-// approval or a gate. Text on a gate is its resolution note.
+// approval or a gate. Text on a gate is its resolution note. An approval is
+// approved only by its request id (Ref).
 type Request struct {
 	Org     string
 	Ref     string
@@ -227,6 +238,10 @@ func Resolve(ctx context.Context, c Client, root string, req Request) (*Result, 
 			res.State, res.Already = st, true
 			return res, nil
 		}
+		requestID := ""
+		if a.RequestID != nil {
+			requestID = *a.RequestID
+		}
 		res.State = StateDenied
 		if req.Approve {
 			res.State = StateApproved
@@ -235,10 +250,13 @@ func Resolve(ctx context.Context, c Client, root string, req Request) (*Result, 
 					return nil, err
 				}
 			}
-		}
-		requestID := ""
-		if a.RequestID != nil {
-			requestID = *a.RequestID
+			// Only the one request the approver named is ever released.
+			if requestID == "" {
+				return nil, &monomind.NoRequestIDError{Org: req.Org, Role: a.RoleID, Action: a.Action}
+			}
+			if req.Ref != requestID {
+				return nil, &UnnamedRefError{Org: req.Org, Ref: req.Ref, RequestID: requestID}
+			}
 		}
 		act = func() error { return c.Approve(ctx, root, req.Org, a.RoleID, a.Action, req.Approve, requestID) }
 	}

@@ -282,11 +282,13 @@ func runOrgChatResolve(cmd *cobra.Command, env *orgEnv, req orgchat.Request) err
 	res, err := orgchat.Resolve(cmd.Context(), orgChatClient, root, req)
 	if err != nil {
 		var stopped *orgchat.NotRunningError
+		var noID *monomind.NoRequestIDError
+		var unnamed *orgchat.UnnamedRefError
 		switch {
 		case errors.Is(err, orgchat.ErrNotFound):
 			return env.d.NotFound("org %q has no question, approval or gate %q", req.Org, req.Ref)
-		case errors.As(err, &stopped):
-			return env.d.InvalidInput("%s", stopped.Error())
+		case errors.As(err, &stopped), errors.As(err, &noID), errors.As(err, &unnamed):
+			return env.d.InvalidInput("%s", err.Error())
 		}
 		return err
 	}
@@ -331,10 +333,12 @@ func newOrgChatResolveCmd(env *orgEnv, verb string, approve bool) *cobra.Command
 	}
 	return &cobra.Command{
 		Use: verb + " <org> <ref> [-- note...]",
-		Long: short + ". ref is a gate id (gate-…), an approval's request id, role:action:ts, or role:action " +
-			"(its pending request). A note is kept as a gate's resolution; approvals take none. Approving an approval " +
-			"(not a gate) is the operator's only: an agent, the chat, a workflow or a coder turn is refused; denying stays open. " +
-			"Approving a gate is the operator's only too.",
+		Long: short + ". ref is a gate id (gate-…) or an approval's request id; deny also takes role:action:ts, or " +
+			"role:action (its pending request). An approval is approved only by its request id, so a call you have not " +
+			"seen is never released: one monomind gave no id is refused (update monomind, or release every pending call " +
+			"of the role and action yourself with org approve). A note is kept as a gate's resolution; approvals take none. " +
+			"Approving an approval (not a gate) is the operator's only: an agent, the chat, a workflow or a coder turn is " +
+			"refused; denying stays open. Approving a gate is the operator's only too.",
 		Short: short,
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

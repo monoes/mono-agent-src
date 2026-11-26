@@ -6250,7 +6250,9 @@
     "approve_gate": "Approve Gate",
     "approve": "Approve",
     "noid_before": "This request has no request id, so the app cannot resolve it on its own. Update monomind, or run",
-    "noid_after": "in a terminal, which resolves every waiting {{action}} call of {{role}}."
+    "noid_after": "in a terminal, which resolves every waiting {{action}} call of {{role}}.",
+    "noid_approve_before": "This request has no request id, so it cannot be approved here: approving would release every waiting call of the same role and tool, also ones you have not seen. Deny still works (it denies all of them). Update monomind, or run",
+    "noid_approve_after": "in your own terminal, which releases every waiting {{action}} call of {{role}}."
   },
   "ui7Chat": {
     "open_workflow": "Open workflow",

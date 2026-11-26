@@ -132,7 +132,7 @@ export function OrgChatView({ conv, nameOf, draft, onDraftChange, orgName = '', 
   const card = (ask, key) => {
     const isHil = ask.kind === 'hil' || ask.kind === 'send'
     return (
-      <AskCard key={key} ask={ask} nameOf={nameOf}
+      <AskCard key={key} ask={ask} org={orgName} nameOf={nameOf}
         canAct={readOnly ? false : isHil ? true : canAct} readOnly={!!readOnly}
         busy={isHil ? !!hil.busy[ask.id] : !!busy[ask.ref]}
         outcome={isHil ? hil.outcome[ask.id] : outcome[ask.ref]}

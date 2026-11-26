@@ -43,7 +43,7 @@ describe('AskCard: question, approval and gate', () => {
 
   it('approves or denies a tool approval, and rejects a gate with a note', () => {
     const onDecide = vi.fn()
-    const { rerender } = render(<AskCard ask={{ kind: 'approval', ref: 'a1', pending: true, role: 'dev', action: 'Bash', text: 'rm build' }} nameOf={nameOf} onDecide={onDecide} />)
+    const { rerender } = render(<AskCard ask={{ kind: 'approval', ref: 'a1', request_id: 'a1', pending: true, role: 'dev', action: 'Bash', text: 'rm build' }} nameOf={nameOf} onDecide={onDecide} />)
     fireEvent.click(screen.getByTestId('org-chat-approve'))
     expect(onDecide).toHaveBeenLastCalledWith(expect.objectContaining({ ref: 'a1' }), true, { note: '' })
     fireEvent.click(screen.getByTestId('org-chat-deny'))
@@ -55,9 +55,9 @@ describe('AskCard: question, approval and gate', () => {
   })
 
   it('disables the buttons while it cannot act, and shows how a resolved ask ended', () => {
-    const { rerender } = render(<AskCard ask={{ kind: 'approval', ref: 'a1', pending: true, role: 'dev', action: 'Bash' }} canAct={false} nameOf={nameOf} />)
+    const { rerender } = render(<AskCard ask={{ kind: 'approval', ref: 'a1', request_id: 'a1', pending: true, role: 'dev', action: 'Bash' }} canAct={false} nameOf={nameOf} />)
     expect(screen.getByTestId('org-chat-approve')).toBeDisabled()
-    rerender(<AskCard ask={{ kind: 'approval', ref: 'a1', pending: true, role: 'dev', action: 'Bash' }} outcome={{ state: 'approved' }} nameOf={nameOf} />)
+    rerender(<AskCard ask={{ kind: 'approval', ref: 'a1', request_id: 'a1', pending: true, role: 'dev', action: 'Bash' }} outcome={{ state: 'approved' }} nameOf={nameOf} />)
     expect(screen.getByTestId('org-chat-approval')).toHaveAttribute('data-pending', 'false')
     expect(screen.getByRole('status')).toHaveTextContent('approved')
   })
