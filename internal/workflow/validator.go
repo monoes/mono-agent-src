@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// DeprecatedNodeTypes lists node types that fail fast with a migration hint
-// (local-agent transition, docs/plans/local-agent-monomind-delegation.md D5).
-// The value is the per-type migration hint.
+// DeprecatedNodeTypes lists node types that fail fast with a migration hint:
+// the local-agent transition (docs/plans/local-agent-monomind-delegation.md D5)
+// and removed features (removedNodeTypes). The value is the per-type hint.
 var DeprecatedNodeTypes = map[string]string{
 	"ai.chat":      `replace it with the "agent.ask" node (local AI agent via monomind; see "monoagentcli ref node agent.ask")`,
 	"ai.extract":   `replace it with the "agent.ask" node whose prompt requests JSON extraction`,
@@ -17,8 +17,13 @@ var DeprecatedNodeTypes = map[string]string{
 	"ai.embed":     `no local-agent equivalent exists — remove the node, or approximate via an "agent.ask" prompt (no true embeddings API)`,
 	// Called an LLM over HTTP with its own API key (text, and images through
 	// the same chat endpoint).
-	"service.openrouter": `replace it with the "agent.ask" node (local AI agent via monomind; see "monoagentcli ref node agent.ask"); for images use "service.huggingface" with operation generate_image`,
+	"service.openrouter":      `replace it with the "agent.ask" node (local AI agent via monomind; see "monoagentcli ref node agent.ask"); for images use "service.huggingface" with operation generate_image`,
+	"image.remove_background": `background removal was removed from monoagent and nothing replaces it: delete this node from the workflow (the other image.* nodes still work)`,
 }
+
+// removedNodeTypes are the DeprecatedNodeTypes whose feature is gone rather
+// than moved to a local agent: their hint is the whole explanation.
+var removedNodeTypes = map[string]bool{"image.remove_background": true}
 
 // IsDeprecatedNodeType reports whether a node type is deprecated, returning
 // its migration hint.
@@ -31,6 +36,9 @@ func IsDeprecatedNodeType(nodeType string) (string, bool) {
 // the type and its migration hint.
 func DeprecatedNodeError(nodeType string) error {
 	hint, _ := IsDeprecatedNodeType(nodeType)
+	if removedNodeTypes[nodeType] {
+		return fmt.Errorf("node %q: %s", nodeType, hint)
+	}
 	return fmt.Errorf("node %q is deprecated by the local-agent transition — %s (docs/plans/local-agent-monomind-delegation.md)", nodeType, hint)
 }
 

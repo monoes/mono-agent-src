@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Sliders, Crop, RefreshCw, Eraser, FileImage, RotateCcw, Lock, Unlock } from 'lucide-react'
+import { Sliders, Crop, RefreshCw, FileImage, RotateCcw, Lock, Unlock } from 'lucide-react'
 
 // Pieces of the full-screen image editor: style tokens, the per-tab control
 // panels and the crop overlay. ImageEditorFullscreen.jsx holds the editor shell.
@@ -12,7 +12,6 @@ export const btnBase = { borderRadius: 6, padding: '8px 16px', ...mono, cursor: 
 
 export const TABS = [
   { id: 'adjust',    label: 'Adjust',    icon: Sliders },
-  { id: 'remove_bg', label: 'Remove BG', icon: Eraser },
   { id: 'resize',    label: 'Resize',    icon: RefreshCw },
   { id: 'crop',      label: 'Crop',      icon: Crop },
   { id: 'convert',   label: 'Convert',   icon: FileImage },
@@ -66,82 +65,6 @@ export function AdjustControls({ adj, setAdj }) {
         ))}
       </div>
       <p style={{ ...mono, fontSize: 10, color: '#334155', marginTop: 14 }}>Preview is live. <strong style={{ color: '#475569' }}>Save to Vault</strong> applies via CLI.</p>
-    </div>
-  )
-}
-
-// ── Remove BG ─────────────────────────────────────────────────────────────────
-export function RemoveBgControls({ bgcolor, setBgcolor }) {
-  const [useColor, setUseColor] = useState(false)
-  const pickerColor = bgcolor || '#ffffff'
-
-  const handleToggle = () => {
-    if (useColor) { setUseColor(false); setBgcolor('') }
-    else { setUseColor(true); setBgcolor(pickerColor.replace('#', '')) }
-  }
-
-  const handlePicker = e => {
-    const hex = e.target.value.replace('#', '')
-    setBgcolor(hex)
-  }
-
-  const handleText = e => {
-    const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6)
-    setBgcolor(v)
-  }
-
-  return (
-    <div>
-      {/* Transparent vs color selector */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button type="button" aria-pressed={!useColor} onClick={() => { setUseColor(false); setBgcolor('') }}
-          style={{ font: 'inherit',
-            flex: 1, borderRadius: 7, border: `1.5px solid ${!useColor ? '#00b4d8' : '#1e3a4f'}`,
-            background: !useColor ? 'rgba(0,180,216,.1)' : '#0d1a26',
-            padding: '10px 8px', cursor: 'pointer', textAlign: 'center',
-          }}>
-          {/* Transparent checkerboard */}
-          <div style={{
-            width: 28, height: 28, borderRadius: 4, margin: '0 auto 6px',
-            backgroundImage: 'linear-gradient(45deg,#334155 25%,transparent 25%),linear-gradient(-45deg,#334155 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#334155 75%),linear-gradient(-45deg,transparent 75%,#334155 75%)',
-            backgroundSize: '8px 8px', backgroundPosition: '0 0,0 4px,4px -4px,-4px 0',
-            border: '1px solid #1e3a4f',
-          }} />
-          <span style={{ ...mono, fontSize: 9, color: !useColor ? '#00b4d8' : '#475569' }}>Transparent</span>
-        </button>
-
-        <button type="button" aria-pressed={useColor} onClick={() => { setUseColor(true); if (!bgcolor) setBgcolor('ffffff') }}
-          style={{ font: 'inherit',
-            flex: 1, borderRadius: 7, border: `1.5px solid ${useColor ? '#00b4d8' : '#1e3a4f'}`,
-            background: useColor ? 'rgba(0,180,216,.1)' : '#0d1a26',
-            padding: '10px 8px', cursor: 'pointer', textAlign: 'center',
-          }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 4, margin: '0 auto 6px',
-            background: bgcolor ? `#${bgcolor}` : '#ffffff',
-            border: '1px solid #1e3a4f',
-          }} />
-          <span style={{ ...mono, fontSize: 9, color: useColor ? '#00b4d8' : '#475569' }}>Color</span>
-        </button>
-      </div>
-
-      {/* Color picker row — only when color mode is on */}
-      {useColor && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-          <input type="color" value={`#${bgcolor || 'ffffff'}`} onChange={handlePicker}
-            style={{ width: 36, height: 36, padding: 2, borderRadius: 5, border: '1px solid #1e3a4f', background: '#0d1a26', cursor: 'pointer', flexShrink: 0 }} />
-          <div style={{ flex: 1, position: 'relative' }}>
-            <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#475569', ...mono, fontSize: 11 }}>#</span>
-            <input type="text" value={bgcolor} onChange={handleText} maxLength={6} placeholder="ffffff"
-              style={{ ...inp, paddingLeft: 20, letterSpacing: 1 }} />
-          </div>
-        </div>
-      )}
-
-      <div style={{ background: '#0a1520', border: '1px solid #1e3a4f', borderRadius: 6, padding: '8px 10px', marginBottom: 4 }}>
-        <div style={{ ...mono, fontSize: 9, color: '#34d399', marginBottom: 2 }}>Output: PNG (transparency preserved)</div>
-        <div style={{ ...mono, fontSize: 9, color: '#334155' }}>U2-Net AI model · runs locally · no API key</div>
-      </div>
     </div>
   )
 }

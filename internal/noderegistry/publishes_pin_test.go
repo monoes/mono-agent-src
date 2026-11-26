@@ -76,7 +76,7 @@ var localOnlyTypes = map[string]string{
 	"image.crop":              "local data/file/image processing; no outbound call",
 	"image.edit":              "local data/file/image processing; no outbound call",
 	"image.info":              "local data/file/image processing; no outbound call",
-	"image.remove_background": "local data/file/image processing; no outbound call",
+	"image.remove_background": "removed feature: the stub fails without doing anything",
 	"image.resize":            "local data/file/image processing; no outbound call",
 	"image.thumbnail":         "local data/file/image processing; no outbound call",
 	"image.vault_get":         "local data/file/image processing; no outbound call",

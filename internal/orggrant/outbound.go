@@ -88,9 +88,8 @@ var readOnlyNodes = setOf(
 	// Text chunking and document loading (from item data or local files).
 	"vector.split_text", "vector.load_document",
 	// Image transforms write a new derived file; image.info only reads.
-	// remove_background downloads its model with a GET.
 	"image.adjust", "image.convert", "image.crop", "image.info",
-	"image.remove_background", "image.resize", "image.thumbnail",
+	"image.resize", "image.thumbnail",
 	"image.vault_get", "vault.secret_get",
 	// Reads over the network.
 	"comm.email_read", "system.rss_read",
@@ -108,6 +107,8 @@ var readOnlyNodes = setOf(
 	// turns only judge the text and answer with a JSON verdict.
 	"ai.guardrails",
 	"ai.chat", "ai.classify", "ai.embed", "ai.extract", "ai.transform",
+	// A removed feature's stub: it fails without doing anything.
+	"image.remove_background",
 	// Bookkeeping in mono-agent's own stores: nothing leaves the machine
 	// and nothing is overwritten beyond the rows the node owns.
 	// discovery.search_jobs reads public job boards with GETs.
