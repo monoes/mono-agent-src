@@ -6,6 +6,7 @@ import { CoderHeader, CoderBadge } from '../chat/CoderHeader.jsx'
 import { ChatModeChip } from '../chat/ChatModeSelector.jsx'
 import { useChatMode } from '../chat/useChatMode.js'
 import { OpenStartForm } from '../chat/OpenStartForm.jsx'
+import { FetchedAccessWarning } from '../chat/ChatWarnings.jsx'
 import { folderName } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
@@ -437,7 +438,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             <RoleChat key={openRole.conversationId} role={openRole} frontDesk={bubble.conversationId} access={access} setup={setup} runtime={runtime}
               onBack={() => setRoleId(null)} onNavigate={onNavigate} onOpenArtifact={onOpenArtifact} />
           ) : (chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
+            <>
+            <FetchedAccessWarning access={bubble.conversationId ? access : getOpenChat().spec.access} />
             <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { const failed = firstTurnFailedIn(r); setOpenStarted(true); setOpenRun({ firstTurnFailed: failed, watch: !failed }) }} />
+            </>
           ) : (
           <CoderChatView
             conv={conv}

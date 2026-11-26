@@ -311,6 +311,7 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 					ev.SandboxStatus = AppliedSandboxStatus(opts.Sandbox, ev.SandboxApplied)
 				}
 				ev.SandboxNote = sandboxNote
+				warnUnsandboxed(opts.Runtime, ev.SandboxStatus)
 			}
 			if onEvent != nil {
 				onEvent(ev)

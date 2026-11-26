@@ -3611,5 +3611,11 @@
     "curlImporting": "Importing…",
     "curlImport": "Import (replaces the request settings)",
     "curlCancel": "Cancel"
+  },
+  "chatWarnings": {
+    "fullAccess": "Full access: this chat can run any command and change any file on this computer as you.",
+    "unsandboxed": "No sandbox for this turn: the agent is not confined to a working folder.",
+    "boxOff": "{{level}} access is not enforced because the coder box is off: this chat can run any command and change any file on this computer as you.",
+    "workerUnsandboxed": "No sandbox for this agent: its runtime cannot limit it to reading, so it has full access and is only told not to change files."
   }
 }

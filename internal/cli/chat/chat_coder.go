@@ -253,6 +253,9 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 			}
 		}
 	}
+	if t.confine == nil && startsChat(journal, t.resume) {
+		warnAccess(cmd.ErrOrStderr(), t.access, settings)
+	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
 	if settleLead != nil {
 		// The lead's own turn counts against the mission's budget, as a worker's run does: charged at once, so
@@ -377,7 +380,13 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 // createCoderConversation is `chat history create` above the scoped level
 // (--mode coder is full); runtimeID "" means claude.
 // chatMode ("" is off) is written in the transaction that inserts the conversation.
-func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID, chatMode string, folder coderFolderChoice) (ai.Conversation, error) {
+// A conversation that can run anything warns on stderr (warnAccess).
+func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID, chatMode string, folder coderFolderChoice) (conv ai.Conversation, err error) {
+	defer func() {
+		if err == nil {
+			warnNewChatAccess(cmd.ErrOrStderr(), cfg, access)
+		}
+	}()
 	// A conversation above scoped is a raise from nothing: an agent, the chat or
 	// a workflow must not make itself a full-access one to run next.
 	if err := clicore.RequireOperator(cfg.RequireOperator, "create a conversation above the scoped level"); err != nil {
@@ -404,7 +413,7 @@ func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, m
 	}
 	defer db.Close()
 	cs := coderhost.NewStore(db.DB)
-	conv, err := store.CreateConversationAccessIn(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort,
+	conv, err = store.CreateConversationAccessIn(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort,
 		func(ctx context.Context, conn *sql.Conn, id string) error {
 			return cs.SetNewChatModeOn(ctx, conn, profileID, id, chatMode)
 		})
