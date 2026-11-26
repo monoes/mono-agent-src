@@ -5,6 +5,7 @@ import { api, subscribeEvent } from '../services/api.js'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { useTranslation } from 'react-i18next'
+import i18n from '../i18n.js'
 import { loginRequiredInError } from '../lib/accountBindingWatch.js'
 import { commsByPerson, isCompany, isOwnAccount, onCommsChanged } from '../lib/commsStatus.js'
 
@@ -27,8 +28,8 @@ export const TAG_COLORS = [
 // ── Curated Suggested Tags by Purpose ─────────────────────────
 export const TAG_SUGGESTION_GROUPS = [
   {
-    title: 'Sales Pipeline',
-    description: 'Outreach & deal progression stages',
+    get title() { return i18n.t('ui6PagesPeople.group_sales_title') },
+    get description() { return i18n.t('ui6PagesPeople.group_sales_desc') },
     tags: [
       { name: 'Lead', color: '#00b4d8' },
       { name: 'Prospect', color: '#0284c7' },
@@ -42,8 +43,8 @@ export const TAG_SUGGESTION_GROUPS = [
     ],
   },
   {
-    title: 'Role & Authority',
-    description: 'Seniority, leadership, and decision-making power',
+    get title() { return i18n.t('ui6PagesPeople.group_role_title') },
+    get description() { return i18n.t('ui6PagesPeople.group_role_desc') },
     tags: [
       { name: 'Founder', color: '#7c3aed' },
       { name: 'Co-Founder', color: '#8b5cf6' },
@@ -56,8 +57,8 @@ export const TAG_SUGGESTION_GROUPS = [
     ],
   },
   {
-    title: 'Advocacy & Relationships',
-    description: 'Champions, agents, promoters, and media channels',
+    get title() { return i18n.t('ui6PagesPeople.group_advocacy_title') },
+    get description() { return i18n.t('ui6PagesPeople.group_advocacy_desc') },
     tags: [
       { name: 'Champion', color: '#e1306c' },
       { name: 'Sales Agent', color: '#f97316' },
@@ -133,6 +134,7 @@ function TagChip({ tag }) {
 
 // ── Tag Editor Modal ──────────────────────────────────────────
 function TagEditor({ personId, username, fullName, onClose }) {
+  const { t } = useTranslation()
   const [tags, setTags]               = useState([])
   const [allTags, setAllTags]         = useState([])
   const [input, setInput]             = useState('')
@@ -245,7 +247,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
     t.name.toLowerCase() === input.trim().toLowerCase()
   )
 
-  const displayName = fullName || (username ? `@${username}` : 'Contact')
+  const displayName = fullName || (username ? `@${username}` : t('ui6PagesPeople.contact'))
 
   return createPortal(
     <div
@@ -270,7 +272,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
         ref={rootRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Manage tags for ${displayName}`}
+        aria-label={t('ui6PagesPeople.manage_tags_for', { name: displayName })}
         style={{
           width: 620,
           maxWidth: '96vw',
@@ -307,7 +309,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
             </div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                Manage Tags
+                {t('ui6PagesPeople.manage_tags')}
                 {username && (
                   <span style={{ fontSize: 12, fontWeight: 400, color: '#00b4d8', fontFamily: 'var(--font-mono)' }}>
                     @{username}
@@ -315,7 +317,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-                {fullName && fullName !== username ? `${fullName} · ` : ''}{tags.length}/10 tags assigned
+                {fullName && fullName !== username ? `${fullName} · ` : ''}{t('ui6PagesPeople.tags_assigned', { n: tags.length })}
               </div>
             </div>
           </div>
@@ -329,7 +331,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
             }}
             onMouseEnter={e => e.currentTarget.style.color = '#fff'}
             onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-            title="Close"
+            title={t('ui6PagesPeople.close')}
           >
             <X size={16} />
           </button>
@@ -344,11 +346,11 @@ function TagEditor({ personId, username, fullName, onClose }) {
                 fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
                 textTransform: 'uppercase', letterSpacing: 1.5,
               }}>
-                Assigned Tags ({tags.length}/10)
+                {t('ui6PagesPeople.assigned_tags', { n: tags.length })}
               </span>
               {tags.length > 0 && !editingColorTagId && (
                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  Click color dot to change color
+                  {t('ui6PagesPeople.click_dot')}
                 </span>
               )}
             </div>
@@ -356,7 +358,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
             {tagError && <div role="alert" data-testid="tag-error" style={{ fontSize: 11, color: 'var(--red)', marginBottom: 6 }}>{tagError}</div>}
             {loading ? (
               <div style={{ height: 32, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12 }}>
-                <div className="spinner" style={{ width: 14, height: 14 }} /> Loading tags…
+                <div className="spinner" style={{ width: 14, height: 14 }} /> {t('ui6PagesPeople.loading_tags')}
               </div>
             ) : tags.length > 0 ? (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
@@ -376,7 +378,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                     <button
                       type="button"
                       onClick={() => setEditingColorTagId(editingColorTagId === tag.id ? null : tag.id)}
-                      title="Click to customize this tag's color"
+                      title={t('ui6PagesPeople.customize_color')}
                       style={{
                         width: 12, height: 12, borderRadius: '50%',
                         background: tag.color,
@@ -398,7 +400,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                       }}
                       onMouseEnter={e => e.currentTarget.style.color = '#fff'}
                       onMouseLeave={e => e.currentTarget.style.color = `${tag.color}99`}
-                      title={`Remove tag ${tag.name}`}
+                      title={t('ui6PagesPeople.remove_tag_named', { name: tag.name })}
                     >
                       <X size={12} />
                     </button>
@@ -411,7 +413,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                 padding: '12px 14px', background: 'rgba(255,255,255,0.02)',
                 borderRadius: 6, border: '1px dashed rgba(255,255,255,0.1)',
               }}>
-                No tags assigned yet. Click any suggested tag below or type a custom tag name.
+                {t('ui6PagesPeople.no_tags')}
               </div>
             )}
 
@@ -431,7 +433,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#e2e8f0', fontFamily: 'var(--font-mono)' }}>
                   <Palette size={13} color="#00b4d8" />
-                  Color for <strong>{tags.find(t => t.id === editingColorTagId)?.name}</strong>:
+                  {t('ui6PagesPeople.color_for')} <strong>{tags.find(t => t.id === editingColorTagId)?.name}</strong>:
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {TAG_COLORS.map(c => (
@@ -439,7 +441,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                       key={c}
                       type="button"
                       onClick={() => changeTagColor(editingColorTagId, c)}
-                      title={`Set color to ${c}`}
+                      title={t('ui6PagesPeople.set_color', { color: c })}
                       style={{
                         width: 20, height: 20, borderRadius: '50%',
                         background: c,
@@ -462,7 +464,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                     fontFamily: 'var(--font-mono)',
                   }}
                 >
-                  Cancel
+                  {t('ui6PagesPeople.cancel')}
                 </button>
               </div>
             )}
@@ -474,7 +476,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
               fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
               textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10,
             }}>
-              Suggested Categories (Click to toggle)
+              {t('ui6PagesPeople.suggested')}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -509,7 +511,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                           type="button"
                           onClick={() => toggleSuggestedTag(stag)}
                           disabled={!isAssigned && tags.length >= 10}
-                          title={isAssigned ? `Assigned: click to remove "${stag.name}"` : `Click to assign "${stag.name}"`}
+                          title={isAssigned ? t('ui6PagesPeople.assigned_remove', { name: stag.name }) : t('ui6PagesPeople.click_assign', { name: stag.name })}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -568,7 +570,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                 fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
                 textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8,
               }}>
-                Add Custom Tag
+                {t('ui6PagesPeople.add_custom')}
               </div>
 
               {/* Input field */}
@@ -594,7 +596,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                       }
                     }
                   }}
-                  placeholder="Type custom tag name (press Enter to add)…"
+                  placeholder={t('ui6PagesPeople.custom_placeholder')}
                   style={{
                     flex: 1, background: 'none', border: 'none', outline: 'none',
                     color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 12,
@@ -615,7 +617,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                     onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,180,216,0.3)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,180,216,0.2)'}
                   >
-                    {isNewTag ? '+ Create' : '+ Add'}
+                    {isNewTag ? t('ui6PagesPeople.plus_create') : t('ui6PagesPeople.plus_add')}
                   </button>
                 )}
               </div>
@@ -631,7 +633,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                   boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
                 }}>
                   <div style={{ padding: '4px 8px', fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    Existing Tags (click to select)
+                    {t('ui6PagesPeople.existing_tags')}
                   </div>
                   {suggestions.map(s => (
                     <div
@@ -657,7 +659,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                         {s.name}
                       </span>
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                        Select
+                        {t('ui6PagesPeople.select')}
                       </span>
                     </div>
                   ))}
@@ -668,10 +670,10 @@ function TagEditor({ personId, username, fullName, onClose }) {
               <div style={{ marginTop: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
-                    Tag Color
+                    {t('ui6PagesPeople.tag_color')}
                   </span>
                   <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    PREVIEW:
+                    {t('ui6PagesPeople.preview')}
                     <span style={{
                       padding: '2px 8px', borderRadius: 4,
                       background: `${selColor}20`,
@@ -679,7 +681,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
                       color: selColor,
                       fontSize: 10, fontWeight: 600,
                     }}>
-                      {input.trim() || 'Custom Tag'}
+                      {input.trim() || t('ui6PagesPeople.custom_tag')}
                     </span>
                   </span>
                 </div>
@@ -708,7 +710,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
             </div>
           ) : (
             <div style={{ fontSize: 11, color: '#f59e0b', fontFamily: 'var(--font-mono)', padding: '8px 12px', background: 'rgba(245,158,11,0.08)', borderRadius: 6, border: '1px solid rgba(245,158,11,0.2)' }}>
-              Tag limit reached (10/10). Remove a tag to add a new one.
+              {t('ui6PagesPeople.limit')}
             </div>
           )}
         </div>
@@ -722,7 +724,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
           flexShrink: 0,
         }}>
           <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            Press Esc to close
+            {t('ui6PagesPeople.esc_close')}
           </span>
           <button
             type="button"
@@ -737,7 +739,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,180,216,0.3)'}
             onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,180,216,0.18)'}
           >
-            Done
+            {t('ui6PagesPeople.done')}
           </button>
         </div>
       </div>
@@ -748,6 +750,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
 
 // ── Tags cell in the table ────────────────────────────────────
 function TagsCell({ personId, username, fullName, initialTags }) {
+  const { t } = useTranslation()
   const [open, setOpen]       = useState(false)
   const [tags, setTags]       = useState(initialTags || [])
 
@@ -768,21 +771,21 @@ function TagsCell({ personId, username, fullName, initialTags }) {
 
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
-      {visibleTags.map(t => (
+      {visibleTags.map(tag => (
         <span
-          key={t.id}
+          key={tag.id}
           onClick={(e) => { e.stopPropagation(); setOpen(true) }}
           style={{ cursor: 'pointer' }}
-          title="Click to manage tags"
+          title={t('ui6PagesPeople.click_manage')}
         >
-          <TagChip tag={t} />
+          <TagChip tag={tag} />
         </span>
       ))}
       {extra > 0 && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setOpen(true) }}
-          title={`+${extra} more tag${extra > 1 ? 's' : ''} (click to view)`}
+          title={t('ui6PagesPeople.more_tags', { count: extra })}
           style={{
             background: 'none', border: 'none', padding: 0,
             fontSize: 10, fontFamily: 'var(--font-mono)',
@@ -796,7 +799,7 @@ function TagsCell({ personId, username, fullName, initialTags }) {
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
-        title="Add or manage tags"
+        title={t('ui6PagesPeople.add_manage')}
         style={{
           width: 20, height: 20, borderRadius: 4,
           background: open ? 'rgba(0,180,216,0.2)' : 'rgba(0,180,216,0.08)',
@@ -884,7 +887,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
       }
     } catch (e) {
       // Signed out: the account gate (watching every binding) takes over.
-      if (seq === loadSeq.current && !loginRequiredInError(e)) setError(e?.message || 'Failed to load people')
+      if (seq === loadSeq.current && !loginRequiredInError(e)) setError(e?.message || i18n.t('ui6PagesPeople.load_failed'))
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
@@ -912,12 +915,12 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
 
   const deleteSelected = async () => {
     const ids = [...selected]
-    if (!(await confirm(`Delete ${ids.length} ${ids.length === 1 ? 'person' : 'people'}? Their saved photos are removed too.`, { title: 'Delete people', confirmLabel: 'Delete' }))) return
+    if (!(await confirm(t('ui6PagesPeople.confirm_delete', { count: ids.length }), { title: t('ui6PagesPeople.delete_title'), confirmLabel: t('ui6PagesPeople.delete') }))) return
     try {
       await api.deletePeople(ids)
       setSelected(new Set())
     } catch (e) {
-      setError(e?.message || 'Failed to delete')
+      setError(e?.message || t('ui6PagesPeople.delete_failed'))
     }
     load({ silent: true })
   }
@@ -940,17 +943,17 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
     <>
       <div className="page-header">
         <div className="page-header-left">
-          <div className="page-title">People</div>
-          <div className="page-subtitle">Discovered Profiles</div>
+          <div className="page-title">{t('ui6PagesPeople.title')}</div>
+          <div className="page-subtitle">{t('ui6PagesPeople.subtitle')}</div>
         </div>
         <div className="page-header-right">
           {selected.size > 0 && (
             <button className="btn btn-ghost btn-sm" onClick={deleteSelected} style={{ gap: 5, color: 'var(--red)' }}>
-              <Trash2 size={12} /> Delete ({selected.size})
+              <Trash2 size={12} /> {t('ui6PagesPeople.delete_n', { n: selected.size })}
             </button>
           )}
           <button className="btn btn-ghost btn-sm" onClick={() => load()} style={{ gap: 5 }}>
-            <RefreshCw size={12} /> Refresh
+            <RefreshCw size={12} /> {t('ui6PagesPeople.refresh')}
           </button>
         </div>
       </div>
@@ -958,7 +961,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
       <div className="page-body">
         {error && <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 'var(--radius)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }} role="alert">
           <span>{error}</span>
-          <button className="btn btn-ghost btn-sm" onClick={() => load()}>Retry</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => load()}>{t('ui6PagesPeople.retry')}</button>
         </div>}
         <div className="filters-bar">
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -966,17 +969,17 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
             <input
               className="search-input"
               style={{ paddingLeft: 30 }}
-              placeholder="Search username or name..."
+              placeholder={t('ui6PagesPeople.search_placeholder')}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
           </div>
           <select className="filter-select" value={platform} onChange={e => handlePlatformChange(e.target.value)}>
-            <option value="">All Platforms</option>
+            <option value="">{t('ui6PagesPeople.all_platforms')}</option>
             {platformOptions.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-            {count.toLocaleString()} profile{count !== 1 ? 's' : ''}
+            {t('ui6PagesPeople.profile_count', { count, n: count.toLocaleString() })}
           </span>
         </div>
 
@@ -985,11 +988,11 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
         ) : people.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon"><Users size={40} /></div>
-            <div className="empty-state-title">No profiles found</div>
+            <div className="empty-state-title">{t('ui6PagesPeople.none_found')}</div>
             <div className="empty-state-desc">
               {debouncedSearch || platform
-                ? 'Try adjusting your filters.'
-                : 'Import contacts via `people import` or capture them from workflows.'}
+                ? t('ui6PagesPeople.adjust_filters')
+                : t('ui6PagesPeople.import_hint')}
             </div>
           </div>
         ) : (
@@ -1001,19 +1004,19 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
                     <th style={{ width: 28 }}>
                       <input
                         type="checkbox"
-                        aria-label="Select all"
+                        aria-label={t('ui6PagesPeople.select_all')}
                         checked={people.length > 0 && selected.size === people.length}
                         onChange={e => setSelected(e.target.checked ? new Set(people.map(p => p.id)) : new Set())}
                       />
                     </th>
-                    <th>Profile</th>
-                    <th>Platform</th>
-                    <th>Full Name</th>
-                    <th>Tags</th>
-                    {showFollowers && <th>Followers</th>}
-                    <th>Job / Category</th>
-                    <th>Verified</th>
-                    <th>Added</th>
+                    <th>{t('ui6PagesPeople.col_profile')}</th>
+                    <th>{t('ui6PagesPeople.col_platform')}</th>
+                    <th>{t('ui6PagesPeople.col_full_name')}</th>
+                    <th>{t('ui6PagesPeople.col_tags')}</th>
+                    {showFollowers && <th>{t('ui6PagesPeople.col_followers')}</th>}
+                    <th>{t('ui6PagesPeople.col_job')}</th>
+                    <th>{t('ui6PagesPeople.col_verified')}</th>
+                    <th>{t('ui6PagesPeople.col_added')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1024,7 +1027,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
                         <td>
                           <input
                             type="checkbox"
-                            aria-label={`Select @${p.username}`}
+                            aria-label={t('ui6PagesPeople.select_user', { username: p.username })}
                             checked={selected.has(p.id)}
                             onChange={() => toggle(p.id)}
                           />
@@ -1035,7 +1038,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
                             <button
                               className="mono profile-link"
                               onClick={() => onProfile?.(p.id)}
-                              aria-label={`View profile of @${p.username}`}
+                              aria-label={t('ui6PagesPeople.view_profile', { username: p.username })}
                             >
                               @{p.username}
                             </button>
@@ -1056,7 +1059,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
                               <button
                                 className="btn btn-ghost btn-icon"
                                 onClick={() => api.openURL(profileUrl)}
-                                title={`Open on ${p.platform}`}
+                                title={t('ui6PagesPeople.open_on', { platform: p.platform })}
                                 style={{ padding: 3, minWidth: 'unset', minHeight: 'unset', opacity: 0.4 }}
                               >
                                 <ExternalLink size={11} />
@@ -1102,17 +1105,17 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
                   onClick={() => setOffset(Math.max(0, offset - LIMIT))}
                   disabled={offset === 0}
                 >
-                  ← Prev
+                  {t('ui6PagesPeople.prev')}
                 </button>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>
-                  {offset + 1}–{Math.min(offset + LIMIT, count)} of {count}
+                  {t('ui6PagesPeople.range', { from: offset + 1, to: Math.min(offset + LIMIT, count), total: count })}
                 </span>
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={() => setOffset(offset + LIMIT)}
                   disabled={offset + LIMIT >= count}
                 >
-                  Next →
+                  {t('ui6PagesPeople.next')}
                 </button>
               </div>
             )}
