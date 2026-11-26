@@ -457,6 +457,13 @@ test("chat_ui_action maps the panel's message to chat.ui_action and returns the 
   assert.equal(t.calls.length, 1);
 });
 
+test("chat_ui_action waits longer than the bridge holds a press", async () => {
+  const t = setup({ methods: ["chat.ui_action"], reply: () => ({ outcome: "accepted", delivered: "system", inProgress: true }) });
+  const r = await t.send({ type: "chat_ui_action", profile: "p-work", conversationId: "c-1", action: { version: "1.0", action: {} } });
+  assert.equal(r.inProgress, true);
+  assert.ok(t.calls[0].opts.timeoutMs >= 30000, "the bridge answers after 12s at the latest; the panel must still be listening");
+});
+
 test("chat_ui_sync maps to chat.ui_sync", async () => {
   const t = setup({ reply: async () => ({ surfaced: ["hil-1"], resolved: [] }) });
   const r = await t.send({ type: "chat_ui_sync", profile: "p-work", conversationId: "c-1" });

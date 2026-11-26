@@ -3642,6 +3642,7 @@
     },
     "lockedSent": "Sent. Waiting for a response.",
     "lockedDone": "Already answered. These buttons are off.",
+    "lockedWorking": "Working. Do not press again: this can take a while.",
     "announceDone": "Card answered: {{title}}",
     "announceUpdated": "Card updated: {{title}}",
     "stale": "That card is no longer open.",

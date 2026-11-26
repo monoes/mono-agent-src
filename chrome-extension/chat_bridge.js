@@ -350,16 +350,17 @@
   };
 
   // A2UI surfaces (a2ui_render.js): the press of a button, and the approvals waiting in the conversation.
-  const uiCall = async (method, msg, extra) => {
+  const uiCall = async (method, msg, extra, ms = 20000) => {
     const conversation = String(msg.conversationId || msg.conversation || "");
     if (!conversation) throw new Error("there is no conversation");
     const params = Object.assign({ conversation }, extra);
-    const data = await root.MonoAsk.request(method, withProfile(params, profileOf(msg)), { timeoutMs: 20000, idleTimeoutMs: 20000 });
+    const data = await root.MonoAsk.request(method, withProfile(params, profileOf(msg)), { timeoutMs: ms, idleTimeoutMs: ms });
     return Object.assign({}, data && typeof data === "object" ? data : {}, { ok: true });
   };
   handlers.chat_ui_action = (msg) => {
     if (!msg.action || typeof msg.action !== "object") return Promise.reject(new Error("there is no action to send"));
-    return uiCall("chat.ui_action", msg, { action: msg.action });
+    // Longer than the bridge waits for a press before it answers "in progress".
+    return uiCall("chat.ui_action", msg, { action: msg.action }, 35000);
   };
   handlers.chat_ui_sync = (msg) => uiCall("chat.ui_sync", msg, {});
   handlers.chat_ui_journal = async (msg) => {

@@ -3642,6 +3642,7 @@
     },
     "lockedSent": "Enviado. Esperando respuesta.",
     "lockedDone": "Ya respondida. Estos botones están desactivados.",
+    "lockedWorking": "En curso. No vuelvas a pulsar: puede tardar un rato.",
     "announceDone": "Tarjeta respondida: {{title}}",
     "announceUpdated": "Tarjeta actualizada: {{title}}",
     "stale": "Esa tarjeta ya no está abierta.",

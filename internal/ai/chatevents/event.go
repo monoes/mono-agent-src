@@ -525,6 +525,8 @@ type UIRef struct {
 	// Digest is the record's content digest as the surface shows it (approval
 	// cards): a press decides the record only while it still has it.
 	Digest string `json:"digest,omitempty"`
+	// State is "sending" on the note shown while an approved send runs.
+	State string `json:"state,omitempty"`
 }
 
 // UIActionPayload is ui.action's payload: the user pressed a button on a

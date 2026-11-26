@@ -57,13 +57,18 @@ func (a *App) jsonCLIStdin(stdin string, args ...string) (string, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	return cliAnswer(args, out, stderr.Bytes(), err)
+}
+
+// cliAnswer reads what a --json command run for args printed and how it ended.
+func cliAnswer(args []string, out, stderr []byte, err error) (string, error) {
 	trimmed := strings.TrimSpace(string(out))
 	if err != nil {
 		var refusal chatRefusal
 		_ = json.Unmarshal([]byte(lastLine(string(out))), &refusal)
 		msg := refusal.Error
 		if msg == "" {
-			msg = lastLine(stderr.String())
+			msg = lastLine(string(stderr))
 		}
 		if msg == "" {
 			msg = err.Error()

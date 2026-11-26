@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/a2ui"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
 // A2UI surfaces in the side panel's chat. Both methods are mutating actions of
@@ -152,6 +154,11 @@ func (b *cliChatBackend) uiRun(ctx context.Context, stdin []byte, argv []string)
 	if err != nil {
 		return nil, err
 	}
+	return uiDocument(out)
+}
+
+// uiDocument is the one JSON value a `chat ui` command printed.
+func uiDocument(out []byte) (json.RawMessage, error) {
 	// The CLI indents its document over many lines: the whole of stdout is the one value.
 	var doc bytes.Buffer
 	var probe map[string]any
@@ -161,8 +168,41 @@ func (b *cliChatBackend) uiRun(ctx context.Context, stdin []byte, argv []string)
 	return json.RawMessage(doc.Bytes()), nil
 }
 
+// uiPressWait is how long a press of a host card is waited for before the
+// panel is told it is still in progress. Approving a send performs it, which
+// can take minutes.
+var uiPressWait = 12 * time.Second
+
+// pressInProgress answers such a press: the command goes on, and the card it
+// journals says how far it is.
+const pressInProgress = `{"outcome":"accepted","delivered":"system","inProgress":true}`
+
+// UIAction runs the press on its own (clicore.RunSurviving): neither the
+// request's deadline nor a panel that closes ends a send half way.
 func (b *cliChatBackend) UIAction(ctx context.Context, profile, conversation string, action []byte) (json.RawMessage, error) {
-	return b.uiRun(ctx, action, uiActionArgv(profile, conversation))
+	bin, err := b.binary()
+	if err != nil {
+		return nil, err
+	}
+	press, err := a2ui.ParseAction(action, a2ui.DefaultLimits)
+	host := err == nil && strings.HasPrefix(press.Name, "hil.")
+	wait := ctx
+	if host {
+		var cancel context.CancelFunc
+		wait, cancel = context.WithTimeout(ctx, uiPressWait)
+		defer cancel()
+	}
+	cmd := exec.Command(bin, uiActionArgv(profile, conversation)...) //nolint:gosec // our own CLI
+	out, stderr, err := clicore.RunSurviving(wait, cmd, action)
+	switch {
+	case errors.Is(err, clicore.ErrStillRunning) && host:
+		return json.RawMessage(pressInProgress), nil
+	case errors.Is(err, clicore.ErrStillRunning):
+		return nil, &RequestError{Code: CodeTimeout, Err: err}
+	case err != nil:
+		return nil, cliFailure(out, string(stderr), err)
+	}
+	return uiDocument(out)
 }
 
 func (b *cliChatBackend) UISync(ctx context.Context, profile, conversation string) (json.RawMessage, error) {

@@ -140,6 +140,13 @@ func (e *sysEnv) run(ctx context.Context, args ...string) ([]byte, error) {
 	return e.cfg.RunCLI(ctx, args...)
 }
 
+// An approved send can take minutes: its card says so, with no button, from
+// before the send starts until it ends (or sync-hil reads that it ended).
+const (
+	sendingNote = "Approved by you. Sending now: this can take a while"
+	refSending  = "sending"
+)
+
 // hil runs hil.approve and hil.reject: `hil approve|reject <id>`. A press is
 // accepted only when the item ends in the state its button names; otherwise the
 // card shows what really happened and the press is journaled rejected.
@@ -160,16 +167,16 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		}
 		args = []string{"hil", "approve", cmd.ID, "--data", data}
 	}
+	sending := approve && ref.Kind == surfaces.RefSend
+	if sending {
+		inProgress := ref
+		inProgress.State = refSending
+		e.finish(conv, inProgress, surfaceID, sendingNote, "info")
+	}
 	// The command decides the item only while it is what the card showed.
 	out, err := e.run(ctx, append(args, "--if-digest", ref.Digest)...)
 	if err != nil {
-		// The card stays live while the item still waits, drawn anew if it changed.
-		switch it, lerr := e.pendingItem(ctx, cmd.ID); {
-		case errors.Is(lerr, errNotPending):
-			e.finish(conv, ref, surfaceID, "No longer pending", "neutral")
-		case lerr == nil && it.Digest != ref.Digest:
-			e.redraw(conv, surfaceID, it)
-		}
+		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending)
 		return errors.New(e.redact(ctx, err.Error()))
 	}
 	// A send prints its card ({state, error}), anything else {status}.
@@ -188,14 +195,55 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		e.finish(conv, ref, surfaceID, "Approved by you", "success")
 		return nil
 	case approve && state == hilsend.StateApproved:
-		e.finish(conv, ref, surfaceID, "Approved, being sent now", "info")
+		// Someone else's approval is sending it; sync-hil reads how it ends.
+		inProgress := ref
+		inProgress.State = refSending
+		e.finish(conv, inProgress, surfaceID, "Approved, being sent now", "info")
 		return nil
 	}
 	note, tone := outcomeNote(approve, state, res.Error)
-	if state != hilsend.StatePending {
+	switch {
+	case state != hilsend.StatePending:
 		e.finish(conv, ref, surfaceID, note, tone)
+	case sending:
+		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending)
 	}
 	return errors.New(e.redact(ctx, note))
+}
+
+// afterFailure puts the card right after a command that decided nothing it can
+// tell of: the card of an item that still waits stays, drawn anew if the item
+// changed or the card was replaced by the in-progress note; an item that waits
+// no more gets a note with its state.
+func (e *sysEnv) afterFailure(ctx context.Context, conv uiConv, ref chatevents.UIRef, surfaceID string, approve, sending bool) {
+	it, err := e.pendingItem(ctx, ref.ID)
+	switch {
+	case err == nil && (sending || it.Digest != ref.Digest):
+		e.redraw(conv, surfaceID, it)
+	case errors.Is(err, errNotPending):
+		note, tone := "No longer pending", "neutral"
+		if ref.Kind == surfaces.RefSend {
+			if state, sendError := e.sendState(ctx, ref.ID); state != "" {
+				note, tone = outcomeNote(approve, state, sendError)
+			}
+		}
+		e.finish(conv, ref, surfaceID, note, tone)
+	case err != nil && sending:
+		e.finish(conv, ref, surfaceID, "The outcome of this send is not known: check Communications", "warning")
+	}
+}
+
+// sendState is a send item's state, "" when it cannot be read.
+func (e *sysEnv) sendState(ctx context.Context, id string) (hilsend.State, string) {
+	out, err := e.run(ctx, "hil", "show", id)
+	var p struct {
+		State hilsend.State `json:"state"`
+		Error string        `json:"error"`
+	}
+	if err != nil || json.Unmarshal(out, &p) != nil {
+		return "", ""
+	}
+	return p.State, p.Error
 }
 
 // unshowable is the note that takes the place of a card whose item changed into

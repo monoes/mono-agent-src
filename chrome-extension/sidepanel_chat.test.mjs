@@ -990,3 +990,16 @@ test("a2ui real capture: a panel opening fresh folds the whole journal to the se
   assert.match(surfacesOf(t)[0].textContent, /No longer pending/);
   assert.equal(findAll(surfacesOf(t)[0], (n) => n.tag === "button").length, 0);
 });
+
+test("a2ui: a press still in progress says so under the card and keeps its buttons locked", async () => {
+  const t = await openedWithSurface({ chat_ui_action: { ok: true, outcome: "accepted", delivered: "system", inProgress: true } }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  const b = buttonOf(t);
+  b.fire("click");
+  await settle(40);
+  assert.equal(b.getAttribute("aria-disabled"), "true");
+  assert.match(t.els["chat-log"].textContent, /Still in progress/);
+  assert.equal(t.sent.filter((m) => m.type === "chat_send").length, 0);
+});
+

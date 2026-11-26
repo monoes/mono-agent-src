@@ -563,3 +563,28 @@ test("no style rule hides or cuts a card's text", () => {
     assert.doesNotMatch(body, /line-clamp|text-overflow|nowrap|max-height|overflow(-[xy])?:\s*(hidden|clip)|resize:\s*(vertical|both)/, selector);
   }
 });
+
+test("a press in flight keeps the buttons locked until it answers, and for good while it is still in progress", async () => {
+  for (const answer of [{ ok: true }, { ok: true, inProgress: true }]) {
+    const { st, s } = surfaceOf(approve, { title: "T", draft: "d" }, { provenance: "system" });
+    const timers = [];
+    let reply;
+    const sent = [];
+    const m = R.mount(fakeDoc(), s, { onAction: (e) => (sent.push(e), new Promise((r) => (reply = r))), setTimeout: (fn, ms) => (timers.push({ fn, ms }), timers.length), clearTimeout: () => {} });
+    const btn = find(m.el, "button")[0];
+    btn.fire("click");
+    assert.equal(timers.filter((t) => t.ms === 3000).length, 0, "no timer unlocks a press that has not answered");
+    M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { provenance: "system", message: { version: "1.0", updateDataModel: { surfaceId: "s", path: "/title", value: "x" } } } });
+    m.sync(st.surfaces.get("s"));
+    assert.equal(btn.getAttribute("aria-disabled"), "true", "a data update does not unlock it");
+    assert.match(m.el.textContent, /Do not press again/);
+    btn.fire("click");
+    assert.equal(sent.length, 1);
+    reply(answer);
+    await new Promise((r) => setImmediate(r));
+    timers.forEach((t) => t.fn());
+    assert.equal(btn.getAttribute("aria-disabled"), answer.inProgress ? "true" : null, JSON.stringify(answer));
+    if (answer.inProgress) assert.match(m.el.textContent, /Still in progress/);
+  }
+});
+

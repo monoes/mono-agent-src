@@ -102,6 +102,7 @@
     const act = envelope && envelope.action;
     if (!ui || !act || !chat.conversation) return;
     const sid = act.surfaceId;
+    let outcome = null; // {inProgress} keeps the card's buttons locked
     {
       const r = await ask({ type: "chat_ui_action", profile, conversationId: chat.conversation, action: envelope });
       if (!r || r.ok === false) {
@@ -110,6 +111,7 @@
         ui.setNote(sid, `${act.name}: ${r.outcome}${r.reason ? ` (${r.reason})` : ""}`);
       } else {
         ui.setNote(sid, "");
+        outcome = r;
         if (r.delivered === "next_turn" && typeof r.message === "string" && r.message) {
           if (!busy()) await send(r.message, false, { noPage: true, images: [] });
           else if (uiQueue.length < UI_QUEUE_MAX) uiQueue.push(r.message);
@@ -119,6 +121,7 @@
     await uiJournal(); // the press, and what it changed, are journal turns
     save();
     draw();
+    return outcome;
   }
 
   /**

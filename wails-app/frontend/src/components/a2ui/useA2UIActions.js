@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, notify } from '../../services/api.js'
 
+const WATCH_MS = 1500
+
 export function useA2UIActions({ conversationId, send, streaming, onChanged }) {
   const { t } = useTranslation()
   const held = useRef(null)
@@ -21,11 +23,16 @@ export function useA2UIActions({ conversationId, send, streaming, onChanged }) {
   const onA2UIAction = useCallback(async (envelope) => {
     if (!conversationId) return
     let res
+    // An approved send runs as long as it takes: meanwhile read the journal, so
+    // the card the CLI writes before sending shows that it is in progress.
+    const watch = setInterval(() => changedRef.current?.(), WATCH_MS)
     try {
       res = await api.chatUIAction(conversationId, envelope)
     } catch (e) {
       notify('a2ui', e?.message || String(e), '', t('a2ui.pressFailed'))
       return
+    } finally {
+      clearInterval(watch)
     }
     changedRef.current?.()
     if (res?.outcome === 'rejected' || res?.outcome === 'stale') {

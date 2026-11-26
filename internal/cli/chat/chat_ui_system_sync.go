@@ -2,8 +2,10 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/hilsend"
 )
 
 // SyncHILResult is what `chat ui sync-hil` prints. Surfaced and Resolved are
@@ -105,6 +108,25 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		pending[surfaceOfItem(it)] = true
 	}
 	for _, id := range liveCardIDs(replay) {
+		if ref := refOfSurface(evs, id); !pending[id] && ref.State == refSending {
+			// An approved send's note stays until the item says how it ended.
+			state, sendError := e.sendState(ctx, ref.ID)
+			if state == "" || state == hilsend.StateApproved || state == hilsend.StatePending {
+				continue
+			}
+			note, tone := outcomeNote(true, state, sendError)
+			if state == hilsend.StateSent {
+				note, tone = "Sent", "success"
+			}
+			ref.State = ""
+			if msgs, err := surfaces.ResolvedNotice(id, e.redact(ctx, note), tone); err == nil {
+				// The note replaces a note: delete and create apply as one.
+				if add(ref, msgs) {
+					res.Resolved = append(res.Resolved, id)
+				}
+			}
+			continue
+		}
 		if pending[id] || !hasButton(replay.Registry.Surface(id)) {
 			continue
 		}
@@ -117,6 +139,9 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		old := replay.Registry.Surface(id)
 		live := old != nil && old.Prov == a2ui.FromSystem && hasButton(old)
 		if live && !it.Redacted && refOfSurface(evs, id).Digest == it.Digest {
+			continue
+		}
+		if old != nil && !live && startingSend(evs, id) {
 			continue
 		}
 		// Its card was never drawn, is gone, stands as a note although the item
@@ -147,6 +172,28 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		return nil, err
 	}
 	return res, nil
+}
+
+// sendingGrace is how long an in-progress note may stand while its item still
+// reads pending: the moment between the note and the command's claim.
+var sendingGrace = time.Minute
+
+// startingSend says a send's in-progress note was written so recently that its
+// command may not have claimed the item yet.
+func startingSend(evs []chatevents.Event, surfaceID string) bool {
+	var at string
+	var ref chatevents.UIRef
+	for _, ev := range evs {
+		var p chatevents.UISurfacePayload
+		if ev.Type != chatevents.EventUISurface || json.Unmarshal(ev.Payload, &p) != nil {
+			continue
+		}
+		if p.SurfaceID == surfaceID && p.Provenance == string(a2ui.FromSystem) && p.Ref != nil {
+			at, ref = ev.At, *p.Ref
+		}
+	}
+	written, err := time.Parse(time.RFC3339Nano, at)
+	return ref.State == refSending && err == nil && time.Since(written) < sendingGrace
 }
 
 func surfaceOfItem(it listedHIL) string {

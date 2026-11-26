@@ -161,9 +161,12 @@ function SurfaceBody({ surface, plan, onAction }) {
   const [model, write] = useSurfaceModel(surface)
   const [pressed, setPressed] = useState(false)
   const timer = useRef(null)
+  const [working, setWorking] = useState(false) // the press has not answered yet
+  const inFlight = useRef(false)
   const guard = useRef(false) // two clicks in one frame see the same render
-  const unlock = useCallback(() => { guard.current = false; setPressed(false) }, [])
-  // The surface changing (a new message) or 3s unlocks the buttons again.
+  const unlock = useCallback(() => { if (!inFlight.current) { guard.current = false; setPressed(false) } }, [])
+  // The surface changing (a new message) or 3s unlocks the buttons again, but
+  // never while a press is still running: it may be sending.
   useEffect(() => { unlock() }, [surface.lastSeq, unlock])
   useEffect(() => () => clearTimeout(timer.current), [])
   const press = useCallback(envelope => {
@@ -171,8 +174,13 @@ function SurfaceBody({ surface, plan, onAction }) {
     guard.current = true
     setPressed(true)
     clearTimeout(timer.current)
-    timer.current = setTimeout(unlock, GUARD_MS)
-    onAction(envelope)
+    const cooldown = () => { timer.current = setTimeout(unlock, GUARD_MS) }
+    const done = onAction(envelope)
+    if (typeof done?.then !== 'function') { cooldown(); return }
+    inFlight.current = true
+    setWorking(true)
+    const answered = () => { inFlight.current = false; setWorking(false); cooldown() }
+    done.then(answered, answered)
   }, [onAction, unlock])
   const resolved = surface.status === 'resolved'
   const locked = pressed || resolved
@@ -182,7 +190,7 @@ function SurfaceBody({ surface, plan, onAction }) {
     <>
       {plan.root && <Node node={plan.root} ctx={ctx} />}
       {plan.truncated && <Placeholder>{t('a2ui.truncated')}</Placeholder>}
-      {locked && hasButton && <p id={reasonId} className="a2ui-reason">{t(resolved ? 'a2ui.lockedDone' : 'a2ui.lockedSent')}</p>}
+      {locked && hasButton && <p id={reasonId} className="a2ui-reason">{t(resolved ? 'a2ui.lockedDone' : working ? 'a2ui.lockedWorking' : 'a2ui.lockedSent')}</p>}
     </>
   )
 }

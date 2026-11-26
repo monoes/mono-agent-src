@@ -645,3 +645,104 @@ func TestTheChatJournalNeverHoldsAReplyToken(t *testing.T) {
 		}
 	}
 }
+
+func sendCard(t *testing.T, r *sysRig) {
+	t.Helper()
+	msgs, err := surfaces.Send(hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Channel: "instagram",
+		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada"})
+	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, msgs, err)
+}
+
+const sendListed = `[{"id":"7c1e","digest":"d1","kind":"send","send":{"kind":"send","id":"7c1e","state":"pending","action":"dm","channel":"instagram","recipient":{"name":"Ada"},"text":"Hi Ada"}}]`
+
+// While a send runs, which can take minutes, every view of the chat shows it
+// in progress, with no button to press again.
+func TestASendShowsInProgressWhileItRuns(t *testing.T) {
+	r := newSysRig(t)
+	sendCard(t, r)
+	var during *a2ui.Surface
+	var second UIActionResult
+	r.cfg.RunCLI = func(ctx context.Context, args ...string) ([]byte, error) {
+		if args[1] == "approve" {
+			if during != nil {
+				t.Fatal("hil approve ran a second time")
+			}
+			during = r.surfaceNow(t, "send-7c1e")
+			second, _ = r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi Ada"})
+			return []byte(`{"id":"7c1e","state":"sent"}`), nil
+		}
+		return r.cli.run(ctx, args...)
+	}
+	res, err := r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi Ada"})
+	if err != nil || res.Outcome != "accepted" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if during == nil || hasButton(during) || during.Components["note"]["text"] != sendingNote {
+		t.Fatalf("while sending: %+v", during)
+	}
+	if second.Outcome == "accepted" {
+		t.Fatalf("a second press during the send: %+v", second)
+	}
+	if got := r.surfaceNow(t, "send-7c1e").Components["note"]["text"]; got != "Approved by you" {
+		t.Fatalf("after: %v", got)
+	}
+}
+
+// A send the CLI refused to start gets its card back.
+func TestARefusedSendGetsItsCardBack(t *testing.T) {
+	r := newSysRig(t)
+	sendCard(t, r)
+	r.cli.outputs["hil list"] = sendListed
+	r.cli.errs["hil approve"] = errors.New("database is locked")
+	res, _ := r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi Ada"})
+	if res.Outcome != "rejected" {
+		t.Fatalf("%+v", res)
+	}
+	if s := r.surfaceNow(t, "send-7c1e"); !s.DeclaresAction("btn-approve", "hil.approve") {
+		t.Fatalf("no card to try again from: %+v", s.Components)
+	}
+}
+
+// An in-progress note whose command never wrote the end (killed, powered off)
+// is settled by sync from the item's own state.
+func TestSyncSettlesAnInProgressSendFromTheItem(t *testing.T) {
+	r := newSysRig(t)
+	startChat(t, r)
+	msgs, err := surfaces.ResolvedNotice("send-7c1e", sendingNote, "info")
+	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1", State: refSending}, msgs, err)
+	r.cli.outputs["hil list"] = `[]`
+	r.cli.outputs["hil show"] = `{"id":"7c1e","state":"approved"}`
+	if res := syncHIL(t, r); len(res.Resolved) != 0 || r.surfaceNow(t, "send-7c1e").Components["note"]["text"] != sendingNote {
+		t.Fatalf("still sending: %+v", res)
+	}
+	r.cli.outputs["hil show"] = `{"id":"7c1e","state":"failed","error":"rate limited"}`
+	if res := syncHIL(t, r); fmt.Sprint(res.Resolved) != "[send-7c1e]" {
+		t.Fatalf("%+v", res)
+	}
+	if got := r.surfaceNow(t, "send-7c1e").Components["note"]["text"]; got != "Approved by you, but sending failed: rate limited" {
+		t.Fatalf("note %v", got)
+	}
+	if res := syncHIL(t, r); len(res.Resolved) != 0 {
+		t.Fatalf("settled twice: %+v", res)
+	}
+}
+
+// Between the in-progress note and the claim the item still reads pending: a
+// sync in that moment must not offer the buttons again. A note long past it,
+// with the item still pending, means the send never started.
+func TestSyncDoesNotOfferASendAgainWhileItStarts(t *testing.T) {
+	r := newSysRig(t)
+	startChat(t, r)
+	msgs, err := surfaces.ResolvedNotice("send-7c1e", sendingNote, "info")
+	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1", State: refSending}, msgs, err)
+	r.cli.outputs["hil list"] = sendListed
+	if res := syncHIL(t, r); len(res.Surfaced) != 0 || hasButton(r.surfaceNow(t, "send-7c1e")) {
+		t.Fatalf("drawn again while starting: %+v", res)
+	}
+	old := sendingGrace
+	sendingGrace = 0
+	defer func() { sendingGrace = old }()
+	if res := syncHIL(t, r); fmt.Sprint(res.Surfaced) != "[send-7c1e]" || !hasButton(r.surfaceNow(t, "send-7c1e")) {
+		t.Fatalf("a send that never started: %+v", res)
+	}
+}

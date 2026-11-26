@@ -39,6 +39,8 @@
   const oneOf = (v, list, dflt) => (list.includes(v) ? v : dflt);
   const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
   const SENT = "Sent. The buttons work again in a few seconds.";
+  const WORKING = "Working. Do not press again: this can take a while.";
+  const STILL = "Still in progress. Do not press again: this card shows how it ends.";
   const TONE = { info: ["i", "Note"], success: ["✓", "Success"], warning: ["!", "Warning"], danger: ["✕", "Problem"] };
   const FLEX = { start: "flex-start", center: "center", end: "flex-end", stretch: "stretch", spaceBetween: "space-between", spaceAround: "space-around", spaceEvenly: "space-evenly" };
   let uid = 0;
@@ -85,6 +87,7 @@
     let binds = []; // closures that refresh a bound value after the model changed
     let buttons = []; // the surface's button elements
     let timer = null; // re-enables them after a press
+    let held = false; // a press has not answered, or is still in progress
     let seen = { struct: -1, data: -1 };
     let count = 0;
     let visits = 0; // component references followed, whatever they led to
@@ -145,6 +148,27 @@
       }
       if (status) status.textContent = sent ? SENT : "";
       if (!sent) clearT(timer);
+    }
+    /**
+     * pressed hands a press over. While onAction's promise is open the buttons
+     * stay locked (an approval may be sending, for minutes), and when it answers
+     * {inProgress} they stay so until the card is replaced.
+     */
+    function pressed(env) {
+      setSent(true);
+      const done = typeof o.onAction === "function" ? o.onAction(env) : null;
+      const cooldown = () => {
+        held = false;
+        timer = setT(() => setSent(false), REENABLE_MS);
+      };
+      if (!done || typeof done.then !== "function") return cooldown();
+      held = true;
+      if (status) status.textContent = WORKING;
+      done.then((answer) => {
+        if (answer && answer.inProgress) {
+          if (status) status.textContent = STILL;
+        } else cooldown();
+      }, cooldown);
     }
     const muted = (text) => {
       const e = mk("span", "a2ui-muted");
@@ -266,9 +290,7 @@
           if (e.getAttribute("aria-disabled") === "true") return;
           const env = envelope(c.action, id);
           if (!env) return;
-          setSent(true);
-          timer = setT(() => setSent(false), REENABLE_MS);
-          if (typeof o.onAction === "function") o.onAction(env);
+          pressed(env);
         });
         return e;
       },
@@ -479,6 +501,7 @@
     function rebuild() {
       clearT(timer);
       unwatch();
+      held = false; // a new card
       // A rebuild replaces the elements: the keyboard stays where it was.
       const focused = doc.activeElement;
       const cid = focused && focused.dataset && wrap.contains && wrap.contains(focused) ? focused.dataset.cid : "";
@@ -527,7 +550,7 @@
       if (s.structVersion !== seen.struct) rebuild();
       else if (s.dataVersion !== seen.data) {
         // The agent changed the data: refresh what is bound, and let buttons act again.
-        if (s.dataVersion !== localData) setSent(false);
+        if (s.dataVersion !== localData && !held) setSent(false);
         for (const b of binds) b();
       }
       seen = { struct: s.structVersion, data: s.dataVersion };
