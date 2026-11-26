@@ -637,7 +637,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(st)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "enabled: %v\nworkspace root: %s\nmax turns: %d\ntimeout: %s\nbudget: $%g\nready: %v\n",
-				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
+				st.Enabled, st.WorkspaceRoot, st.MaxTurns, turnTimeoutText(st.coderSettings), st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "claude start-up limit of a coder turn: %s\n", startupTimeoutText(st))
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
@@ -700,15 +700,6 @@ func newCoderDisableCmd(cfg *Deps) *cobra.Command {
 		s.Enabled = false
 		return nil
 	})
-}
-
-// coderTimeout parses the stored timeout, falling back to the default.
-func (s coderSettings) timeout() time.Duration {
-	if d, err := parseDurationFlag(s.Timeout); err == nil && d > 0 {
-		return d
-	}
-	d, _ := time.ParseDuration(defaultCoderTimeout)
-	return d
 }
 
 // expandHome expands a leading "~/".

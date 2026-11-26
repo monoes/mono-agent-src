@@ -86,9 +86,9 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 			s.MaxTurns = maxTurns
 		}
 		if f.Changed("timeout") {
-			d, err := parseDurationFlag(timeout)
-			if err != nil || d <= 0 {
-				return clicore.InvalidInput("--timeout must be a positive duration (e.g. 30m, 2h)")
+			d, ok := parseTurnTimeout(timeout)
+			if !ok {
+				return clicore.InvalidInput("--timeout must be a duration of at least 1s with its unit (e.g. 30m or 2h)")
 			}
 			s.Timeout = d.String()
 		}
@@ -228,7 +228,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&peercred, "peercred-binding", "", "on or off (default: on where this machine can run the binding service, off elsewhere; an explicit off is kept): bind a turn's tokens to the turn's process through the kernel-checked binding service. It can be switched on only where this machine can run the binding service and no coder turn is running; a setting that is on where it cannot run refuses every turn rather than run weaker. Switching it on leaves legacy tokens already issued valid until they expire. It cannot be switched off while an open-ended run is open: stop the run first (operator only)")
 	c.Flags().StringVar(&root, "workspace-root", "", "Folder new test workspaces are created in (operator only)")
 	c.Flags().IntVar(&maxTurns, "max-turns", 0, "Agent turn cap per message (operator only)")
-	c.Flags().StringVar(&timeout, "timeout", "", "Wall-clock cap per message (e.g. 60m; operator only)")
+	c.Flags().StringVar(&timeout, "timeout", "", "Wall-clock cap per message, a duration with its unit (e.g. 60m or 2h; at least 1s; more than 576h is cut to it; operator only)")
 	c.Flags().StringVar(&startup, "startup-timeout", "", "How long claude may take to initialize (its SessionStart hooks and MCP servers) in a coder turn, e.g. 3m (default 2m; at most 1h; 0 = the default again; "+monomind.StartupTimeoutEnv+" overrides it; operator only)")
 	c.Flags().Float64Var(&budget, "budget-usd", 0, "Spend cap per message in USD (0 = none; operator only)")
 	c.Flags().IntVar(&orgMax, "org-max-agents", 0, "Dynamic org: workers the lead may spawn per message (default 6; operator only)")

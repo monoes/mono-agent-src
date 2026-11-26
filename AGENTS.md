@@ -2423,6 +2423,12 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   it only prints the settings. `TestEveryCoderSetFlagIsTheOperators` fails
   for a new flag until it is classified. `coder disable` is anyone's: it
   only turns coder mode off.
+- `coder set --timeout 60m` is the wall-clock cap of a message (default
+  60m): a duration with its unit, at least 1s; more than 576h is cut to 576h
+  (monomind's timer overflows above that). Bare numbers (`90`), `3mins`,
+  `1d` and the like are refused. A stored value that cannot be read counts as
+  none: turns run under 60m and `coder status` says so (`--json` keeps the
+  stored value in `timeout`).
 - `coder set --startup-timeout 3m` is how long claude may take to initialize
   (its SessionStart hooks and MCP servers) in a coder turn, the lead's and
   its workers' (default 2m; `0` = the default again). The environment
