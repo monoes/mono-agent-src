@@ -863,20 +863,6 @@ jobs:
           body: ${{ steps.notes.outputs.NOTES }}
           files: release-files/*
 
-      # The README one-liner serves install.sh from the releases repository.
-      # While the release repository is this repository, install.sh is already
-      # there (and its default branch is not necessarily ${RELEASES_BRANCH}).
-      - name: Publish install.sh to the releases repository
-        if: github.repository != env.RELEASES_REPO
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
-        run: |
-          set -euo pipefail
-          sha="$(gh api "repos/${RELEASES_REPO}/contents/install.sh?ref=${RELEASES_BRANCH}" --jq .sha 2>/dev/null || true)"
-          args=(-f message="install.sh from ${TAG}" -f branch="${RELEASES_BRANCH}" -f content="$(base64 < install.sh | tr -d '\n')")
-          if [ -n "${sha}" ]; then args+=(-f sha="${sha}"); fi
-          gh api -X PUT "repos/${RELEASES_REPO}/contents/install.sh" "${args[@]}" > /dev/null
-
   # ─── 4. Sign the manifest ──────────────────────────────────────────────────
   # The release signing key lives ONLY as the `release` environment secret RELEASE_SIGNING_KEY.
   # GitHub hands an environment secret to a job only after the environment's protection rules
@@ -1021,6 +1007,24 @@ jobs:
             exit 1
           fi
 
+      # The signing step also wrote manifest.json.sshsig, which install.sh checks with ssh-keygen
+      # where openssl cannot verify Ed25519 (stock macOS) and without which it installs nothing
+      # there. Verified here as install.sh does it, against the key install.sh pins; the derived
+      # key stands in only for the bootstrap release of a key that is not pinned yet.
+      - name: Verify the SSH signature install.sh checks
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          BOOTSTRAP: ${{ vars.RELEASE_SIGNING_BOOTSTRAP }}
+        run: |
+          set -euo pipefail
+          keyid=$(cut -d' ' -f1 signed/signing-pubkey.txt)
+          if [ "${BOOTSTRAP}" = "true" ] && ! grep -q "\"${keyid} " internal/release/keys.go; then
+            echo "::warning::Bootstrap: verifying manifest.json.sshsig against the derived key. install.sh does not accept this release unless it pins key ${keyid}."
+            bash scripts/verify-sshsig.sh --pubkey-file signed/signing-pubkey.txt signed/manifest.json signed/manifest.json.sshsig
+          else
+            bash scripts/verify-sshsig.sh --installer install.sh signed/manifest.json signed/manifest.json.sshsig
+          fi
+
       - name: Upload the signed manifest
         if: steps.gate.outputs.enabled == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1031,14 +1035,15 @@ jobs:
           path: |
             signed/manifest.json
             signed/manifest.json.sig
+            signed/manifest.json.sshsig
             signed/signing-pubkey.txt
 
   # ─── 5. Optional: mirror assets + signed manifest to the releases-only repo ──
   # Runs only after the `release` environment approval and a successful sign-manifest, and does
   # nothing unless the secret RELEASES_REPO_TOKEN exists. It writes to RELEASES_REPO
   # with RELEASES_REPO_TOKEN. Assets,
-  # manifest.json and manifest.json.sig go up together, so the unsigned manifest never sits
-  # alone in the public release.
+  # manifest.json, manifest.json.sig and manifest.json.sshsig go up together, so the unsigned
+  # manifest never sits alone in the public release. install.sh is published last.
   publish-releases-repo:
     needs: [version, release-manifest, release, sign-manifest]
     runs-on: ubuntu-latest
@@ -1084,7 +1089,7 @@ jobs:
         run: |
           set -euo pipefail
           signed=artifacts/signed-manifest
-          for f in manifest.json manifest.json.sig signing-pubkey.txt; do
+          for f in manifest.json manifest.json.sig manifest.json.sshsig signing-pubkey.txt; do
             [ -f "${signed}/${f}" ] || { echo "::error::signed-manifest artifact lacks ${f}; refusing to publish."; exit 1; }
           done
           go build -o "${RUNNER_TEMP}/release-manifest" ./cmd/release-manifest
@@ -1117,7 +1122,7 @@ jobs:
             [ -f "pool/${name}" ] || { echo "::error::manifest lists ${name} but it was not built"; exit 1; }
             cp "pool/${name}" "upload/${name}"
           done
-          cp "${signed}/manifest.json" "${signed}/manifest.json.sig" upload/
+          cp "${signed}/manifest.json" "${signed}/manifest.json.sig" "${signed}/manifest.json.sshsig" upload/
           # NOTICE ships as a loose file; it is not a manifest asset, so it comes from this checkout
           # (the release job already proved it equals the copies inside the archives).
           cp NOTICE upload/NOTICE
@@ -1129,6 +1134,20 @@ jobs:
             -strict
           # SHA256SUMS comes from the verified files, never from the unsigned artifact.
           (cd upload && { jq -r '.assets[].name' manifest.json; echo NOTICE; } | sort | xargs sha256sum > SHA256SUMS)
+
+      # The very files about to be uploaded, checked the way install.sh checks them (see sign-manifest).
+      - name: Verify the SSH signature to be uploaded
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          BOOTSTRAP: ${{ vars.RELEASE_SIGNING_BOOTSTRAP }}
+        run: |
+          set -euo pipefail
+          keyid=$(cut -d' ' -f1 upload/manifest.json.sig)
+          if [ "${BOOTSTRAP}" = "true" ] && ! grep -q "\"${keyid} " internal/release/keys.go; then
+            bash scripts/verify-sshsig.sh --pubkey-file artifacts/signed-manifest/signing-pubkey.txt upload/manifest.json upload/manifest.json.sshsig
+          else
+            bash scripts/verify-sshsig.sh --installer install.sh upload/manifest.json upload/manifest.json.sshsig
+          fi
 
       - name: Upload to the releases repo
         if: steps.gate.outputs.enabled == 'true'
@@ -1148,3 +1167,20 @@ jobs:
             gh release create "${TAG}" upload/* --repo "${RELEASES_REPO}" --title "${TAG}" \
               --notes "Release ${TAG}. Update integrity: manifest.json is verified against manifest.json.sig."
           fi
+
+      # The README one-liner serves install.sh from the releases repository. It installs only from
+      # a signed release (and needs manifest.json.sshsig where openssl cannot verify), so it is
+      # published here, after the release that carries those files; a failed signing or upload
+      # leaves the previous installer in place.
+      # While the release repository is this repository, install.sh is already
+      # there (and its default branch is not necessarily ${RELEASES_BRANCH}).
+      - name: Publish install.sh to the releases repository
+        if: steps.gate.outputs.enabled == 'true' && github.repository != env.RELEASES_REPO
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/${RELEASES_REPO}/contents/install.sh?ref=${RELEASES_BRANCH}" --jq .sha 2>/dev/null || true)"
+          args=(-f message="install.sh from ${TAG}" -f branch="${RELEASES_BRANCH}" -f content="$(base64 < install.sh | tr -d '\n')")
+          if [ -n "${sha}" ]; then args+=(-f sha="${sha}"); fi
+          gh api -X PUT "repos/${RELEASES_REPO}/contents/install.sh" "${args[@]}" > /dev/null

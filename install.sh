@@ -56,6 +56,9 @@ MANIFEST_URL=""   # the one that answered, set by install_from_manifest
 # as printed by `monoagentcli release keygen`. Key id 3b3e972f459a3151; the
 # same key is pinned in internal/release/keys.go.
 RELEASE_PUBKEY="/GDrvFCQb64EBe+tYDkFWNFXeiwysdr4sAB8kc+b2kU="
+# The same key in SSH form, for `ssh-keygen -Y verify`. Change both together
+# (internal/release tests and the release jobs check them).
+RELEASE_SSH_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPxg67xQkG+uBAXvrWA5BVjRV3osMrHa+LAAfJHPm9pF"
 RELEASE_PUBKEY="${MONOAGENT_RELEASE_PUBKEY:-$RELEASE_PUBKEY}"
 
 err() { printf 'install.sh: error: %s\n' "$*" >&2; exit 1; }

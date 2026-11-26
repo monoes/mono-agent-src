@@ -5,14 +5,15 @@
 //	    -expires-days N adds the signed "expires_at" field (N days from now); 0 omits it.
 //	release-manifest sign -manifest DIR/manifest.json [-key-file FILE | -keyring | -key-env NAME]
 //	    [-assets-dir DIR -expect-version vX.Y.Z [-url-prefix URL] [-min-version vX.Y.Z]] [-pubkey-out FILE]
-//	    writes manifest.json.sig next to it. -keyring and -key-file are the owner's local
+//	    writes manifest.json.sig and manifest.json.sshsig (sshsig.go; what install.sh checks
+//	    with ssh-keygen) next to it. -keyring and -key-file are the owner's local
 //	    break-glass path. -key-env NAME is the CI path: it reads the base64 private key from
 //	    that environment variable (never a flag value), and then requires -assets-dir,
 //	    -expect-version and -url-prefix so the manifest is checked against the real assets
 //	    (and against where its URLs may point) before signing.
 //	release-manifest check -manifest M -assets-dir DIR -expect-version vX.Y.Z -url-prefix URL
 //	    runs the same checks on an already signed manifest, and with -strict also requires that
-//	    DIR holds nothing but the listed assets (plus manifest.json, manifest.json.sig, SHA256SUMS).
+//	    DIR holds nothing but the listed assets (plus the manifest.json* files, SHA256SUMS and NOTICE).
 //
 // The signature file is one line, "<key id> <base64 Ed25519 signature>", made over
 // the exact bytes of manifest.json. The key id is the first 8 bytes of the SHA-256
@@ -318,7 +319,14 @@ func run(args []string) error {
 				return err
 			}
 		}
+		sshsig, err := sshSignature(data, priv)
+		if err != nil {
+			return fmt.Errorf("SSH signature: %w", err)
+		}
 		if err := os.WriteFile(*path+".sig", []byte(signManifest(data, priv)), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(*path+".sshsig", []byte(sshsig), 0o644); err != nil {
 			return err
 		}
 		fmt.Printf("signed %s with key %s\n", *path, keyID(priv.Public().(ed25519.PublicKey)))
