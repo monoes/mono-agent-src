@@ -9,6 +9,7 @@ import {
   getHealth, subscribeHealth, runHealth, runFix, isFixRunning, cancelHealthCheck, cancelFix,
   groupReport, summarize, fixPlan, versionSkew,
 } from '../../lib/health.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Settings › System health — renders `monoagentcli doctor --json` and runs
 // its fixes (docs/plans/2026-09-24-setup-and-health-check.md §5).
@@ -171,7 +172,7 @@ export default function HealthSection({ onNavigate, collapsible = false, default
   let badgeBg = 'rgba(16, 185, 129, 0.12)'
   let badgeBorder = 'rgba(16, 185, 129, 0.35)'
   let badgeCount = 0
-  let badgeLabel = '0 issues · All checks passed'
+  let badgeLabel = i18nOr('ui6SetHealth.all_passed')
 
   if (h.cliMissing) {
     badgeLevel = 'broken'
@@ -179,7 +180,7 @@ export default function HealthSection({ onNavigate, collapsible = false, default
     badgeBg = 'rgba(239, 68, 68, 0.12)'
     badgeBorder = 'rgba(239, 68, 68, 0.4)'
     badgeCount = 1
-    badgeLabel = `1 critical · ${t('settings.health.cliMissingTitle')}`
+    badgeLabel = `${i18nOr('ui6SetHealth.critical', { count: 1 })} · ${t('settings.health.cliMissingTitle')}`
   } else if (!report) {
     if (h.loading) {
       badgeLevel = 'loading'
@@ -202,16 +203,14 @@ export default function HealthSection({ onNavigate, collapsible = false, default
     badgeBg = 'rgba(239, 68, 68, 0.12)'
     badgeBorder = 'rgba(239, 68, 68, 0.4)'
     badgeCount = sum.issues
-    badgeLabel = `${sum.issues} ${sum.issues === 1 ? 'issue' : 'issues'} (${sum.required} critical)`
+    badgeLabel = `${i18nOr('ui6SetHealth.issues', { count: sum.issues })} (${i18nOr('ui6SetHealth.critical', { count: sum.required })})`
   } else if (sum.level === 'issues') {
     badgeLevel = 'issues'
     badgeColor = '#fbbf24'
     badgeBg = 'rgba(251, 191, 36, 0.12)'
     badgeBorder = 'rgba(251, 191, 36, 0.4)'
     badgeCount = sum.issues
-    badgeLabel = sum.fails > 0
-      ? `${sum.issues} ${sum.issues === 1 ? 'issue' : 'issues'}`
-      : `${sum.issues} ${sum.issues === 1 ? 'warning' : 'warnings'}`
+    badgeLabel = i18nOr(sum.fails > 0 ? 'ui6SetHealth.issues' : 'ui6SetHealth.warnings', { count: sum.issues })
   }
 
   if (h.cliMissing && !collapsible) {
@@ -257,7 +256,7 @@ export default function HealthSection({ onNavigate, collapsible = false, default
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Activity size={16} style={{ color: badgeColor, flexShrink: 0 }} />
               <span style={{ ...mono, fontSize: 12, fontWeight: 700, color: 'var(--text)', letterSpacing: 0.5 }}>
-                Doctor Diagnostics
+                {t('ui6SetHealth.title')}
               </span>
             </div>
 
@@ -320,7 +319,7 @@ export default function HealthSection({ onNavigate, collapsible = false, default
                 gap: 4,
               }}
             >
-              <span>{isExpanded ? 'Hide' : 'Open'}</span>
+              <span>{i18nOr(isExpanded ? 'ui6Set.hide' : 'ui6SetHealth.open')}</span>
               {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
             </span>
           </div>

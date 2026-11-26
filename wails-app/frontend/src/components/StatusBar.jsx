@@ -7,6 +7,7 @@ import { GetVersion, CheckForUpdate, AppSelfUpdate, QuitApp } from '../wailsjs/g
 import { subscribeEvent } from '../services/api.js'
 import { toggleHistory } from './history/historyBus.js'
 import UpdateNotice from './UpdateNotice.jsx'
+import i18nOr from '../lib/i18nOr.js'
 
 // HealthDot: the latest System health verdict (the background check runs on
 // start and every 30 minutes, see lib/health.js); click opens Settings.
@@ -86,7 +87,7 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
     // after a manual restart: the actual running executable was never
     // touched. Settings.jsx already calls AppSelfUpdate correctly; this
     // was the one place still calling the wrong function.
-    setUpdate(u => ({ ...u, updating: true, progress: 'Starting update...' }))
+    setUpdate(u => ({ ...u, updating: true, progress: t('ui6Set.update_starting') }))
     AppSelfUpdate()
       .then(result => {
         if (result.success) {
@@ -105,22 +106,22 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
       <div className="status-bar-item">
         <span className={`status-dot ${dbConnected ? 'connected' : 'disconnected'}`}
               style={{ width: 5, height: 5 }} />
-        <span>{dbConnected ? 'Connected' : 'Offline'}</span>
+        <span>{dbConnected ? t('ui6Set.status_connected') : t('ui6Set.status_offline')}</span>
       </div>
       <div className="status-bar-item">
-        Workflows: <span>{total}</span>
+        {t('ui6Set.status_workflows')} <span>{total}</span>
       </div>
       {running > 0 && (
         <div className="status-bar-item" style={{ color: 'var(--teal)' }}>
           <span className="live-dot" style={{ width: 5, height: 5 }} />
-          <span style={{ color: 'inherit' }}>{running} running</span>
+          <span style={{ color: 'inherit' }}>{t('ui6Set.status_running', { n: running })}</span>
         </div>
       )}
       <div className="status-bar-item">
-        People: <span>{people}</span>
+        {t('ui6Set.status_people')} <span>{people}</span>
       </div>
       <div className="status-bar-item">
-        Sessions: <span>{sessions}</span>
+        {t('ui6Set.status_sessions')} <span>{sessions}</span>
       </div>
 
       {/* Version + update indicator */}
@@ -136,20 +137,20 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
             gap: 6,
           }}>
             {update.checking && (
-              <span style={{ color: 'var(--text-muted)' }}>Checking...</span>
+              <span style={{ color: 'var(--text-muted)' }}>{t('ui6Set.update_checking')}</span>
             )}
             {update.upToDate && (
-              <span style={{ color: '#00f5d4' }}>Up to date</span>
+              <span style={{ color: '#00f5d4' }}>{t('ui6Set.update_current')}</span>
             )}
             {update.error && (
               <span style={{ color: 'var(--red)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={update.error}>
-                Update failed
+                {t('ui6Set.update_failed')}
               </span>
             )}
             {update.available && !update.updating && !update.done && (
               <>
-                <span style={{ color: '#fbbf24' }}>{update.latest} available</span>
+                <span style={{ color: '#fbbf24' }}>{t('ui6Set.update_available', { latest: update.latest })}</span>
                 <button
                   onClick={handleUpdate}
                   style={{
@@ -163,7 +164,7 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
                     fontSize: 9,
                   }}
                 >
-                  Update
+                  {t('ui6Set.status_update')}
                 </button>
                 <button
                   onClick={() => setUpdate(null)}
@@ -179,11 +180,11 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
               </>
             )}
             {update.updating && (
-              <span style={{ color: '#00b4d8' }}>{update.progress || 'Updating...'}</span>
+              <span style={{ color: '#00b4d8' }}>{update.progress || t('ui6Set.update_running')}</span>
             )}
             {update.done && (
               <span style={{ color: update.notice ? '#fbbf24' : '#00f5d4' }}>
-                Updated to {update.latest} — restart to apply
+                {i18nOr('ui6Set.updated_to', { latest: update.latest })}
               </span>
             )}
           </div>
@@ -199,7 +200,7 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
         )}
         <span
           onClick={handleVersionClick}
-          title="Click to check for updates"
+          title={t('ui6Set.update_click')}
           style={{
             color: 'var(--text-dim)',
             cursor: 'pointer',
@@ -216,8 +217,8 @@ export default function StatusBar({ stats, dbConnected, hilOpen, hilCount = 0, o
         {onToggleHil && (
           <button
             onClick={onToggleHil}
-            title={hilOpen ? 'Close Human in Loop' : (hilCount > 0 ? `${hilCount} pending review${hilCount > 1 ? 's' : ''}` : 'Human in Loop reviews')}
-            aria-label={hilOpen ? 'Close Human in Loop' : 'Open Human in Loop'}
+            title={hilOpen ? t('ui6Set.hil_close') : (hilCount > 0 ? t('ui6Set.hil_pending', { count: hilCount }) : t('ui6Set.hil_reviews'))}
+            aria-label={hilOpen ? t('ui6Set.hil_close') : t('ui6Set.hil_open')}
             data-testid="hil-status-toggle"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',

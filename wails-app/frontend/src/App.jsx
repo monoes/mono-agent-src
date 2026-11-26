@@ -40,6 +40,7 @@ import FileViewerModal, { fileViewerKind } from './components/FileViewerModal.js
 import * as WailsApp from './wailsjs/go/main/App'
 import { api, notify, onLogEntry, onOrgDesignUpdated, subscribeEvent } from './services/api.js'
 import { isAgentNotSetup } from './lib/agentSetup.js'
+import i18n from './i18n.js'
 
 // Mirrors Documents.jsx's own cap (the backend GetProfileDocumentData limit)
 // — kept as a local literal there too, so duplicating it here rather than
@@ -200,11 +201,12 @@ export default function App({ banners = null }) {
         setViewingArtifactDoc({ id: artifact.id, filename: artifact.filename, path: artifact.path, size_bytes: artifact.sizeBytes })
         return
       }
+      const ext = artifact.filename.split('.').pop()?.toUpperCase()
       const reason = artifact.sizeBytes > maxInlinePreviewBytes
-        ? `"${artifact.filename}" is too large to preview in-app`
-        : `No built-in viewer for ${artifact.filename.split('.').pop()?.toUpperCase() || 'this'} files`
-      notify('open', `${reason} — opening "${artifact.filename}" with your system's default application.`)
-      WailsApp.OpenPathWithOS(artifact.path).catch(e => notify('open', `Could not open "${artifact.filename}": ${e}`))
+        ? i18n.t('ui6Set.open_too_large', { file: artifact.filename })
+        : ext ? i18n.t('ui6Set.open_no_viewer', { ext }) : i18n.t('ui6Set.open_no_viewer_this')
+      notify(i18n.t('ui6Set.op_open'), i18n.t('ui6Set.open_with_system', { reason, file: artifact.filename }))
+      WailsApp.OpenPathWithOS(artifact.path).catch(e => notify(i18n.t('ui6Set.op_open'), i18n.t('ui6Set.open_failed', { file: artifact.filename, error: String(e) })))
     } else if (artifact.type === 'workflow') {
       navigate('noderunner', { workflowId: artifact.id })
     } else if (artifact.type === 'image') {
@@ -255,7 +257,7 @@ export default function App({ banners = null }) {
     const off = subscribeEvent('workflow:complete', async (data) => {
       // A run that failed because the AI agent is not set up says so, with
       // the link to the AI agents page (Toasts).
-      if (data?.success === false && isAgentNotSetup(data?.code)) notify('run workflow', data.error || '', data.code)
+      if (data?.success === false && isAgentNotSetup(data?.code)) notify(i18n.t('ui6Set.op_run_workflow'), data.error || '', data.code)
       const s = await api.getDashboardStats()
       if (s) setStats(s)
       setPeopleRefreshKey(k => k + 1)

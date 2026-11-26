@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { GetBrowsers, AssignBrowser, GetProfiles, GetExtensionStatus } from '../../wailsjs/go/main/App'
 import { bridgeState } from '../../pages/dashboard/getStarted.js'
 import { usePairExtension, PairButton, PairResult } from './PairBrowser.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Which browser each MonoAgent profile's automations run in. One row per
 // profile; any number of profiles may pick the same browser. Everything goes
@@ -28,9 +29,9 @@ export const BROWSERS_POLL_MS = 10000
 
 // The profiles a browser runs. An older CLI reports only the first one.
 const profileIdsOf = (b) => b.profile_ids || (b.profile_id ? [b.profile_id] : [])
-const browserTitle = (b) => `${b.label || 'Browser'} · ${b.instance.slice(0, 8)}`
+const browserTitle = (b) => `${b.label || i18nOr('ui6SetBrowser.browser')} · ${b.instance.slice(0, 8)}`
 
-const errMsg = (e) => String(e?.message || e || 'unknown error')
+const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
 
 // unpaired: whether `extension status` says the bridge turns this client or
 // the extension away. Asked only when the browser list failed or came back
@@ -95,10 +96,9 @@ export default function BrowserBindingsSection() {
   const runners = (profileId) => browsers.filter((b) => profileIdsOf(b).includes(profileId))
   return (
     <div ref={cardRef} style={card} data-testid="browser-bindings">
-      <div style={label}>Browsers</div>
+      <div style={label}>{i18nOr('ui6SetBrowser.browsers')}</div>
       <div style={hint}>
-        Several profiles can share one browser; they then share that browser's logged-in accounts, and a
-        profile runs in one browser at a time. Profiles on different browsers run side by side.
+        {i18nOr('ui6SetBrowser.share')}
       </div>
       {unpaired && (
         <div data-testid="browser-unpaired" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -119,32 +119,32 @@ export default function BrowserBindingsSection() {
         </div>
       )}
       {error && !unpaired && <div style={errText} role="alert">{error}</div>}
-      {report && !report.running && <div style={hint}>{report.hint || 'No bridge is running.'}</div>}
+      {report && !report.running && <div style={hint}>{report.hint || i18nOr('ui6SetBrowser.no_bridge')}</div>}
       {report?.running && report.hint && <div style={warnText}>{report.hint}</div>}
       {report?.running && !report.hint && !unpaired && browsers.length === 0 && (
-        <div style={hint}>No browser is attached. Open a browser that has the MonoAgent Bridge extension.</div>
+        <div style={hint}>{i18nOr('ui6SetBrowser.no_browser')}</div>
       )}
       {profiles.map((p) => {
         const using = runners(p.id)
         return (
           <div key={p.id} data-profile={p.id} style={row}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={name}>{p.name}{p.is_active ? ' (active)' : ''}</div>
+              <div style={name}>{p.name}{p.is_active ? ` ${i18nOr('ui6SetBrowser.active')}` : ''}</div>
               {using.length > 1 && (
-                <div style={warnText}>More than one browser runs this profile — only the most recently connected one is used.</div>
+                <div style={warnText}>{i18nOr('ui6SetBrowser.many')}</div>
               )}
             </div>
             <select
-              aria-label={`Browser for ${p.name}`}
+              aria-label={i18nOr('ui6SetBrowser.browser_for', { name: p.name })}
               value={using[0]?.instance || ''}
               disabled={busy === p.id || browsers.length === 0}
               onChange={(e) => assign(p.id, e.target.value)}
               style={selectStyle}
             >
-              <option value="">Any browser (default)</option>
+              <option value="">{i18nOr('ui6SetBrowser.any')}</option>
               {browsers.map((b) => (
                 <option key={b.instance} value={b.instance} disabled={b.legacy}>
-                  {browserTitle(b)}{b.legacy ? ' (too old to bind)' : ''}
+                  {browserTitle(b)}{b.legacy ? ` ${i18nOr('ui6SetBrowser.too_old')}` : ''}
                 </option>
               ))}
             </select>
@@ -157,13 +157,13 @@ export default function BrowserBindingsSection() {
             const n = profileIdsOf(b).length
             return (
               <div key={b.instance} data-browser={b.instance} style={hint}>
-                {browserTitle(b)}{b.version ? ` · extension ${b.version}` : ''}
+                {browserTitle(b)}{b.version ? ` · ${i18nOr('ui6SetBrowser.extension_version', { version: b.version })}` : ''}
                 {': '}
                 {b.legacy
-                  ? "this browser's extension is too old to bind. Reload it from the browser's extensions page."
+                  ? i18nOr('ui6SetBrowser.legacy')
                   : n === 0
-                    ? 'no profiles of its own (the default browser)'
-                    : `${n} ${n === 1 ? 'profile uses' : 'profiles use'} this browser`}
+                    ? i18nOr('ui6SetBrowser.no_own')
+                    : i18nOr('ui6SetBrowser.uses', { count: n })}
               </div>
             )
           })}

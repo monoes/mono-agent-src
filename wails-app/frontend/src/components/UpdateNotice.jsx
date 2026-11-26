@@ -1,7 +1,10 @@
+import { useTranslation } from 'react-i18next'
+
 // UpdateNotice: what an app update says about the daemon, the extension bridge and the other CLIs
 // (UpdateResult.notice), with the two ways forward. The update is installed either way; "Later" only
 // keeps the app running on the old code until it is restarted.
 export default function UpdateNotice({ notice, onRestart, onLater, style }) {
+  const { t } = useTranslation()
   const btn = {
     background: 'none', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 3,
     padding: '2px 10px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10,
@@ -13,8 +16,8 @@ export default function UpdateNotice({ notice, onRestart, onLater, style }) {
     }}>
       <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 8 }}>{notice}</div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button data-testid="update-notice-restart" onClick={onRestart} style={btn}>Restart now</button>
-        <button data-testid="update-notice-later" onClick={onLater} style={btn}>Later</button>
+        <button data-testid="update-notice-restart" onClick={onRestart} style={btn}>{t('ui6Set.restart_now')}</button>
+        <button data-testid="update-notice-later" onClick={onLater} style={btn}>{t('ui6Set.later')}</button>
       </div>
     </div>
   )
