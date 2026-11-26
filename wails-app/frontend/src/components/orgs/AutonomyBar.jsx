@@ -11,6 +11,7 @@ import { toMillis } from './waiting.js'
 import FullAutoConfirm from './FullAutoConfirm.jsx'
 import { Chip, mono, smallBtn } from './ui.jsx'
 import { sampledMax } from '../settings/jevShared.jsx'
+import i18n from '../../i18n.js'
 
 const PAUSE_OPTIONS = [
   { id: '30m', labelKey: 'orgs.autonomy.pauseFor30m' },
@@ -153,7 +154,7 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
     setBusy(true)
     try {
       const res = await fn()
-      if (!res || res.error) notify(op, res?.error || `${op} failed`)
+      if (!res || res.error) notify(op, res?.error || i18n.t('ui6Orgs.op_failed', { op }))
       await load()
     } finally {
       setBusy(false)
@@ -163,22 +164,22 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
   const setLevel = (level) => {
     if (!autonomy || level === autonomy.level) return
     if (level === 'full') { setConfirmFull(true); return }
-    apply(() => api.setOrgAutonomy(orgName, { level }), 'set autonomy level')
+    apply(() => api.setOrgAutonomy(orgName, { level }), i18n.t('ui6Orgs.op_set_level'))
   }
 
   const setDecider = (kind) => {
     if (!autonomy || kind === autonomy.decider?.kind) return
-    apply(() => api.setOrgAutonomy(orgName, { decider: { kind } }), 'set decider')
+    apply(() => api.setOrgAutonomy(orgName, { decider: { kind } }), i18n.t('ui6Orgs.op_set_decider'))
   }
 
   const setThreshold = (threshold) => {
-    apply(() => api.setOrgAutonomy(orgName, { decider: { kind: 'jev', threshold } }), 'set jev threshold')
+    apply(() => api.setOrgAutonomy(orgName, { decider: { kind: 'jev', threshold } }), i18n.t('ui6Orgs.op_set_threshold'))
   }
 
   // '' puts the jev decider back on the machine's default provider.
   const setProvider = (provider) => {
     if (provider === (autonomy?.decider?.provider || '')) return
-    apply(() => api.setOrgAutonomy(orgName, { decider: { kind: 'jev', provider } }), 'set jev provider')
+    apply(() => api.setOrgAutonomy(orgName, { decider: { kind: 'jev', provider } }), i18n.t('ui6Orgs.op_set_provider'))
   }
 
   if (!orgName) return null
@@ -258,7 +259,7 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
       {paused ? (
         <>
           <Chip color="#eab308" title={t('orgs.autonomy.pausedTitle')}>{pausedLabel(autonomy, t)}</Chip>
-          <button style={smallBtn} disabled={busy} onClick={() => apply(() => api.resumeOrgAutonomy(orgName), 'resume autonomy')}>
+          <button style={smallBtn} disabled={busy} onClick={() => apply(() => api.resumeOrgAutonomy(orgName), i18n.t('ui6Orgs.op_resume'))}>
             <PlayCircle size={11} /> {t('orgs.autonomy.resume')}
           </button>
         </>
@@ -284,7 +285,7 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
                 <button
                   key={o.labelKey}
                   role="menuitem"
-                  onClick={() => { setPauseOpen(false); apply(() => api.pauseOrgAutonomy(orgName, o.id), 'pause autonomy') }}
+                  onClick={() => { setPauseOpen(false); apply(() => api.pauseOrgAutonomy(orgName, o.id), i18n.t('ui6Orgs.op_pause')) }}
                   style={{ ...mono, fontSize: 10.5, textAlign: 'left', padding: '6px 10px', background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer' }}
                 >
                   {t(o.labelKey)}
@@ -336,7 +337,7 @@ export default function AutonomyBar({ orgName, onChange, onOpenJevSettings }) {
         autonomy={autonomy}
         deciderKind={deciderKind}
         onCancel={() => setConfirmFull(false)}
-        onConfirm={() => { setConfirmFull(false); apply(() => api.setOrgAutonomy(orgName, { level: 'full' }), 'set autonomy level') }}
+        onConfirm={() => { setConfirmFull(false); apply(() => api.setOrgAutonomy(orgName, { level: 'full' }), i18n.t('ui6Orgs.op_set_level')) }}
       />
     </div>
   )

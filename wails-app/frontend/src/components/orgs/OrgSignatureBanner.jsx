@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldAlert } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 
 // Signed org definitions (#288, monomind#502). monomind 2.21 runs or
 // reloads an org only when the operator signed its definition (roles,
@@ -11,12 +13,13 @@ import { confirm } from '../ConfirmDialog.jsx'
 // only on confirm, and only the definition that was reviewed (its hash,
 // instructions files included).
 
+// Locale keys; the text is resolved at render.
 const STATE_TEXT = {
-  unsigned: 'This org has no operator signature yet, so monomind will not run it.',
-  changed: 'This org changed since it was signed (roles, policies, runtimes, autonomy or automations), so monomind will not run or reload it.',
-  'invalid-signature': 'This org’s signature does not verify on this machine, so monomind will not run it.',
-  'forbidden-key': 'This org holds a forbidden key, so monomind will not run it. Remove the key, then sign.',
-  'invalid-definition': 'This org\u2019s file is unreadable or not a valid org. Fix it (see Validate), then sign.',
+  unsigned: 'ui6Orgs.sign_unsigned',
+  changed: 'ui6Orgs.sign_changed',
+  'invalid-signature': 'ui6Orgs.sign_invalid_signature',
+  'forbidden-key': 'ui6Orgs.sign_forbidden_key',
+  'invalid-definition': 'ui6Orgs.sign_invalid_definition',
 }
 
 // States with nothing to sign until the definition itself is fixed.
@@ -63,9 +66,10 @@ export function useOrgSignature(orgName, refreshKey = '') {
 }
 
 function ReviewText({ review }) {
+  const { t } = useTranslation()
   return (
     <div data-testid="org-sign-review">
-      <p style={{ margin: '0 0 8px' }}>This is what the org may do. Sign only if you expect all of it.</p>
+      <p style={{ margin: '0 0 8px' }}>{t('ui6Orgs.sign_review_intro')}</p>
       <pre style={{
         margin: 0, maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)',
         fontSize: 11, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: 8,
@@ -78,13 +82,13 @@ function ReviewText({ review }) {
 // true when signed, false when cancelled; rejects with the CLI's refusal.
 export async function reviewAndSign(orgName) {
   const review = await api.orgSignatureReview(orgName)
-  if (review.blocked_by) throw new Error(`This app was started from an AI-agent shell (${review.blocked_by}); start it normally to sign.`)
+  if (review.blocked_by) throw new Error(i18n.t('ui6Orgs.sign_blocked', { by: review.blocked_by }))
   // No hash: the definition changed while monomind reviewed it, so the
   // review may not show what would be signed.
-  if (!review.hash) throw new Error(review.message || `org ${orgName} changed during the review; review it again`)
+  if (!review.hash) throw new Error(review.message || i18n.t('ui6Orgs.sign_changed_during_review', { org: orgName }))
   const ok = await confirm(<ReviewText review={review.review || ''} />, {
-    title: `Sign org ${orgName}?`,
-    confirmLabel: 'Sign',
+    title: i18n.t('ui6Orgs.sign_title', { org: orgName }),
+    confirmLabel: i18n.t('ui6Orgs.sign_confirm'),
     danger: true,
   })
   if (!ok) return false
@@ -94,10 +98,11 @@ export async function reviewAndSign(orgName) {
 }
 
 export default function OrgSignatureBanner({ orgName, refreshKey = '' }) {
+  const { t } = useTranslation()
   const { status, refresh } = useOrgSignature(orgName, refreshKey)
   const [busy, setBusy] = useState(false)
-  const text = status?.supported ? STATE_TEXT[status.state] : null
-  if (!text) return null
+  const textKey = status?.supported ? STATE_TEXT[status.state] : null
+  if (!textKey) return null
   // The app inherited an AI agent's marker (started from its shell): the
   // CLI refuses to sign, so say why instead of offering the button.
   const blocked = status.blocked_by
@@ -107,7 +112,7 @@ export default function OrgSignatureBanner({ orgName, refreshKey = '' }) {
     try {
       await reviewAndSign(orgName)
     } catch (err) {
-      notify('sign org', err?.message || String(err), err?.code)
+      notify(i18n.t('ui6Orgs.op_sign'), err?.message || String(err), err?.code)
     } finally {
       setBusy(false)
       refresh()
@@ -120,10 +125,10 @@ export default function OrgSignatureBanner({ orgName, refreshKey = '' }) {
     }}>
       <ShieldAlert size={13} style={{ color: '#f59e0b', flexShrink: 0 }} />
       <span style={{ flex: 1 }} title={status.detail || status.message || ''}>
-        {text}
+        {t(textKey)}
         {blocked && (
           <span data-testid="org-sign-blocked" style={{ display: 'block', color: 'var(--text-muted)' }}>
-            This app was started from an AI-agent shell ({blocked}); start it normally to sign.
+            {t('ui6Orgs.sign_blocked', { by: blocked })}
           </span>
         )}
       </span>
@@ -131,7 +136,7 @@ export default function OrgSignatureBanner({ orgName, refreshKey = '' }) {
         <button type="button" onClick={onSign} disabled={busy} style={{
           fontFamily: 'var(--font-mono)', fontSize: 10.5, padding: '3px 8px', borderRadius: 4, cursor: busy ? 'default' : 'pointer',
           background: 'transparent', color: '#f59e0b', border: '1px solid #f59e0b99',
-        }}>{busy ? 'Signing…' : 'Review & sign'}</button>
+        }}>{busy ? t('ui6Orgs.signing') : t('ui6Orgs.review_sign')}</button>
       )}
     </div>
   )

@@ -9,6 +9,7 @@ vi.mock('../../services/api.js', () => ({ api: { openURL: vi.fn(), coderStopBack
 
 import OrgToolActivity from './OrgToolActivity.jsx'
 import { buildToolActivity, isToolActivity } from './orgToolActivity.js'
+import '../../i18n.js'
 
 afterEach(() => { cleanup() })
 

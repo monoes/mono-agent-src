@@ -3,6 +3,7 @@ import { ShieldAlert } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { FullAccessBadge, accessState, grantFullAccess, withNotGranted } from '../orgdesigner/fullAccess.jsx'
 import { unacknowledgedRoles } from '../orgdesigner/orgValidateReport.js'
+import { useTranslation } from 'react-i18next'
 
 // The org overview's full-access roles (#205), from `org status`'s
 // roles_access: how many roles run with full access, each one's state, the
@@ -14,6 +15,7 @@ import { unacknowledgedRoles } from '../orgdesigner/orgValidateReport.js'
 const mono = 'var(--font-mono)'
 
 export default function FullAccessSummary({ orgName, status, onChanged }) {
+  const { t } = useTranslation()
   const [unacknowledged, setUnacknowledged] = useState({})
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
@@ -47,7 +49,7 @@ export default function FullAccessSummary({ orgName, status, onChanged }) {
       padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: mono, fontSize: 10, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 1 }}>
-        <ShieldAlert size={11} /> {roles.length} full-access role{roles.length === 1 ? '' : 's'}
+        <ShieldAlert size={11} /> {t('ui6Orgs.full_access_roles', { count: roles.length })}
       </div>
       {roles.map(r => (
         <div key={r.role} data-testid="full-access-row" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -56,7 +58,7 @@ export default function FullAccessSummary({ orgName, status, onChanged }) {
             <FullAccessBadge entry={r} />
             {(r.access_state === 'suspended' || r.access_state === 'not-granted') && (
               <button type="button" className="btn btn-secondary btn-sm" disabled={!!busy} onClick={() => grant(r.role, r.access_state === 'suspended')}>
-                {busy === r.role ? 'Granting…' : r.access_state === 'suspended' ? 'Grant again…' : 'Grant full access…'}
+                {busy === r.role ? t('ui6Orgs.granting') : r.access_state === 'suspended' ? t('ui6Orgs.grant_again') : t('ui6Orgs.grant_full')}
               </button>
             )}
           </div>

@@ -1,5 +1,6 @@
 // Time helpers for waiting items (C-41): how long an approval or gate has
 // waited, and how long until the org idle-stops.
+import i18nOr from '../../lib/i18nOr.js'
 
 /** Epoch ms from a number (ms, or seconds when small) or an ISO string; null if unknown. */
 export function toMillis(ts) {
@@ -29,7 +30,7 @@ export function formatDuration(ms) {
 export function waitedLabel(since, now = Date.now()) {
   const t = toMillis(since)
   if (t == null) return ''
-  return `waiting ${formatDuration(now - t)}`
+  return i18nOr('ui6Orgs.waiting_for', { duration: formatDuration(now - t) })
 }
 
 /**
@@ -43,6 +44,6 @@ export function idleStopRemainingMs(seconds, fetchedAt, now = Date.now()) {
 
 export function idleStopLabel(remainingMs) {
   if (remainingMs == null) return ''
-  if (remainingMs <= 0) return 'org may idle-stop now'
-  return `idle stop in ${formatDuration(remainingMs)}`
+  if (remainingMs <= 0) return i18nOr('ui6Orgs.idle_stop_now')
+  return i18nOr('ui6Orgs.idle_stop_in', { duration: formatDuration(remainingMs) })
 }

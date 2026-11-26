@@ -3,6 +3,7 @@
 // approvals), which carry what the resolve actions need. Pure.
 import { classOfAction } from './autonomyModel.js'
 import { toMillis } from './waiting.js'
+import i18n from '../../i18n.js'
 
 function list(payload, key) {
   if (!payload || payload.error) return []
@@ -37,7 +38,7 @@ export function pendingRawItems(questionsRes, gatesRes, approvalsRes) {
     if (!g) {
       groups.set(key, {
         kind: 'approval', key, ref: `${a.roleId}:${a.action}`, role: a.roleId ?? null, action: a.action,
-        since, count: 1, requestIds: a.requestId ? [a.requestId] : [], text: a.question ?? `Approve ${a.action}?`, raw: a, commands,
+        since, count: 1, requestIds: a.requestId ? [a.requestId] : [], text: a.question ?? i18n.t('ui6Orgs.approve_action', { action: a.action }), raw: a, commands,
       })
     } else {
       g.count++

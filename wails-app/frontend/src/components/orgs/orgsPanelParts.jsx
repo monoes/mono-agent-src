@@ -101,15 +101,16 @@ export function Card({ children }) {
 // result (see extractFinalMessage above). Renders nothing if there's no
 // outcome yet (run still going, or never called org_complete).
 export function OutcomeBanner({ outcome, finalMessage }) {
+  const { t } = useTranslation()
   if (!outcome) return null
   const color = outcome.status === 'achieved' ? 'var(--green-neon)'
     : outcome.status === 'partial' ? '#eab308'
     : outcome.status === 'failed' ? 'var(--red)'
     : 'var(--text-muted)'
-  const label = outcome.status === 'achieved' ? 'Achieved'
-    : outcome.status === 'partial' ? 'Partial'
-    : outcome.status === 'failed' ? 'Failed'
-    : outcome.status || 'Unknown'
+  const label = outcome.status === 'achieved' ? t('ui6Orgs.outcome_label_achieved')
+    : outcome.status === 'partial' ? t('ui6Orgs.outcome_label_partial')
+    : outcome.status === 'failed' ? t('ui6Orgs.outcome_label_failed')
+    : outcome.status || t('ui6Orgs.outcome_label_unknown')
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{
@@ -118,7 +119,7 @@ export function OutcomeBanner({ outcome, finalMessage }) {
       }}>
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, boxShadow: `0 0 5px ${color}`, flexShrink: 0 }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</span>
-        {outcome.by && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>by {outcome.by}</span>}
+        {outcome.by && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{t('ui6Orgs.by_who', { who: outcome.by })}</span>}
       </div>
       {finalMessage && (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '12px 14px', fontSize: 12.5, color: 'var(--text)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
