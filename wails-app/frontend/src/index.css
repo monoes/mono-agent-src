@@ -342,12 +342,16 @@ body {
   flex-direction: column;
 }
 
+/* Controls that do not fit beside the title (a narrow window, the Human-in-Loop panel open) wrap to a second row.
+   A title never breaks and a subtitle truncates: neither is squeezed to a word a line. */
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  height: 52px;
+  gap: 8px 16px;
+  padding: 8px 24px;
+  min-height: 52px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: rgba(8, 12, 20, 0.6);
@@ -357,6 +361,8 @@ body {
 
 .page-header-left {
   display: flex;
+  flex: 1 1 260px;
+  min-width: 0;
   align-items: center;
   gap: 10px;
   -webkit-app-region: no-drag;
@@ -368,17 +374,30 @@ body {
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
 .page-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
 
+/* A separator or back button before the last part of the left side keeps its width. */
+.page-header-left > button,
+.page-header-left > .page-subtitle:not(:last-child) { flex-shrink: 0; }
+
 .page-header-right {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+  margin-left: auto;
   align-items: center;
   gap: 8px;
   -webkit-app-region: no-drag;

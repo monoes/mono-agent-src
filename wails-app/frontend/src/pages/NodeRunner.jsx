@@ -1985,9 +1985,9 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#04060a', overflow: 'hidden' }}>
       {/* ── TOOLBAR ── */}
       <div style={{
-        height: 44, flexShrink: 0,
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '0 12px',
+        minHeight: 44, flexShrink: 0,
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6,
+        padding: '6px 12px',
         background: '#080d16',
         borderBottom: '1px solid rgba(0,180,216,0.1)',
         zIndex: 10,
@@ -2000,7 +2000,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             background: 'transparent', border: 'none', outline: 'none',
             fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
             color: 'var(--text-secondary)', letterSpacing: 1,
-            width: 200, minWidth: 80,
+            width: 160, minWidth: 80,
           }}
         />
         {isDirty && (
@@ -2025,7 +2025,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
         <div style={{ width: 1, height: 16, background: 'rgba(0,180,216,0.15)' }} />
 
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {nodes.length}n · {edges.length}e
         </span>
 
