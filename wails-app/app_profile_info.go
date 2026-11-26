@@ -70,6 +70,8 @@ type ProfileInfoAIFillResult struct {
 	Asked   int                 `json:"asked"`
 	Filled  []ProfileInfoFilled `json:"filled"`
 	Skipped int                 `json:"skipped"`
+	// SandboxStatus is set when the filling turn ran without a sandbox.
+	SandboxStatus string `json:"sandbox_status,omitempty"`
 }
 
 // GetProfileInfoFields returns the field catalog.
