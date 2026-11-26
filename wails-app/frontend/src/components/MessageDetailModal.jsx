@@ -6,6 +6,7 @@ import { statusTimeline } from '../lib/commsStatus.js'
 import SendToCoderButton from './SendToCoderButton.jsx'
 import { selectionText } from './SendToCoderApi.js'
 import { useEscapeClose } from '../lib/escapeStack.js'
+import i18nOr from '../lib/i18nOr.js'
 
 // The goal is the app's own words; the text to reply to travels only as the
 // user's selection (a synced message or thread is never handed to a coder task).
@@ -40,7 +41,7 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Message detail" style={{
+      <div role="dialog" aria-modal="true" aria-label={i18nOr('ui6PagesMsgs.detail')} style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         width: 720, maxWidth: '92vw', height: '80vh',
         display: 'flex', flexDirection: 'column',
@@ -54,7 +55,7 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
         }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}>
-              {message.subject || '(no subject)'}
+              {message.subject || i18nOr('ui6PagesMsgs.no_subject')}
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
               <span>{personLabel || message.sender}</span>
@@ -104,7 +105,7 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
               fontFamily: 'var(--font-mono)', fontSize: 12, color: '#111',
               background: '#fff',
             }}>
-              {message.body || '(no content)'}
+              {message.body || i18nOr('ui6PagesMsgs.no_content')}
             </pre>
           )}
         </div>
@@ -112,8 +113,8 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
         {/* Draft with coder: sends only what the user selected or pasted here. */}
         <div style={{ padding: '10px 18px', borderTop: '1px solid #1e3a4f', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 }}>
           <textarea
-            aria-label="Text to reply to"
-            placeholder="Select the part of the message to reply to, or paste it here"
+            aria-label={i18nOr('ui6PagesMsgs.reply_label')}
+            placeholder={i18nOr('ui6PagesMsgs.reply_placeholder')}
             value={replyText}
             onChange={e => setReplyText(e.target.value)}
             rows={2}
@@ -124,16 +125,16 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
               const picked = window.getSelection?.()?.toString() || ''
               if (picked.trim()) setReplyText(picked)
             }}>
-              Use selection
+              {i18nOr('ui6PagesMsgs.use_selection')}
             </button>
           )}
           {replyText.trim() && (
             <SendToCoderButton
               kind="draft-reply"
-              label="Draft with coder"
+              label={i18nOr('ui6PagesMsgs.draft_with_coder')}
               goal={DRAFT_GOAL}
               context={() => [selectionText(replyText)]}
-              origin={{ page: 'communications', label: 'Communications' }}
+              origin={{ page: 'communications', label: i18nOr('ui6PagesMsgs.communications') }}
             />
           )}
         </div>

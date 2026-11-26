@@ -118,19 +118,20 @@ var friendlyRE = regexp.MustCompile(`\[\[held-secret:([A-Za-z0-9._-]+):[0-9a-f]{
 // reading the card; the stored text and the JSON keep the token.
 func Friendly(s string) string { return friendlyRE.ReplaceAllString(s, "<$1 secret, held>") }
 
-// createHeld queues the card with references in place of granted secrets.
-func (s Store) createHeld(ctx context.Context, p Payload, rp replay) (Payload, error) {
+// createHeld queues the card with references in place of granted secrets; merged
+// says an identical card was already waiting and is returned instead (createMerged).
+func (s Store) createHeld(ctx context.Context, p Payload, rp replay) (Payload, bool, error) {
 	p.ID = uuid.NewString()
 	if len(secrets.ResolvedValues(ctx)) > 0 {
 		hashes, err := heldify(ctx, &p, &rp)
 		if err != nil {
-			return p, fmt.Errorf("this send is not queued for approval: %w", err)
+			return p, false, fmt.Errorf("this send is not queued for approval: %w", err)
 		}
 		if len(hashes) > 0 {
 			rp.RefHashes = hashes
 		}
 	}
-	return s.create(ctx, p, rp)
+	return s.createMerged(ctx, p, rp)
 }
 
 // resolveHeldReplay is the config and input an approval sends, with the

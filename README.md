@@ -196,7 +196,7 @@ More ready-to-run workflows (RSS→AI→email, Sheets→Gmail, Stripe→Sheets s
 - Reference items in prompts and posts as `{{@img-001}}`
 - Save audio and video from a web page with the browser extension; audio and video in a profile folder are tracked only if you switch `media scan on` (off by default)
 - Audio and video play in the app; images get a fullscreen editor — crop, resize, rotate, filters
-- AI background removal (U2-Net) plus a full image-processing node set
+- A full image-processing node set
 - Profile-scoped: each workspace sees only its own vault
 
 </td>
@@ -369,7 +369,7 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 <details>
 <summary><strong>🖼️ Image Processing & Media Vault (9 nodes)</strong></summary>
 
-`image.info` · `image.resize` · `image.crop` · `image.thumbnail` · `image.convert` · `image.adjust` · `image.remove_background` (U2-Net AI) · `image.vault_get` · `image.vault_save`
+`image.info` · `image.resize` · `image.crop` · `image.thumbnail` · `image.convert` · `image.adjust` · `image.vault_get` · `image.vault_save`
 
 </details>
 
@@ -633,7 +633,7 @@ go build -o monoagentcli ./cmd/monoagentcli
 go build -tags nosocial -o monoagentcli ./cmd/monoagentcli   # without the social platform nodes
 ```
 
-About the prebuilt install: [install.sh](install.sh) (macOS arm64/amd64, Linux amd64/arm64; reads the signed release manifest from the latest GitHub release, verifies its Ed25519 signature against the pinned release key and each download's SHA256; installs into `~/.local/bin` unless `/usr/local/bin` is writable without sudo; `--app` adds the desktop app; `MONOAGENT_MANIFEST_URL` points it at a mirror, `scripts/install-test.sh` tests it), or download from [releases](https://github.com/monoes/mono-agent/releases/latest) — CLI binaries for macOS, Linux (amd64/arm64), and Windows, plus desktop-app builds for macOS (arm64), Linux (amd64), and Windows.
+About the prebuilt install: [install.sh](install.sh) (macOS arm64/amd64, Linux amd64/arm64; reads the signed release manifest from the latest GitHub release, verifies its Ed25519 signature against the pinned release key and each download's SHA256, and installs nothing it cannot verify: where `openssl` cannot check Ed25519, as on stock macOS, it uses `ssh-keygen` and `manifest.json.sshsig`, and `MONOAGENT_ALLOW_UNSIGNED=1` accepts a checksum-only install; installs into `~/.local/bin` unless `/usr/local/bin` is writable without sudo; `--app` adds the desktop app; `MONOAGENT_MANIFEST_URL` points it at a mirror, `scripts/install-test.sh` tests it), or download from [releases](https://github.com/monoes/mono-agent/releases/latest) — CLI binaries for macOS, Linux (amd64/arm64), and Windows, plus desktop-app builds for macOS (arm64), Linux (amd64), and Windows.
 
 ### Desktop GUI
 

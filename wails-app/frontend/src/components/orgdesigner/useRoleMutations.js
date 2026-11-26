@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { api, notify } from '../../services/api.js'
 import { isAutomationNode } from './RoleNode.jsx'
+import i18n from '../../i18n.js'
 
 // Role mutations the inspector, canvas and grant dialog call into.
 export default function useRoleMutations({
@@ -11,14 +12,14 @@ export default function useRoleMutations({
   const handlePatch = useCallback(async (roleId, patch) => {
     if (!orgName) return
     if (Object.prototype.hasOwnProperty.call(patch, '_renameId')) {
-      notify('rename role', 'Renaming a role id is not supported yet — delete and recreate the role instead.')
+      notify(i18n.t('ui6OrgsDesigner.op_rename_role'), i18n.t('ui6OrgsDesigner.rename_unsupported'))
       const rest = { ...patch }
       delete rest._renameId
       if (Object.keys(rest).length === 0) return
       patch = rest
     }
     const res = await api.updateOrgRole(orgName, roleId, patch)
-    if (!res || res.error) { notify('update role', res?.error || 'failed to update role'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_update_role'), res?.error || i18n.t('ui6OrgsDesigner.update_role_failed')); return }
     refreshFromServer(res)
   }, [orgName, refreshFromServer])
 
@@ -38,7 +39,7 @@ export default function useRoleMutations({
   const handleSetReportsTo = useCallback(async (roleId, parentId) => {
     if (!orgName || !roleId) return
     const res = await api.setOrgRoleReportsTo(orgName, roleId, parentId || '')
-    if (!res || res.error) { notify('set reports to', res?.error || 'failed to update reports-to'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_set_reports_to'), res?.error || i18n.t('ui6OrgsDesigner.update_reports_to_failed')); return }
     refreshFromServer(res)
   }, [orgName, refreshFromServer])
 
@@ -49,7 +50,7 @@ export default function useRoleMutations({
   const handlePromoteToRoot = useCallback(async (roleId) => {
     if (!orgName || !roleId) return
     const res = await api.promoteRoleToRoot(orgName, roleId)
-    if (!res || res.error) { notify('set as org boss', res?.error || 'failed to promote role'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_set_boss'), res?.error || i18n.t('ui6OrgsDesigner.promote_failed')); return }
     refreshFromServer(res)
   }, [orgName, refreshFromServer])
 
@@ -62,7 +63,7 @@ export default function useRoleMutations({
     // through the CLI so the endpoint URL is revoked with the role.
     if (isAutomationNode(node)) {
       const res = await api.removeAutomationRole(orgName, node.id)
-      if (!res || res.error) { notify('delete automation role', res?.error || 'failed to remove automation role'); return }
+      if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_delete_automation_role'), res?.error || i18n.t('ui6OrgsDesigner.remove_automation_role_failed')); return }
       if (selectedId === node.id) setSelectedId(null)
       await Promise.all([load({ keepSelection: true }), automationData.refresh()])
       return
@@ -71,16 +72,16 @@ export default function useRoleMutations({
       const children = nodesRef.current.filter(n => n.parentId === node.id)
       for (const c of children) {
         const r = await api.setOrgRoleReportsTo(orgName, c.id, reassignToId)
-        if (!r || r.error) { notify('reassign role', r?.error || 'failed'); return }
+        if (!r || r.error) { notify(i18n.t('ui6OrgsDesigner.op_reassign_role'), r?.error || i18n.t('ui6OrgsDesigner.failed')); return }
       }
       const res = await api.removeOrgRole(orgName, node.id, 'reparent')
-      if (!res || res.error) { notify('delete role', res?.error || 'failed'); return }
+      if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_delete_role'), res?.error || i18n.t('ui6OrgsDesigner.failed')); return }
       refreshFromServer(res)
       return
     }
     const backendStrategy = strategy === 'cascade' ? 'cascade' : 'reparent'
     const res = await api.removeOrgRole(orgName, node.id, backendStrategy)
-    if (!res || res.error) { notify('delete role', res?.error || 'failed to delete role'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_delete_role'), res?.error || i18n.t('ui6OrgsDesigner.delete_role_failed')); return }
     if (selectedId === node.id) setSelectedId(null)
     refreshFromServer(res)
   }, [orgName, deleteTarget, selectedId, refreshFromServer, load, automationData])

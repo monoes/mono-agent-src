@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PairExtension } from '../../wailsjs/go/main/App'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Pairing the browser extension from the app: `monoagentcli extension pair
 // --open --json` (PairExtension in app_browsers.go) opens the running
@@ -18,7 +19,7 @@ export function parsePairResult(raw) {
     const r = typeof raw === 'string' ? JSON.parse(raw) : raw
     if (r && typeof r === 'object') return r
   } catch { /* falls through */ }
-  return { opened: false, error: String(raw || 'no answer') }
+  return { opened: false, error: String(raw || i18nOr('ui6SetBrowser.no_answer')) }
 }
 
 // withCode shows the CLI hint's `command` spans as code instead of

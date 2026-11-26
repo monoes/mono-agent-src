@@ -13,6 +13,7 @@ import { confirm } from '../components/ConfirmDialog.jsx'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
 import StatusHistoryModal from '../components/StatusHistoryModal.jsx'
 import { ExperienceSection, EducationSection, ProfileDetailsSection } from '../components/ProfileDetails.jsx'
+import { execStatusWord } from './dashboard/format.js'
 
 // Map action types to icons + labels
 const ACTION_META = {
@@ -86,7 +87,7 @@ function InteractionRow({ item }) {
             className="interaction-status"
             style={{ color: stateColor, borderColor: stateColor + '40', background: stateColor + '12' }}
           >
-            {item.status}
+            {execStatusWord(item.status)}
           </span>
         </div>
         {item.comment_text && (

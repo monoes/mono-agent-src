@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import ApplicationHeader from './ApplicationHeader.jsx'
 import ApplicationParkedPanel from './ApplicationParkedPanel.jsx'
 import ApplicationPostingSection from './ApplicationPostingSection.jsx'
@@ -10,6 +11,7 @@ import ApplicationStatusHistorySection from './ApplicationStatusHistorySection.j
 import ApplicationCoderTaskSection from './ApplicationCoderTaskSection.jsx'
 import FileViewerModal from '../FileViewerModal.jsx'
 import { fetchApplicationAssets } from './applicationAssets.js'
+import t from '../../lib/i18nOr.js'
 
 const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
@@ -23,6 +25,7 @@ export default function ApplicationDetailModal({
   onOpenCoderChat,
   onChanged,
 }) {
+  useTranslation()
   const overlayRef = useRef(null)
   const dialogRef = useRef(null)
   const [assets, setAssets] = useState(initialAssets)
@@ -108,7 +111,7 @@ export default function ApplicationDetailModal({
 
   if (!detail && !id) return null
 
-  const effectiveDetail = detail || { id, title: 'Application Detail', status: 'pending' }
+  const effectiveDetail = detail || { id, title: t('ui6PagesApps.detail_default_title'), status: 'pending' }
 
   return (
     <>
@@ -154,7 +157,7 @@ export default function ApplicationDetailModal({
           }}
         >
           <span id="application-detail-label" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>
-            {`Application detail: ${effectiveDetail.title || 'Application'}`}
+            {t('ui6PagesApps.detail_label', { title: effectiveDetail.title || t('ui6PagesApps.application') })}
           </span>
 
           {/* Section 1: Header */}
@@ -218,9 +221,9 @@ export default function ApplicationDetailModal({
                 fontSize: 11,
                 cursor: 'pointer',
               }}
-              aria-label="Close dialog"
+              aria-label={t('ui6PagesApps.close_dialog')}
             >
-              Close
+              {t('ui6PagesApps.close')}
             </button>
           </div>
         </div>

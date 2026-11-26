@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { GetExtensionInfo, InstallExtension } from '../../wailsjs/go/main/App'
+import i18nOr from '../../lib/i18nOr.js'
 
 // The browser extension is how monoagent drives a browser; there is no other
 // way. It ships inside the app and is unpacked, on request, to a fixed folder
@@ -17,9 +19,10 @@ const hint = { fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-
 const errText = { fontFamily: mono, fontSize: 10.5, color: 'var(--red)', lineHeight: 1.5, wordBreak: 'break-word' }
 const button = { fontFamily: mono, fontSize: 10, padding: '5px 12px', borderRadius: 5, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }
 
-const errMsg = (e) => String(e?.message || e || 'unknown error')
+const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
 
 export default function ExtensionSection() {
+  const { t } = useTranslation()
   const [info, setInfo] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -49,11 +52,9 @@ export default function ExtensionSection() {
 
   return (
     <div style={card} data-testid="extension-section">
-      <div style={label}>MonoAgent Bridge extension</div>
+      <div style={label}>{t('ui6SetBrowser.ext_title')}</div>
       <div style={hint}>
-        monoagent browses through this extension, in your own browser and signed in as you. It
-        never starts a browser of its own. The full extension comes with the app: load it in
-        Chrome or Edge once, as an unpacked extension.
+        {t('ui6SetBrowser.ext_about')}
       </div>
       {error && <div style={errText} role="alert">{error}</div>}
       {info && (
@@ -62,27 +63,27 @@ export default function ExtensionSection() {
             <code data-testid="extension-path" style={{ flex: 1, minWidth: 0, fontFamily: mono, fontSize: 11, color: 'var(--text)', wordBreak: 'break-all', userSelect: 'all' }}>
               {info.path}
             </code>
-            <button style={button} onClick={copy}>{copied ? 'Copied' : 'Copy path'}</button>
+            <button style={button} onClick={copy}>{copied ? t('ui6SetBrowser.copied') : t('ui6SetBrowser.copy_path')}</button>
           </div>
           {stale && (
             <div data-testid="extension-stale" style={{ ...hint, color: 'var(--yellow)' }}>
               {info.installed
-                ? 'The unpacked copy is not the one this app ships. Click Update, then Reload the extension in your browser.'
-                : 'The extension is not unpacked yet. Click Install to put it in the folder above.'}
+                ? t('ui6SetBrowser.ext_stale')
+                : t('ui6SetBrowser.ext_missing')}
             </div>
           )}
           <ol style={{ ...hint, margin: 0, paddingLeft: 18 }}>
-            <li>Open <code>chrome://extensions</code> (Edge: <code>edge://extensions</code>).</li>
-            <li>Turn on <strong>Developer mode</strong> (top right).</li>
-            <li>Click <strong>Load unpacked</strong> and choose the folder above.</li>
-            <li>Pin <strong>MonoAgent Bridge</strong>, open its icon and pair it with the app.</li>
+            <li>{t('ui6SetBrowser.step_open')} <code>chrome://extensions</code> (Edge: <code>edge://extensions</code>).</li>
+            <li>{t('ui6SetBrowser.step_turn_on')} <strong>{t('ui6SetBrowser.developer_mode')}</strong> {t('ui6SetBrowser.step_top_right')}</li>
+            <li>{t('ui6SetBrowser.step_click')} <strong>{t('ui6SetBrowser.load_unpacked')}</strong> {t('ui6SetBrowser.step_choose')}</li>
+            <li>{t('ui6SetBrowser.step_pin')} <strong>MonoAgent Bridge</strong>, {t('ui6SetBrowser.step_pair')}</li>
           </ol>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={hint}>
-              {info.version ? `Version ${info.version}. ` : ''}After MonoAgent updates, reinstall and click <strong>Reload</strong> on the extension.
+              {info.version ? `${t('ui6SetBrowser.version', { version: info.version })} ` : ''}{t('ui6SetBrowser.after_update')} <strong>{t('ui6SetBrowser.reload')}</strong> {t('ui6SetBrowser.on_extension')}
             </span>
             <button style={{ ...button, marginLeft: 'auto' }} disabled={busy} onClick={() => run(InstallExtension)}>
-              {busy ? 'Working…' : !info.installed ? 'Install' : info.current ? 'Reinstall' : 'Update'}
+              {busy ? t('ui6SetBrowser.working') : t(!info.installed ? 'ui6SetBrowser.install' : info.current ? 'ui6SetBrowser.reinstall' : 'ui6Set.status_update')}
             </button>
           </div>
         </>

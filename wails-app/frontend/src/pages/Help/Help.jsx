@@ -12,7 +12,7 @@ import './Help.css'
 const CONFETTI = ['🎉', '✨', '🧯', '🔑', '🪄', '🎈', '🦆', '🍕']
 
 export default function Help({ onNavigate }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { openNewChat, openDraft } = useSendToCoder() || {}
   const [query, setQuery] = useState('')
   const [openId, setOpenId] = useState(null)
@@ -30,7 +30,8 @@ export default function Help({ onNavigate }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const topics = useMemo(() => filterTopics(TOPICS, query), [query])
+  // The topics' text follows the language, so a search is run again when it changes.
+  const topics = useMemo(() => filterTopics(TOPICS, query), [query, i18n?.language])
   const eggKey = searchEgg(query)
 
   const onAction = useCallback(async (action) => {

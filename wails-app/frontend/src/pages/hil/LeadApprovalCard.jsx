@@ -1,11 +1,17 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import t from '../../lib/i18nOr.js'
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, Send, ExternalLink, Users } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { formatDate, PLATFORM_PROFILE_URL } from './hilShared.jsx'
 import { SuggestionChip } from './HILCards.jsx'
 
+// The CLI's intro_fit values; only the displayed word is translated.
+const FIT_KEYS = { on_topic: 'ui7Hil.fit_on_topic', generic: 'ui7Hil.fit_generic', off: 'ui7Hil.fit_off' }
+
 // ── 3. Lead / Candidate Outreach Approval Card ────────────────
 export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
+  useTranslation() // renders again on a language change
   const [expanded, setExpanded] = useState(true)
   const [editedIntro, setEditedIntro] = useState(item.introduction || '')
   const [loading, setLoading] = useState(null) // 'approve' | 'approve_send' | 'reject'
@@ -42,6 +48,7 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
   const profileUrl = rawUrl
     ? (/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`)
     : null
+  const fit = item.suggestion?.intro_fit
 
   return (
     <div style={{
@@ -73,7 +80,7 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
               fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 600,
               background: `${platformColor}25`, color: platformColor, border: `1px solid ${platformColor}40`,
             }}>
-              {item.platform?.toUpperCase() || 'LEAD'}
+              {item.platform?.toUpperCase() || t('ui7Hil.platform_lead')}
             </span>
             {item.platform_username && (
               profileUrl ? (
@@ -83,7 +90,7 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
                     e.stopPropagation()
                     api.openURL(profileUrl)
                   }}
-                  title={`Open ${profileUrl}`}
+                  title={t('ui7Hil.open_url', { url: profileUrl })}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -114,12 +121,12 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
           padding: '2px 8px', borderRadius: 10,
           background: 'rgba(0,180,216,0.15)', color: '#00b4d8',
           fontSize: 11, fontFamily: 'var(--font-mono)', flexShrink: 0,
-        }}>lead pitch</span>
+        }}>{t('ui7Hil.lead_pitch')}</span>
         {item.suggestion?.suggest && (
           <SuggestionChip
             choice={item.suggestion.suggest}
             p={item.suggestion.p}
-            detail={item.suggestion.intro_fit ? `intro ${item.suggestion.intro_fit.replace(/_/g, ' ')}` : ''}
+            detail={fit ? t('ui7Hil.intro_fit', { fit: Object.hasOwn(FIT_KEYS, fit) ? t(FIT_KEYS[fit]) : fit.replace(/_/g, ' ') }) : ''}
             model={item.suggestion.model}
           />
         )}
@@ -136,7 +143,7 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
                   e.stopPropagation()
                   api.openURL(profileUrl)
                 }}
-                title={`Open on ${item.platform || 'web'}`}
+                title={t('ui7Hil.open_on', { platform: item.platform || t('ui7Hil.web') })}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -150,12 +157,12 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
                   textDecoration: 'underline',
                 }}
               >
-                View Profile <ExternalLink size={11} />
+                {t('ui7Hil.view_profile')} <ExternalLink size={11} />
               </button>
             )}
             {item.created_at && (
               <span style={{ fontFamily: 'var(--font-mono)' }}>
-                Captured: {formatDate(item.created_at)}
+                {t('ui7Hil.captured', { when: formatDate(item.created_at) })}
               </span>
             )}
             {onOpenProfile && (
@@ -167,14 +174,14 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
                   fontSize: 11, textDecoration: 'underline',
                 }}
               >
-                Open in CRM
+                {t('ui7Hil.open_crm')}
               </button>
             )}
           </div>
 
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#00b4d8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-              Generated Outreach Pitch <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(editable)</span>
+              {t('ui7Hil.pitch_heading')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{t('ui7Hil.editable')}</span>
             </div>
             <textarea
               value={editedIntro}
@@ -214,12 +221,12 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
               }}
             >
               <XCircle size={13} />
-              {loading === 'reject' ? 'Rejecting…' : 'Reject'}
+              {t(loading === 'reject' ? 'ui7Hil.rejecting' : 'ui7Hil.reject')}
             </button>
             <button
               onClick={handleApproveOnly}
               disabled={!!loading}
-              title="Save changes and mark approved without dispatching"
+              title={t('ui7Hil.approve_only_title')}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '7px 14px',
@@ -231,12 +238,12 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
               }}
             >
               <CheckCircle size={13} />
-              {loading === 'approve' ? 'Saving…' : 'Approve Only'}
+              {t(loading === 'approve' ? 'ui7Hil.saving' : 'ui7Hil.approve_only')}
             </button>
             <button
               onClick={handleApproveAndSend}
               disabled={!!loading}
-              title="Save changes, approve, and trigger outreach dispatch workflow"
+              title={t('ui7Hil.approve_send_title')}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '7px 16px',
@@ -248,7 +255,7 @@ export function LeadApprovalCard({ item, onApprove, onReject, onOpenProfile }) {
               }}
             >
               <Send size={13} />
-              {loading === 'approve_send' ? 'Dispatching…' : 'Approve & Send'}
+              {t(loading === 'approve_send' ? 'ui7Hil.dispatching' : 'ui7Hil.approve_send')}
             </button>
           </div>
         </div>

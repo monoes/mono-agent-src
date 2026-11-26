@@ -7,6 +7,7 @@ import InfoField from '../components/info/InfoField.jsx'
 import SendToCoderButton from '../components/SendToCoderButton.jsx'
 import { groupCatalog, entryMap, hasValue, leftEmpty, errorText, profileType, TYPE_KEY } from '../components/info/infoModel.js'
 import '../components/info/info.css'
+import i18nOr from '../lib/i18nOr.js'
 
 export default function Info({ isActive = true }) {
   const { t } = useTranslation()
@@ -100,8 +101,8 @@ export default function Info({ isActive = true }) {
         <div className="page-header-left"><h2 className="page-title" style={{ margin: 0 }}>{t('info.title')}</h2></div>
         <div className="page-header-right">
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('info.aiFillHint')}</span>
-          <SendToCoderButton label="Fill with coder" goal="Fill in my profile information (the Info page) from what you can find about me in my documents and profile. Ask me about anything you are unsure of."
-            origin={{ page: 'info', label: 'Info' }} />
+          <SendToCoderButton label={i18nOr('ui6PagesMisc.fill_with_coder')} goal="Fill in my profile information (the Info page) from what you can find about me in my documents and profile. Ask me about anything you are unsure of."
+            origin={{ page: 'info', label: i18nOr('ui6PagesMisc.info_origin') }} />
           <button type="button" className="btn btn-primary" onClick={runAIFill} disabled={aiBusy || !catalog} aria-busy={aiBusy}>
             {aiBusy ? <div className="spinner" style={{ width: 13, height: 13, borderColor: 'rgba(4,6,10,0.25)', borderTopColor: 'var(--void)' }} /> : <Sparkles size={14} />}
             {aiBusy ? t('info.aiFilling') : t('info.aiFill')}

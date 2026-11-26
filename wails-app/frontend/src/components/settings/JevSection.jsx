@@ -80,11 +80,11 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
       <div style={card}>
         {loadErr ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ ...errText, flex: 1 }}>Couldn't read Jev settings: {loadErr}</div>
-            <button className="btn btn-secondary btn-sm" onClick={load}>Retry</button>
+            <div style={{ ...errText, flex: 1 }}>{t('ui6SetJev.load_failed', { error: loadErr })}</div>
+            <button className="btn btn-secondary btn-sm" onClick={load}>{t('ui6Set.retry')}</button>
           </div>
         ) : (
-          <div style={hint}>Loading Jev settings…</div>
+          <div style={hint}>{t('ui6SetJev.loading')}</div>
         )}
       </div>
     )
@@ -132,7 +132,7 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
                     color: 'var(--red)', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)',
                     borderRadius: 99, padding: '2px 9px',
                   }}>
-                    Error reading settings
+                    {t('ui6SetJev.error_reading')}
                   </span>
                 ) : (
                   <span style={{
@@ -140,7 +140,7 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
                     color: 'var(--cyan)', background: 'rgba(0,180,216,.1)', border: '1px solid rgba(0,180,216,.25)',
                     borderRadius: 99, padding: '2px 9px',
                   }}>
-                    <Loader2 size={11} className="spin" style={{ color: 'var(--cyan)' }} /> Loading…
+                    <Loader2 size={11} className="spin" style={{ color: 'var(--cyan)' }} /> {t('ui6Set.loading')}
                   </span>
                 )}
               </div>
@@ -240,14 +240,14 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
                 borderRadius: 99, padding: '2px 9px',
               }}
             >
-              {activeCount} {activeCount === 1 ? 'feature' : 'features'} active
+              {t('ui6SetJev.active', { count: activeCount })}
             </span>}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {!machine && usage?.total?.calls ? (
               <span style={{ fontFamily: mono, fontSize: 10, color: 'var(--text-muted)' }}>
-                {usage.total.calls} {usage.total.calls === 1 ? 'call' : 'calls'} (7d) · {formatUSD(usage.total.estimated_usd)}
+                {t('ui6SetJev.calls_7d', { count: usage.total.calls, cost: formatUSD(usage.total.estimated_usd) })}
               </span>
             ) : null}
             {isExpanded ? (
@@ -263,8 +263,7 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
         <div style={card}>
         {target.typesafe ? (
           <div style={hint}>
-            Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text,
-            and nothing is sent to TypeSafe until you turn a feature on{machine ? " in a profile's settings" : ' below'}. Get an API key at console.typesafe.ai.
+            {t(machine ? 'ui6SetJev.about_machine' : 'ui6SetJev.about_below')}
           </div>
         ) : (
           <div style={hint}>

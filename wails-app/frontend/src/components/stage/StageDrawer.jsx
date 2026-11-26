@@ -69,7 +69,7 @@ export function StageDrawer({ node, calls, leadInfo, turnId, isLive, onClose, on
           {node.branch && <span className="stage-chip" data-testid="stage-branch" title={t('stage.branchHelp')} style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{t('stage.branch', { branch: node.branch })}</span>}
         </div>
         {node.prevModel && (
-          <div style={{ color: '#fbbf24' }}>{t('stage.reassignedFrom', { model: `${node.prevModel.runtime}/${node.prevModel.model || 'default'}`, reason: node.prevModel.reason })}</div>
+          <div style={{ color: '#fbbf24' }}>{t('stage.reassignedFrom', { model: `${node.prevModel.runtime}/${node.prevModel.model || t('ui6OrgsStage.default_model')}`, reason: node.prevModel.reason })}</div>
         )}
         {node.brief && (
           <section><h4>{t('stage.brief')}</h4><ChatMarkdown content={node.brief} /></section>

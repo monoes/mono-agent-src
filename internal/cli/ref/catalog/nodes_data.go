@@ -302,24 +302,6 @@ var nodeDocsImage = []nodeDoc{
 		Notes:   "quality applies to JPEG only (1-100, default 85). output_dir optional.",
 	},
 	{
-		Type:     "image.remove_background",
-		Category: "image",
-		Short:    "Remove image background using U2-Net AI model (same model as rembg)",
-		Config: `{
-  "field":        "image_path",
-  "output_field": "nobg_path",
-  "bgcolor":      ""
-}`,
-		Inputs:  "item with image, audio or video path field",
-		Outputs: "output_field with path to PNG with transparent background",
-		Notes: `No API key required — runs fully locally using ONNX Runtime.
-On first use, automatically downloads:
-  • ONNX Runtime 1.24.1 shared library     → ~/.monoagent/lib/
-  • u2net.onnx (~176 MB)              → ~/.monoagent/models/
-bgcolor: optional hex colour (e.g. "ffffff") to flatten alpha onto solid background.
-Output is always PNG. Subsequent calls reuse cached model and ORT session.`,
-	},
-	{
 		Type:     "image.adjust",
 		Category: "image",
 		Short:    "Adjust brightness, contrast, saturation, sharpness, blur, gamma, grayscale, sepia, invert",

@@ -69,10 +69,13 @@ func (v *sentAtValue) parse(s string) {
 // sentAtInstant is an SQL expression for col as one comparable instant (a
 // julian day), whatever form it is stored in, or NULL when it is empty or
 // unreadable. It lets ORDER BY see RFC3339 and Go time text as the same scale.
+// Text that does not start with a digit is unreadable too, which keeps 'now'
+// out of julianday: the expression is indexed (migration 172, which must
+// change with it), and SQLite refuses a non-deterministic one there.
 func sentAtInstant(col string) string {
 	c := "NULLIF(" + col + ", '')"
 	return "(CASE typeof(" + col + ") WHEN 'integer' THEN " + col + "/86400.0+2440587.5" +
 		" WHEN 'real' THEN " + col + "/86400.0+2440587.5" +
-		" WHEN 'text' THEN julianday(CASE WHEN instr(substr(" + c + ",12),' ')>0 THEN substr(" + c + ",1,10+instr(substr(" + c + ",12),' ')) ELSE " + c + " END)" +
+		" WHEN 'text' THEN julianday(CASE WHEN " + col + " NOT GLOB '[0-9]*' THEN NULL WHEN instr(substr(" + c + ",12),' ')>0 THEN substr(" + c + ",1,10+instr(substr(" + c + ",12),' ')) ELSE " + c + " END)" +
 		" END)"
 }

@@ -10,6 +10,7 @@
 // section and warns on unknown top-level ones.
 
 import { NODE_W, NODE_H } from './orgGraph.js'
+import i18n from '../../i18n.js'
 
 export const SECTION_PAD = 28
 export const SECTION_HEADER = 32
@@ -78,13 +79,13 @@ export function dropMembership(rects, list, node) {
   const hits = rects.filter(r => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h)
   if (node.parentId == null) {
     return hits.length
-      ? { kind: 'refuse', reason: `role "${node.id}" is the root: the root is in no section — keep it outside the sections` }
+      ? { kind: 'refuse', reason: i18n.t('ui6OrgsDesigner.refuse_root', { id: node.id }) }
       : { kind: 'stay' }
   }
   const cur = sectionOfRole(list, node.id)
   if (hits.some(r => r.name === cur)) return { kind: 'stay' }
   if (hits.length) return { kind: 'move', to: hits[0].name }
-  return { kind: 'refuse', reason: `roles.${node.id}: a role outside every section can only be the root — drop it inside a section` }
+  return { kind: 'refuse', reason: i18n.t('ui6OrgsDesigner.refuse_outside', { id: node.id }) }
 }
 
 /** The container under world point (x, y), or null. */
@@ -104,12 +105,12 @@ export function documentEdges(list) {
 }
 
 /** Inline validation for a sections org, worded like monomind's. */
-export function sectionErrors(nodes, list) {
+export function sectionErrors(nodes, list, lng) {
   if (!sectionsEnabled(list)) return []
   const errors = []
   for (const n of nodes || []) {
     if (n.parentId != null && !isEndpoint(n) && !sectionOfRole(list, n.id)) {
-      errors.push(`roles.${n.id}: a role outside every section can only be the root — add it to a section's members or make it a lead`)
+      errors.push(i18n.t('ui6OrgsDesigner.err_outside_section', { id: n.id, ...(lng && { lng }) }))
     }
   }
   return errors
@@ -118,7 +119,9 @@ export function sectionErrors(nodes, list) {
 /** `validateStructure`'s result with the section errors added. */
 export function withSectionErrors(structural, nodes, list) {
   const extra = sectionErrors(nodes, list)
-  return extra.length ? { ...structural, valid: false, errors: [...structural.errors, ...extra] } : structural
+  if (!extra.length) return structural
+  const english = [...(structural.english || []), ...sectionErrors(nodes, list, 'en')]
+  return { ...structural, valid: false, errors: [...structural.errors, ...extra], english }
 }
 
 /**

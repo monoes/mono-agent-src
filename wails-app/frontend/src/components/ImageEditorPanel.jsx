@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
-import { X, Wand2, Download, Loader2, CheckCircle, AlertCircle, Sliders, Crop, RefreshCw, Eraser, FileImage } from 'lucide-react'
+import { X, Wand2, Download, Loader2, CheckCircle, AlertCircle, Sliders, Crop, RefreshCw, FileImage } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 
 const TABS = [
-  { id: 'remove_bg',  label: 'Remove BG',  icon: Eraser },
   { id: 'resize',     label: 'Resize',     icon: RefreshCw },
   { id: 'crop',       label: 'Crop',       icon: Crop },
   { id: 'adjust',     label: 'Adjust',     icon: Sliders },
@@ -69,29 +68,6 @@ function SliderInput({ value, onChange, min, max, step = 0.05 }) {
 }
 
 // ── Tab panels ────────────────────────────────────────────────────────────────
-
-function RemoveBgPanel({ onApply, busy }) {
-  return (
-    <div>
-      <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#64748b', marginBottom: 16 }}>
-        Removes the image background using the built-in U2-Net AI model (same as rembg).
-        Runs fully locally — no API key required.
-      </p>
-      <Field label="Background color (optional)">
-        <input
-          type="text"
-          placeholder="e.g. ffffff — leave blank for transparent"
-          style={inputStyle}
-          id="bgcolor"
-        />
-      </Field>
-      <ApplyButton busy={busy} onClick={() => {
-        const bgcolor = document.getElementById('bgcolor').value.trim()
-        onApply('image.remove_background', { field: 'image_path', output_field: 'out_path', bgcolor: bgcolor || '' })
-      }} />
-    </div>
-  )
-}
 
 function ResizePanel({ onApply, busy }) {
   const [width, setWidth]   = useState(800)
@@ -209,7 +185,7 @@ function ApplyButton({ busy, onClick }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ImageEditorPanel({ image, onClose, onSaved }) {
-  const [tab, setTab]           = useState('remove_bg')
+  const [tab, setTab]           = useState('resize')
   const [busy, setBusy]         = useState(false)
   const [result, setResult]     = useState(null)   // { path, dataUrl }
   const [error, setError]       = useState(null)
@@ -271,7 +247,6 @@ export default function ImageEditorPanel({ image, onClose, onSaved }) {
   }
 
   const ActivePanel = {
-    remove_bg: RemoveBgPanel,
     resize:    ResizePanel,
     crop:      CropPanel,
     adjust:    AdjustPanel,

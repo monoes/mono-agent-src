@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, onOrgEvent } from '../../services/api.js'
 import { isDocsEvent, normalizeView } from './orgDocuments.js'
+import i18n from '../../i18n.js'
 
 export const RELOAD_DEBOUNCE_MS = 250
 
@@ -20,7 +21,7 @@ export default function useOrgDocuments({ orgName, run = '', live = false }) {
     const res = await api.getOrgDocuments(orgName, run)
     if (mine !== seq.current) return // a newer load superseded this one
     const v = normalizeView(res)
-    if (v) { setView(v); setError('') } else setError(res?.error || 'Could not read the documents.')
+    if (v) { setView(v); setError('') } else setError(res?.error || i18n.t('ui6OrgsDesigner.read_documents_failed'))
     setLoading(false)
   }, [orgName, run])
 

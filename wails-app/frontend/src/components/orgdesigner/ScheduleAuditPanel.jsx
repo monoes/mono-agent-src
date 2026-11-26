@@ -6,15 +6,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, onOrgEvent } from '../../services/api.js'
 import { Chip, mutedText, sectionLabel } from '../orgs/ui.jsx'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 
 const KINDS = {
-  refused: { label: 'refused', color: 'var(--red, #ef4444)', hint: 'The tick could not start the run: the reason is the start refusal.' },
-  skipped: { label: 'skipped', color: '#eab308', hint: 'A run was already live, so this tick yielded to it.' },
-  coalesced: { label: 'coalesced', color: 'var(--text-muted)', hint: 'The tick landed mid-run and was held for one catch-up run.' },
+  refused: { labelKey: 'ui6OrgsCanvas.tick_refused', color: 'var(--red, #ef4444)', hintKey: 'ui6OrgsCanvas.tick_refused_hint' },
+  skipped: { labelKey: 'ui6OrgsCanvas.tick_skipped', color: '#eab308', hintKey: 'ui6OrgsCanvas.tick_skipped_hint' },
+  coalesced: { labelKey: 'ui6OrgsCanvas.tick_coalesced', color: 'var(--text-muted)', hintKey: 'ui6OrgsCanvas.tick_coalesced_hint' },
 }
 
 export function kindMeta(kind, event) {
-  return KINDS[kind] || { label: event || 'other', color: 'var(--text-muted)', hint: 'An event this version does not know.' }
+  const known = KINDS[kind]
+  if (known) return { label: i18n.t(known.labelKey), color: known.color, hint: i18n.t(known.hintKey) }
+  return { label: event || i18n.t('ui6OrgsCanvas.tick_other'), color: 'var(--text-muted)', hint: i18n.t('ui6OrgsCanvas.tick_unknown_hint') }
 }
 
 export function normalizeAudit(res) {
@@ -23,6 +27,7 @@ export function normalizeAudit(res) {
 }
 
 export default function ScheduleAuditPanel({ orgName, live = false }) {
+  const { t } = useTranslation()
   const [entries, setEntries] = useState([])
   const request = useRef(0)
   const load = useCallback(async () => {
@@ -49,8 +54,8 @@ export default function ScheduleAuditPanel({ orgName, live = false }) {
 
   if (entries.length === 0) return null
   return (
-    <section aria-label="Scheduled ticks" style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-      <span style={sectionLabel}>Scheduled ticks that did not start a run</span>
+    <section aria-label={t('ui6OrgsCanvas.scheduled_ticks')} style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+      <span style={sectionLabel}>{t('ui6OrgsCanvas.scheduled_ticks_heading')}</span>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {entries.map((e, i) => {
           const m = kindMeta(e.kind, e.event)

@@ -54,6 +54,7 @@ import { Crown, X, Workflow, Lock, FileText, KeyRound, WifiOff } from 'lucide-re
 import { NODE_W, NODE_H } from './orgGraph'
 import { iconUrl } from './roleIcons'
 import { FullAccessBadge } from './fullAccess.jsx'
+import { useTranslation } from 'react-i18next'
 
 const FLASH_WINDOW_MS = 1500
 export const AUTOMATION_COLOR = '#a78bfa'
@@ -66,8 +67,8 @@ export const LIVE_STATUS_COLORS = {
   offline: 'rgba(148,163,184,0.25)',
 }
 
-function typeChip(type) {
-  return type || 'role'
+function typeChip(type, t) {
+  return type || t('ui6OrgsDesigner.node_role')
 }
 
 export function isAutomationNode(node) {
@@ -93,6 +94,7 @@ export default function RoleNode({
   // declares full access but no state came back; null for a scoped role.
   fullAccess = null,
 }) {
+  const { t } = useTranslation()
   const isAutomation = isAutomationNode(node)
   const color = node.color || (isAutomation ? AUTOMATION_COLOR : isRoot ? 'var(--yellow)' : 'var(--cyan)')
   const isOrphan = !isRoot && node.parentId == null
@@ -164,7 +166,7 @@ export default function RoleNode({
       onMouseLeave={(e) => { delete e.currentTarget.dataset.hover }}
     >
       {isAutomation ? (
-        <div aria-label="automation" style={{
+        <div aria-label={t('ui6OrgsDesigner.node_automation')} style={{
           width: 40, height: 40, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: '#120f26', border: `1px solid ${AUTOMATION_COLOR}66`,
         }}>
@@ -199,7 +201,7 @@ export default function RoleNode({
           fontWeight: 600, fontSize: 12.5, color: '#e2e8f0',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
-          {node.title || 'Untitled role'}
+          {node.title || t('ui6OrgsDesigner.node_untitled')}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{
@@ -210,12 +212,12 @@ export default function RoleNode({
             border: `1px solid ${isAutomation ? `${AUTOMATION_COLOR}55` : 'rgba(0,180,216,0.16)'}`,
             borderRadius: 8, padding: '1px 6px', textTransform: 'lowercase',
           }}>
-            {isAutomation ? 'automation' : isRoot ? 'ROOT' : typeChip(node.type)}
+            {isAutomation ? t('ui6OrgsDesigner.node_automation') : isRoot ? t('ui6OrgsDesigner.node_root') : typeChip(node.type, t)}
           </span>
           {fullAccess && <FullAccessBadge entry={fullAccess} compact />}
           {liveStatus && (
             <span data-testid="live-status" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: LIVE_STATUS_COLORS[liveStatus] || 'var(--text-muted)' }}>
-              {liveStatus}
+              {t(`ui6OrgsDesigner.status_${liveStatus}`, { defaultValue: liveStatus })}
             </span>
           )}
         </div>
@@ -225,17 +227,17 @@ export default function RoleNode({
       {live && (live.pendingGate || live.assetCount > 0 || live.pendingApprovals > 0 || live.pendingQuestions > 0) && (
         <div style={{ position: 'absolute', top: -9, left: 8, display: 'flex', gap: 4, pointerEvents: 'auto' }}>
           {live.pendingGate && (
-            <span data-testid="live-gate" title={`Gate pending: ${live.pendingGate.name || live.pendingGate.gateId}`} style={markerStyle('var(--red, #ef4444)')}>
+            <span data-testid="live-gate" title={t('ui6OrgsDesigner.gate_pending', { name: live.pendingGate.name || live.pendingGate.gateId })} style={markerStyle('var(--red, #ef4444)')}>
               <Lock size={10} />
             </span>
           )}
           {(live.pendingApprovals > 0 || live.pendingQuestions > 0) && (
-            <span data-testid="live-approvals" title={`${live.pendingApprovals} approval(s), ${live.pendingQuestions} question(s) waiting`} style={markerStyle('#eab308')}>
+            <span data-testid="live-approvals" title={t('ui6OrgsDesigner.approvals_waiting', { approvals: live.pendingApprovals, questions: live.pendingQuestions })} style={markerStyle('#eab308')}>
               <KeyRound size={9} />{live.pendingApprovals + live.pendingQuestions}
             </span>
           )}
           {live.assetCount > 0 && (
-            <span data-testid="live-asset" title={lastAsset ? `Last file: ${lastAsset.path}` : 'Files written'} style={markerStyle('var(--cyan, #00b4d8)')}>
+            <span data-testid="live-asset" title={lastAsset ? t('ui6OrgsDesigner.last_file', { path: lastAsset.path }) : t('ui6OrgsDesigner.files_written')} style={markerStyle('var(--cyan, #00b4d8)')}>
               <FileText size={9} />{live.assetCount}
             </span>
           )}
@@ -246,7 +248,7 @@ export default function RoleNode({
       {!readOnly && <button
         onMouseDown={e => e.stopPropagation()}
         onClick={e => { e.stopPropagation(); onDelete?.(node.id) }}
-        title="Delete role"
+        title={t('ui6OrgsDesigner.delete_role')}
         style={{
           position: 'absolute', top: -8, right: -8,
           width: 18, height: 18, borderRadius: '50%',
@@ -274,7 +276,7 @@ export default function RoleNode({
       ) : (
         <div
           onMouseDown={(e) => { e.stopPropagation(); if (!readOnly) onStartEdgeDrag?.(node.id, e) }}
-          title={readOnly ? undefined : 'Drag to set reports-to'}
+          title={readOnly ? undefined : t('ui6OrgsDesigner.drag_reports_to')}
           style={{
             position: 'absolute', top: -6, left: '50%', transform: 'translateX(-50%)',
             width: 12, height: 12, borderRadius: '50%',
@@ -312,10 +314,10 @@ export default function RoleNode({
           fontSize: 9.5, color: 'var(--yellow)',
           fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', pointerEvents: 'none',
         }}>
-          {isOrphan && <span>⚠ no manager</span>}
+          {isOrphan && <span>{t('ui6OrgsDesigner.no_manager')}</span>}
           {isAutomation && engineOffline && (
-            <span data-testid="engine-offline" title="Start monoagentcli daemon; messages queue until then" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              <WifiOff size={9} /> engine offline
+            <span data-testid="engine-offline" title={t('ui6OrgsDesigner.engine_offline_title')} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <WifiOff size={9} /> {t('ui6OrgsDesigner.engine_offline')}
             </span>
           )}
         </div>

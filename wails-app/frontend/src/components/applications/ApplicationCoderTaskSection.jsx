@@ -1,8 +1,22 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Bot, MessageSquare, RotateCcw, ExternalLink } from 'lucide-react'
-import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle } from './constants.jsx'
+import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle, statusWord } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
+
+const CODER_STATUS_KEYS = {
+  none: 'ui6PagesApps.coder_none',
+  complete: 'ui6PagesApps.coder_complete',
+  completed: 'ui6PagesApps.coder_completed',
+  running: 'ui6PagesApps.coder_running',
+  queued: 'ui6PagesApps.coder_queued',
+  needs_user: 'ui6PagesApps.coder_needs_user',
+  failed: 'ui6PagesApps.coder_failed',
+  cancelled: 'ui6PagesApps.coder_cancelled',
+}
 
 function CoderTaskStatusBadge({ status }) {
+  useTranslation()
   const norm = (status || 'none').toLowerCase()
   let bg = 'rgba(100,116,139,0.15)'
   let color = '#94a3b8'
@@ -30,7 +44,7 @@ function CoderTaskStatusBadge({ status }) {
   return (
     <span
       role="status"
-      aria-label={`Coder task status: ${norm.replace(/_/g, ' ')}`}
+      aria-label={t('ui6PagesApps.coder_status_label', { status: statusWord(CODER_STATUS_KEYS, norm) })}
       style={{
         background: bg,
         border: `1px solid ${color}33`,
@@ -43,7 +57,7 @@ function CoderTaskStatusBadge({ status }) {
         textTransform: 'uppercase',
       }}
     >
-      {norm.replace(/_/g, ' ')}
+      {statusWord(CODER_STATUS_KEYS, norm)}
     </span>
   )
 }
@@ -64,6 +78,7 @@ const disabledActionBtnStyle = {
 }
 
 export default function ApplicationCoderTaskSection({ task, onOpenCoderChat }) {
+  useTranslation()
   const hasTask = Boolean(task)
   const conversationId = task?.conversationId
   const taskId = task?.taskId
@@ -82,7 +97,7 @@ export default function ApplicationCoderTaskSection({ task, onOpenCoderChat }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <h3 id="section-coder-task-title" style={sectionTitleStyle}>
           <Bot size={14} style={{ color: '#00b4d8' }} />
-          Coder Task
+          {t('ui6PagesApps.coder_task')}
         </h3>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -107,19 +122,19 @@ export default function ApplicationCoderTaskSection({ task, onOpenCoderChat }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             {taskId && (
               <span style={{ color: 'var(--text-muted, #64748b)' }}>
-                Task: <span style={{ color: 'var(--text-primary, #f1f5f9)' }}>{taskId}</span>
+                {t('ui6PagesApps.task_id')} <span style={{ color: 'var(--text-primary, #f1f5f9)' }}>{taskId}</span>
               </span>
             )}
 
             {conversationId && (
               <span style={{ color: 'var(--text-muted, #64748b)' }}>
-                Conversation: <span style={{ color: 'var(--text-primary, #f1f5f9)' }}>{conversationId}</span>
+                {t('ui6PagesApps.conversation')} <span style={{ color: 'var(--text-primary, #f1f5f9)' }}>{conversationId}</span>
               </span>
             )}
 
             {!hasTask && (
               <span style={{ color: 'var(--text-muted, #64748b)' }}>
-                No active coder task.
+                {t('ui6PagesApps.no_coder_task')}
               </span>
             )}
           </div>
@@ -133,35 +148,35 @@ export default function ApplicationCoderTaskSection({ task, onOpenCoderChat }) {
             onClick={handleOpenChat}
             disabled={!canOpenChat}
             style={canOpenChat ? subtleBtnStyle : disabledActionBtnStyle}
-            title={canOpenChat ? 'Open chat in coder bubble' : 'No active coder conversation'}
-            aria-label="Open chat in coder bubble"
+            title={canOpenChat ? t('ui6PagesApps.open_chat_bubble') : t('ui6PagesApps.no_conversation')}
+            aria-label={t('ui6PagesApps.open_chat_bubble')}
           >
             <MessageSquare size={12} />
-            Open chat
+            {t('ui6PagesApps.open_chat')}
           </button>
 
           {/* Reopen tab - disabled with tooltip */}
           <button
             type="button"
             disabled
-            title="coming with the apply task"
-            aria-label="Reopen tab (coming with the apply task)"
+            title={t('ui6PagesApps.coming_soon')}
+            aria-label={t('ui6PagesApps.reopen_tab_soon')}
             style={disabledActionBtnStyle}
           >
             <ExternalLink size={12} />
-            Reopen tab
+            {t('ui6PagesApps.reopen_tab')}
           </button>
 
           {/* Refill - disabled with tooltip */}
           <button
             type="button"
             disabled
-            title="coming with the apply task"
-            aria-label="Refill (coming with the apply task)"
+            title={t('ui6PagesApps.coming_soon')}
+            aria-label={t('ui6PagesApps.refill_soon')}
             style={disabledActionBtnStyle}
           >
             <RotateCcw size={12} />
-            Refill
+            {t('ui6PagesApps.refill')}
           </button>
         </div>
       </div>

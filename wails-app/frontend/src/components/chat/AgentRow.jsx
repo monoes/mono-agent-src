@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Users, ChevronRight, ChevronDown, Loader, Check, X, Lock, HelpCircle } from 'lucide-react'
 import { ChatMarkdown } from './ChatMarkdown.jsx'
+import { UnconfinedWorkerWarning } from './ChatWarnings.jsx'
 import { api } from '../../services/api.js'
 
 // AgentRow is one dynamic-org worker (#226) in the lead's timeline: a
@@ -77,6 +78,7 @@ export function AgentRow({ agent, scope }) {
         <StatusIcon status={agent.status} />
         <span style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>{status}</span>
       </button>
+      {agent.confinement === 'write-lease' && <UnconfinedWorkerWarning />}
       {agent.question && agent.status === 'waiting_user' && <QuestionBox agent={agent} scope={scope} />}
       {!open && agent.summary && (
         <div style={{ padding: '0 8px 5px 30px', fontFamily: mono, fontSize: 9.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.summary}</div>

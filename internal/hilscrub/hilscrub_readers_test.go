@@ -17,6 +17,8 @@ var cardTextRE = regexp.MustCompile("(?s)SELECT[^`]*\\b(readonly_data|editable_d
 func TestEveryReaderOfACardsTextIsAccountedFor(t *testing.T) {
 	ensures := map[string]string{ // file -> the call it must hold
 		"internal/hilsend/store.go":              "hilscrub.Ensure(",
+		"internal/hilsend/merge.go":              "hilscrub.Ensure(",
+		"internal/cli/hil/pending.go":            "hilscrub.Ensure(",
 		"internal/cli/hil/hil.go":                "hilscrub.Ensure(",
 		"internal/httpapi/handlers_nodes_hil.go": "hilscrub.Ensure(",
 		"internal/mcp/tools_nodes_hil.go":        "hilscrub.Ensure(",

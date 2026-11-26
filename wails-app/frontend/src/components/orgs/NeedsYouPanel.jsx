@@ -12,31 +12,35 @@ import { NoRequestID } from '../NoRequestID.jsx'
 import { pendingRawItems, joinNeedsYou } from './needsYouModel.js'
 import { waitedLabel, idleStopRemainingMs, idleStopLabel } from './waiting.js'
 import { Card, Chip, TierChip, mono, mutedText, sectionLabel } from './ui.jsx'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 
 const POLL_MS = 6000
 
 const KIND_ICONS = { question: MessageCircleQuestion, ask_human: MessageCircleQuestion, gate: ShieldAlert, approval: KeyRound, hil: Workflow }
 
 function QuestionAnswer({ onSubmit, busy }) {
+  const { t } = useTranslation()
   const [text, setText] = useState('')
   return (
     <div style={{ display: 'flex', gap: 6 }}>
       <input
         type="text"
-        aria-label="Answer"
+        aria-label={t('ui6Orgs.answer_label')}
         value={text}
         onChange={e => setText(e.target.value)}
-        placeholder="Type an answer…"
+        placeholder={t('ui6Orgs.answer_placeholder')}
         style={{ flex: 1, ...mono, fontSize: 11, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '6px 8px', outline: 'none' }}
       />
       <button className="btn btn-primary btn-sm" disabled={busy || !text.trim()} onClick={() => { onSubmit(text.trim()); setText('') }}>
-        Answer
+        {t('ui6Orgs.answer_button')}
       </button>
     </div>
   )
 }
 
 function WaitingLine({ since, idleSeconds, fetchedAt, now }) {
+  const { t } = useTranslation()
   const waited = waitedLabel(since, now)
   const remaining = idleStopRemainingMs(idleSeconds, fetchedAt, now)
   if (!waited && remaining == null) return null
@@ -45,7 +49,7 @@ function WaitingLine({ since, idleSeconds, fetchedAt, now }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       {waited && <span style={{ ...mutedText, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Clock size={10} />{waited}</span>}
       {remaining != null && (
-        <Chip color={urgent ? 'var(--red, #ef4444)' : '#eab308'} title="The org stops when it stays idle this long">
+        <Chip color={urgent ? 'var(--red, #ef4444)' : '#eab308'} title={t('ui6Orgs.idle_chip_title')}>
           <Hourglass size={9} />{idleStopLabel(remaining)}
         </Chip>
       )}
@@ -54,6 +58,7 @@ function WaitingLine({ since, idleSeconds, fetchedAt, now }) {
 }
 
 function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
+  const { t } = useTranslation()
   const { item, raw } = entry
   const kind = item?.kind || raw?.kind
   const Icon = KIND_ICONS[kind] || KeyRound
@@ -65,18 +70,18 @@ function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
       <div data-testid="pending-item" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Icon size={11} style={{ color: 'var(--text-muted)' }} />
-          <span style={sectionLabel}>{kind === 'ask_human' ? 'question' : kind}</span>
+          <span style={sectionLabel}>{t(`ui6Orgs.kind_${kind === 'ask_human' ? 'question' : kind}`, { defaultValue: kind })}</span>
           {item?.tier && <TierChip tier={item.tier} />}
           {item?.class && <span style={{ ...mono, fontSize: 10.5, color: 'var(--text-secondary)' }}>{item.class}</span>}
-          {(item?.requester || raw?.role) && <span style={mutedText}>from {item?.requester || raw?.role}</span>}
-          {raw?.count > 1 && <Chip>{raw.count} calls</Chip>}
+          {(item?.requester || raw?.role) && <span style={mutedText}>{t('ui6Orgs.from_who', { who: item?.requester || raw?.role })}</span>}
+          {raw?.count > 1 && <Chip>{t('ui6Orgs.calls', { count: raw.count })}</Chip>}
         </div>
         {summary && <div style={{ ...mono, fontSize: 11.5, color: 'var(--text)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{summary}</div>}
         {raw?.calls?.map((c, i) => <ApprovalCall key={i} {...c} />)}
         <WaitingLine since={item?.waiting_since ?? raw?.since} idleSeconds={item?.idle_stop_in_seconds} fetchedAt={fetchedAt} now={now} />
         {raw && (
           <details>
-            <summary style={{ cursor: 'pointer', ...mutedText }}>Details</summary>
+            <summary style={{ cursor: 'pointer', ...mutedText }}>{t('ui6Orgs.details')}</summary>
             <KVBlock obj={raw.raw} />
           </details>
         )}
@@ -86,10 +91,10 @@ function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
         {raw?.kind === 'gate' && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => onAct(key, () => api.gateApproveOrgAction(orgName, raw.ref, ''))}>
-              <CheckCircle2 size={11} /> Approve
+              <CheckCircle2 size={11} /> {t('ui6Orgs.approve')}
             </button>
             <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => onAct(key, () => api.gateRejectOrgAction(orgName, raw.ref, ''))}>
-              <XCircle size={11} /> Reject
+              <XCircle size={11} /> {t('ui6Orgs.reject')}
             </button>
           </div>
         )}
@@ -97,20 +102,21 @@ function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
         {raw?.kind === 'approval' && raw.requestId && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => onAct(key, () => api.approveOrgAction(orgName, raw.role, raw.action, raw.requestId))}>
-              <CheckCircle2 size={11} /> Approve
+              <CheckCircle2 size={11} /> {t('ui6Orgs.approve')}
             </button>
             <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => onAct(key, () => api.denyOrgAction(orgName, raw.role, raw.action, raw.requestId))}>
-              <XCircle size={11} /> Deny
+              <XCircle size={11} /> {t('ui6Orgs.deny')}
             </button>
           </div>
         )}
-        {!raw && kind === 'hil' && <div style={mutedText}>Resolve this in Human in Loop.</div>}
+        {!raw && kind === 'hil' && <div style={mutedText}>{t('ui6Orgs.resolve_hil')}</div>}
       </div>
     </Card>
   )
 }
 
 export default function NeedsYouPanel({ orgName, onCountChange }) {
+  const { t } = useTranslation()
   const [state, setState] = useState(null) // { available, mine, others, fetchedAt }
   const [loading, setLoading] = useState(true)
   const [busyKey, setBusyKey] = useState(null)
@@ -145,9 +151,9 @@ export default function NeedsYouPanel({ orgName, onCountChange }) {
     setBusyKey(key)
     try {
       const res = await fn()
-      if (res?.error) notify('org decision', res.error)
+      if (res?.error) notify(i18n.t('ui6Orgs.op_decision'), res.error)
     } catch (e) {
-      notify('org decision', e?.message || String(e))
+      notify(i18n.t('ui6Orgs.op_decision'), e?.message || String(e))
     } finally {
       setBusyKey(null)
       load()
@@ -165,14 +171,14 @@ export default function NeedsYouPanel({ orgName, onCountChange }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {!state.available && (
-        <div style={mutedText}>Autonomy routing is unavailable, so every pending item is listed.</div>
+        <div style={mutedText}>{t('ui6Orgs.autonomy_unavailable')}</div>
       )}
       {state.mine.length === 0
-        ? <div style={{ ...mono, fontSize: 11, color: 'var(--text-muted)' }}>Nothing needs you.</div>
+        ? <div style={{ ...mono, fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Orgs.nothing_needs_you')}</div>
         : state.mine.map(card)}
       {state.others.length > 0 && (
         <>
-          <div style={{ ...sectionLabel, marginTop: 6 }}>Being decided by autonomy ({state.others.length})</div>
+          <div style={{ ...sectionLabel, marginTop: 6 }}>{t('ui6Orgs.being_decided', { total: state.others.length })}</div>
           {state.others.map(raw => card({ item: null, raw }))}
         </>
       )}

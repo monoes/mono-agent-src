@@ -13,9 +13,12 @@ import useOrgList from './orgs/useOrgList.js'
 import OrgRail from './orgs/OrgRail.jsx'
 import OrgDetailHeader from './orgs/OrgDetailHeader.jsx'
 import OrgTabBody from './orgs/OrgTabBody.jsx'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n.js'
 
 
 export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pageActive = true, onNavigate, pendingSelectOrgName, onConsumePendingSelect }) {
+  const { t } = useTranslation()
   const timers = useMountedTimers()
   // Effective openness: an embedded panel is open when its isOpen prop says
   // so; a page-mode panel (rendered by the Orgs page) stays mounted under
@@ -214,7 +217,7 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
       // success/info variant exists), so routing a clean finish through it
       // misleadingly reads as a crash. The Overview view (Running… badge
       // clearing, run picker updating) already communicates completion.
-      if (payload.status === 'error') notify('org run', payload.message || `${payload.orgName} exited with an error`)
+      if (payload.status === 'error') notify(i18n.t('ui6Orgs.op_org_run'), payload.message || i18n.t('ui6Orgs.run_exited', { org: payload.orgName }))
       // monomind 2.21 refused an unsigned or changed org: bring up the
       // Review & sign banner.
       if (payload.status === 'error' && isSignatureRefusal(payload.message)) requestSignatureRefresh(payload.orgName)
@@ -276,11 +279,11 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
     // synthetic entry so there's visible feedback before the org's real
     // events start arriving over the live stream (which itself lags a
     // beat behind the process actually starting, same as the status card).
-    setEvents([{ type: 'status', msg: `Starting run for ${selected}…` }])
+    setEvents([{ type: 'status', msg: i18n.t('ui6Orgs.run_starting', { org: selected }) }])
     const res = await api.runOrg(selected, task)
     if (res?.error) {
-      notify('org run', res.error, res.code)
-      setEvents(prev => [...prev, { type: 'status', msg: `Failed to start: ${res.error}` }])
+      notify(i18n.t('ui6Orgs.op_org_run'), res.error, res.code)
+      setEvents(prev => [...prev, { type: 'status', msg: i18n.t('ui6Orgs.run_start_failed', { error: res.error }) }])
       setRunningOrgs(prev => {
         const next = new Set(prev)
         next.delete(selected)
@@ -375,13 +378,13 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
 
   const handleCreateOrg = async () => {
     const name = newOrgName.trim()
-    if (!name) { setCreateError('name required'); return }
+    if (!name) { setCreateError(i18n.t('ui6Orgs.name_required')); return }
     setCreateBusy(true)
     setCreateError('')
     try {
       const res = await api.createOrgDesign({ name, goal: newOrgGoal.trim() })
       if (!res || res.error) {
-        setCreateError(res?.error || 'failed to create org')
+        setCreateError(res?.error || i18n.t('ui6Orgs.create_failed'))
         return
       }
       setCreatingOrg(false)
@@ -405,12 +408,12 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
       {embedded && (
         <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(0,180,216,0.1)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <Building2 size={13} style={{ color: 'var(--text-muted)' }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: '#e2e8f0', flex: 1, letterSpacing: 1 }}>ORGS</span>
-          <button onClick={refreshAll} disabled={refreshingAll} title="Refresh" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: '#e2e8f0', flex: 1, letterSpacing: 1 }}>{t('ui6Orgs.panel_heading')}</span>
+          <button onClick={refreshAll} disabled={refreshingAll} title={t('ui6Orgs.refresh')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex' }}>
             <RefreshCw size={12} style={{ animation: refreshingAll ? 'spin 0.7s linear infinite' : 'none' }} />
           </button>
           {onClose && (
-            <button onClick={onClose} title="Close panel" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex' }}>
+            <button onClick={onClose} title={t('ui6Orgs.close_panel')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex' }}>
               <X size={14} />
             </button>
           )}
@@ -435,8 +438,8 @@ export default function OrgsPanel({ embedded = false, isOpen = true, onClose, pa
           ) : !selected ? (
             <div className="empty-state" style={{ flex: 1 }}>
               <div className="empty-state-icon"><Building2 size={30} /></div>
-              <div className="empty-state-title">Select an org</div>
-              <div className="empty-state-desc">Pick an org from the list to see its status, questions, and gates.</div>
+              <div className="empty-state-title">{t('ui6Orgs.select_org')}</div>
+              <div className="empty-state-desc">{t('ui6Orgs.select_org_desc')}</div>
             </div>
           ) : (
             <>

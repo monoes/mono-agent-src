@@ -32,6 +32,7 @@ import MissionStrip from './mission/MissionStrip.jsx'
 import OrgProposalCard, { proposalRefs } from './OrgProposalCard.jsx'
 import { missionItems, startedProposals } from '../../lib/missionModel.js'
 import '../chat/chat.css'
+import i18nOr from '../../lib/i18nOr.js'
 
 const mono = 'var(--font-mono)'
 const srOnly = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }
@@ -115,7 +116,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   const attach = useCallback(async (files) => {
     const { added, skipped } = await takeFiles(attachments.length, files)
     if (added.length) setAttachments(list => [...list, ...added].slice(0, MAX_ATTACHMENTS))
-    if (skipped.length) notify('attach', `Not attached: ${skipped.join('; ')}`)
+    if (skipped.length) notify('attach', i18nOr('ui7Chat.not_attached', { files: skipped.join('; ') }))
   }, [attachments.length])
   const removeAttachment = useCallback(id => setAttachments(list => list.filter(a => a.id !== id)), [])
 

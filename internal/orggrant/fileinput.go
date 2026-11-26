@@ -60,7 +60,7 @@ var imageNodeTypes = map[string]string{
 	"image.info": AccessRead, "image.vault_save": AccessRead,
 	"image.edit":   AccessReadWrite,
 	"image.resize": AccessReadWrite, "image.crop": AccessReadWrite, "image.thumbnail": AccessReadWrite,
-	"image.convert": AccessReadWrite, "image.adjust": AccessReadWrite, "image.remove_background": AccessReadWrite,
+	"image.convert": AccessReadWrite, "image.adjust": AccessReadWrite,
 }
 
 // FileInputNodes lists the enabled nodes of wf whose file paths can come

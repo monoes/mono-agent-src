@@ -1,4 +1,5 @@
 // Styles and small helpers shared by the Jev section's files.
+import i18nOr from '../../lib/i18nOr.js'
 
 export const mono = 'var(--font-mono)'
 export const card = {
@@ -18,12 +19,12 @@ export const input = {
   borderRadius: 'var(--radius)', fontFamily: mono, fontSize: 12, padding: '6px 10px', minWidth: 0,
 }
 
-export const errMsg = (e) => String(e?.message || e || 'unknown error')
+export const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
 
 // testError shortens "jev: HTTP 401: {json body}" to "HTTP 401 — <message>".
 export function testError(raw) {
   const m = /HTTP (\d+):\s*(\{.*\})\s*$/s.exec(raw || '')
-  if (!m) return raw || 'unknown error'
+  if (!m) return raw || i18nOr('ui6SetCoder.unknown_error')
   try {
     const body = JSON.parse(m[2])
     const d = body.detail ?? body.error ?? body
@@ -40,7 +41,7 @@ export function testError(raw) {
 export function removeError(name, raw, t) {
   const text = String(raw || '').replace(/^(?:Error:\s*)?jev:\s*/, '')
   const m = /provider "([^"]+)" is still in use \((.+)\): choose another provider there first/.exec(text)
-  if (!m) return t('settings.jev.providers.removeFailed', { name, error: text || 'unknown error' })
+  if (!m) return t('settings.jev.providers.removeFailed', { name, error: text || i18nOr('ui6SetCoder.unknown_error') })
   const uses = m[2].split(', ').map(u => {
     if (u === 'jev.provider') return t('settings.jev.providers.usedByDefault')
     const s = /^jev\.(.+?)\.(node:.+|[a-z0-9_]+)\.provider$/.exec(u)
@@ -55,10 +56,10 @@ export function removeError(name, raw, t) {
 export function keyChip(st, t) {
   switch (st?.key_source) {
     case 'profile-vault': return { text: t('settings.jev.keyProfileVault'), color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
-    case 'vault': return { text: `Vault entry "${st.key_entry || 'typesafe'}"`, color: 'var(--green-neon)', bg: 'rgba(16,185,129,.1)', bd: 'rgba(74,222,128,.25)' }
-    case 'env': return { text: 'Environment variable (TYPESAFE_API_KEY)', color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
-    case 'config': return { text: 'Set in configuration', color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
-    default: return { text: 'Not set', color: 'var(--yellow)', bg: 'rgba(234,179,8,.08)', bd: 'rgba(234,179,8,.22)' }
+    case 'vault': return { text: i18nOr('ui6SetJev.chip_vault', { entry: st.key_entry || 'typesafe' }), color: 'var(--green-neon)', bg: 'rgba(16,185,129,.1)', bd: 'rgba(74,222,128,.25)' }
+    case 'env': return { text: i18nOr('ui6SetJev.chip_env'), color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
+    case 'config': return { text: i18nOr('ui6SetJev.chip_config'), color: 'var(--cyan)', bg: 'rgba(0,180,216,.1)', bd: 'rgba(0,180,216,.25)' }
+    default: return { text: i18nOr('ui6SetJev.chip_none'), color: 'var(--yellow)', bg: 'rgba(234,179,8,.08)', bd: 'rgba(234,179,8,.22)' }
   }
 }
 
@@ -70,7 +71,7 @@ export const pill = (color, bg, bd) => ({
 
 // What a feature sends, as the CLI reports it.
 export function EgressList({ items }) {
-  if (!items?.length) return <div style={hint}>No details reported by the CLI.</div>
+  if (!items?.length) return <div style={hint}>{i18nOr('ui6SetJev.no_details')}</div>
   return (
     <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
       {items.map((e, i) => (

@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react'
 import { api } from '../../services/api.js'
 import { onSignatureRefresh } from './OrgSignatureBanner.jsx'
 import { sectionLabel, mutedText } from './ui.jsx'
+import { useTranslation } from 'react-i18next'
 
 export default function OrgEstimatePanel({ orgName }) {
+  const { t } = useTranslation()
   const [estimate, setEstimate] = useState(null)
   const [reads, setReads] = useState(0)
   useEffect(() => onSignatureRefresh(orgName, () => setReads(n => n + 1)), [orgName])
@@ -18,7 +20,7 @@ export default function OrgEstimatePanel({ orgName }) {
   if (!estimate) return null
   return (
     <div data-testid="org-estimate" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={sectionLabel}>Estimate before the first run</div>
+      <div style={sectionLabel}>{t('ui6Orgs.estimate_title')}</div>
       <pre style={{ ...mutedText, margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface)' }}>{estimate.text}</pre>
     </div>
   )

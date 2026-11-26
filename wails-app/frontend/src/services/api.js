@@ -3,6 +3,7 @@ import * as GoApp from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import { isInactiveRunError } from '../lib/runFailure.js'
 import { safeUrl } from '../lib/askModel.js'
+import i18nOr from '../lib/i18nOr.js'
 
 // Global error bus. Read methods degrade to safe defaults ([]/null/0) so pages
 // keep rendering, but every failure is also broadcast on `api:error` so a toast
@@ -15,10 +16,97 @@ export function onApiError(callback) {
   return () => errorBus.removeEventListener('api:error', handler)
 }
 
+// The names of the operations a toast reports as failed ("Failed: <name>").
+const OP_KEYS = {
+  'dashboard stats': 'ui6PagesOps.op_dashboard_stats',
+  'summary': 'ui6PagesOps.op_summary',
+  'org summary': 'ui6PagesOps.op_org_summary',
+  'list workflows': 'ui6PagesOps.op_list_workflows',
+  'recent executions': 'ui6PagesOps.op_recent_executions',
+  'workflow executions': 'ui6PagesOps.op_workflow_executions',
+  'execution detail': 'ui6PagesOps.op_execution_detail',
+  'cancel workflow': 'ui6PagesOps.op_cancel_workflow',
+  'run workflow': 'ui6PagesOps.op_run_workflow',
+  'get sessions': 'ui6PagesOps.op_get_sessions',
+  'social lists': 'ui6PagesOps.op_social_lists',
+  'templates': 'ui6PagesOps.op_templates',
+  'logs': 'ui6PagesOps.op_logs',
+  'db path': 'ui6PagesOps.op_db_path',
+  'person posts': 'ui6PagesOps.op_person_posts',
+  'person messages': 'ui6PagesOps.op_person_messages',
+  'all messages': 'ui6PagesOps.op_all_messages',
+  'mark messages read': 'ui6PagesOps.op_mark_messages_read',
+  'mark message unread': 'ui6PagesOps.op_mark_message_unread',
+  'draft messages': 'ui6PagesOps.op_draft_messages',
+  'pending people': 'ui6PagesOps.op_pending_people',
+  'latest status': 'ui6PagesOps.op_latest_status',
+  'add status': 'ui6PagesOps.op_add_status',
+  'status history': 'ui6PagesOps.op_status_history',
+  'post detail': 'ui6PagesOps.op_post_detail',
+  'post comments': 'ui6PagesOps.op_post_comments',
+  'tags': 'ui6PagesOps.op_tags',
+  'person tags': 'ui6PagesOps.op_person_tags',
+  'add tag': 'ui6PagesOps.op_add_tag',
+  'remove tag': 'ui6PagesOps.op_remove_tag',
+  'tags map': 'ui6PagesOps.op_tags_map',
+  'list connections': 'ui6PagesOps.op_list_connections',
+  'platform names': 'ui6PagesOps.op_platform_names',
+  'list platforms': 'ui6PagesOps.op_list_platforms',
+  'test connection': 'ui6PagesOps.op_test_connection',
+  'test session': 'ui6PagesOps.op_test_session',
+  'remove connection': 'ui6PagesOps.op_remove_connection',
+  'connections for platform': 'ui6PagesOps.op_connections_for_platform',
+  'save connection': 'ui6PagesOps.op_save_connection',
+  'show platform': 'ui6PagesOps.op_show_platform',
+  'oauth credentials': 'ui6PagesOps.op_oauth_credentials',
+  'scan agent runtimes': 'ui6PagesOps.op_scan_agent_runtimes',
+  'agent runtime models': 'ui6PagesOps.op_agent_runtime_models',
+  'list orgs': 'ui6PagesOps.op_list_orgs',
+  'org status': 'ui6PagesOps.op_org_status',
+  'org logs': 'ui6PagesOps.op_org_logs',
+  'org report': 'ui6PagesOps.op_org_report',
+  'org budget': 'ui6PagesOps.op_org_budget',
+  'org estimate': 'ui6PagesOps.op_org_estimate',
+  'org costs': 'ui6PagesOps.op_org_costs',
+  'org flow': 'ui6PagesOps.op_org_flow',
+  'org questions': 'ui6PagesOps.op_org_questions',
+  'org approvals': 'ui6PagesOps.op_org_approvals',
+  'org gates': 'ui6PagesOps.op_org_gates',
+  'org decisions': 'ui6PagesOps.op_org_decisions',
+  'org documents': 'ui6PagesOps.op_org_documents',
+  'org schedule audit': 'ui6PagesOps.op_org_schedule_audit',
+  'org schedule': 'ui6PagesOps.op_org_schedule',
+  'org memory stats': 'ui6PagesOps.op_org_memory_stats',
+  'stop org events': 'ui6PagesOps.op_stop_org_events',
+  'org design': 'ui6PagesOps.op_org_design',
+  'org designs': 'ui6PagesOps.op_org_designs',
+  'validate org design': 'ui6PagesOps.op_validate_org_design',
+  'org automations': 'ui6PagesOps.op_org_automations',
+  'unassigned automations': 'ui6PagesOps.op_unassigned_automations',
+  'org grants': 'ui6PagesOps.op_org_grants',
+  'effective tools': 'ui6PagesOps.op_effective_tools',
+  'org autonomy': 'ui6PagesOps.op_org_autonomy',
+  'jev providers': 'ui6PagesOps.op_jev_providers',
+  'decision log': 'ui6PagesOps.op_decision_log',
+  'needs you': 'ui6PagesOps.op_needs_you',
+  'org group status': 'ui6PagesOps.op_org_group_status',
+  'daemon status': 'ui6PagesOps.op_daemon_status',
+  'monomind init status': 'ui6PagesOps.op_monomind_init_status',
+  'get workflow': 'ui6PagesOps.op_get_workflow',
+  'get profile document': 'ui6PagesOps.op_get_profile_document',
+  'list profile documents': 'ui6PagesOps.op_list_profile_documents',
+  'choose workflow file': 'ui6PagesOps.op_choose_workflow_file',
+  'choose package': 'ui6PagesOps.op_choose_package',
+  'choose export path': 'ui6PagesOps.op_choose_export_path',
+  'get vault image': 'ui6PagesOps.op_get_vault_image',
+  'get vault images': 'ui6PagesOps.op_get_vault_images',
+}
+const opLabel = (op) => (Object.hasOwn(OP_KEYS, op) ? i18nOr(OP_KEYS[op]) : op)
+
 function reportError(op, e) {
   const message = e?.message || String(e)
   console.warn(`API error (${op}):`, e)
-  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op, message, code: e?.code || '' } }))
+  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op: opLabel(op), message, code: e?.code || '' } }))
 }
 
 // notify surfaces a message on the same toast bus for non-API failures, so UI
@@ -39,9 +127,9 @@ const startedRun = (p) => Promise.resolve(p).then(
 // an "Activate & run" button: activating stays the user's click, never ours.
 export function reportRunFailure(error, { activateAndRun } = {}) {
   const action = activateAndRun && isInactiveRunError(error)
-    ? { label: 'Activate & run', run: activateAndRun }
+    ? { label: i18nOr('ui6PagesOps.activate_and_run'), run: activateAndRun }
     : null
-  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op: 'run workflow', message: String(error), code: '', action } }))
+  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op: opLabel('run workflow'), message: String(error), code: '', action } }))
 }
 
 // Before the first profile exists every profile-scoped read answers "no profile
@@ -371,7 +459,7 @@ export const api = {
   getOrgDecisions:    (name, run = '') => GoApp.GetOrgDecisions(name, run).then(s => JSON.parse(s)).catch(guard('org decisions', null)),
   getOrgDocuments:    (name, run = '') => GoApp.GetOrgDocuments(name, run).then(s => JSON.parse(s)).catch(guard('org documents', null)),
   getOrgScheduleAudit: (name) => GoApp.GetOrgScheduleAudit(name).then(s => JSON.parse(s)).catch(guard('org schedule audit', null)),
-  setOrgSchedule:     (name, schedule) => GoApp.SetOrgSchedule(name, schedule).then(s => JSON.parse(s)).catch(guard('org schedule', { error: 'Could not save the schedule.' })),
+  setOrgSchedule:     (name, schedule) => GoApp.SetOrgSchedule(name, schedule).then(s => JSON.parse(s)).catch(guard('org schedule', { error: i18nOr('ui6PagesOps.schedule_failed') })),
   getOrgMemoryStats:  (name) => GoApp.GetOrgMemoryStats(name).then(s => JSON.parse(s)).catch(guard('org memory stats', null)),
   answerOrgQuestion:  (name, questionID, answer) => GoApp.AnswerOrgQuestion(name, questionID, answer).then(s => JSON.parse(s)),
   // Every org's questions, approvals and gates that wait for a person.
@@ -610,7 +698,7 @@ export function onChatEvent(callback) {
 // parseRosterJSON parses a roster binding's reply; unparseable text becomes
 // an {error} object.
 function parseRosterJSON(s) {
-  try { return JSON.parse(s) } catch { return { error: String(s || 'empty reply') } }
+  try { return JSON.parse(s) } catch { return { error: String(s || i18nOr('ui6PagesOps.empty_reply')) } }
 }
 
 // onAgentValidate streams `agent validate --json` progress lines.

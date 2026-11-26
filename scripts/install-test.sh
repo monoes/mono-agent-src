@@ -2,7 +2,8 @@
 # install-test.sh — exercises install.sh against a local python3 http.server
 # serving a fake manifest and fake binary. Installs only into a throwaway
 # INSTALL_DIR; never touches the real install dir, ~/.monoagent or PATH, and
-# makes no network calls (the legacy GitHub path is not exercised).
+# makes no network calls (the legacy GitHub path is not exercised). Every
+# installer run goes through run_installer (install-test-isolation.sh).
 #
 # Run:  bash scripts/install-test.sh
 set -euo pipefail
@@ -24,6 +25,10 @@ trap cleanup EXIT
 
 web="$work/web"; mkdir -p "$web"
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
+
+# shellcheck source=scripts/install-test-isolation.sh
+. "$root/scripts/install-test-isolation.sh"
+export HOME="$canary/home"
 
 port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
 (cd "$web" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
@@ -62,33 +67,37 @@ sign() {
 }
 
 fails=0
-run() { # <name> <expect: ok|fail> <grep-pattern> [env...]; extra args are env assignments
+run() { # <name> <expect: ok|fail> <grep-pattern> [env...] [--app-flag]
   name="$1"; want="$2"; pat="$3"; shift 3
   dest="$work/prefix-$name"
-  flags=()
-  for a in "$@"; do [ "$a" = --app-flag ] && flags+=(--app); done
-  envs=()
-  for a in "$@"; do [ "$a" = --app-flag ] || envs+=("$a"); done
-  set -- ${envs[@]+"${envs[@]}"}
-  rc=0
-  out="$(env -u MONOAGENT_RELEASE_PUBKEY MONOAGENT_INSTALL_UNSAFE_OVERRIDES=1 HOME="$work/home-$name" INSTALL_DIR="$dest" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" "$@" bash "$installer" ${flags[@]+"${flags[@]}"} 2>&1)" || rc=$?
   ok=1
+  run_installer "$name" "$@" || { fails=$((fails+1)); ok=0; }
   if [ "$want" = ok ]; then [ "$rc" -eq 0 ] && [ -x "$dest/monoagentcli" ] || ok=0
   else [ "$rc" -ne 0 ] && [ ! -e "$dest/monoagentcli" ] || ok=0; fi
   printf '%s\n' "$out" | grep -q -e "$pat" || ok=0
   if [ "$ok" -eq 1 ]; then echo "PASS $name"; else echo "FAIL $name (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/    /'; fails=$((fails+1)); fi
 }
 
+# 0. the destination guard refuses every way out of the work dir.
+ok_dests=(HOME="$work/g" INSTALL_DIR="$work/g/bin" XDG_DATA_HOME="$work/g/share" MONOAGENT_TEST_APPLICATIONS_DIR="$work/g/apps")
+if check_destinations "${ok_dests[@]}"; then echo "PASS guard accepts the work dir"; else echo "FAIL guard refuses the work dir"; fails=$((fails+1)); fi
+for bad in HOME=/outside INSTALL_DIR=/outside XDG_DATA_HOME=/outside XDG_CONFIG_HOME=/outside \
+  MONOAGENT_APP_DIR=/outside MONOAGENT_TEST_APPLICATIONS_DIR= "XDG_DATA_HOME=$work/../outside"; do
+  if check_destinations "${ok_dests[@]}" "$bad" 2>/dev/null; then echo "FAIL guard let through $bad"; fails=$((fails+1)); else echo "PASS guard refuses $bad"; fi
+done
+
 # 1. the installer's pinned release key refuses a manifest signed by any
 # other key (here the test key).
 write_manifest "$asset" "$(sha "$web/$asset")"; sign
 run pinned-key-refuses-other fail "not the pinned key"
 
-# 1b. checksum-only: an openssl without Ed25519 says so and does not claim a
-# signature. A stub openssl that fails everything stands in for one.
+# 1b. an openssl without Ed25519 and no .sshsig: the install stops. The opt-in
+# installs checksum-only, says so and claims no signature. A stub openssl that
+# fails everything stands in for such an openssl.
 mkdir -p "$work/stub" && printf '#!/bin/sh\nexit 1\n' > "$work/stub/openssl" && chmod +x "$work/stub/openssl"
-run no-ed25519-openssl ok "signature verification is SKIPPED" PATH="$work/stub:$PATH"
-out="$(env -u MONOAGENT_RELEASE_PUBKEY PATH="$work/stub:$PATH" INSTALL_DIR="$work/p-neg" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)"
+run no-ed25519-openssl-stops fail "could not be checked on this machine" PATH="$work/stub:$PATH"
+run no-ed25519-openssl ok "signature verification is SKIPPED" PATH="$work/stub:$PATH" MONOAGENT_ALLOW_UNSIGNED=1
+run_installer no-false-claim PATH="$work/stub:$PATH" MONOAGENT_ALLOW_UNSIGNED=1 || fails=$((fails+1))
 if printf '%s' "$out" | grep -q "signature verified"; then echo "FAIL claimed verification without checking"; fails=$((fails+1)); else echo "PASS no false claim"; fi
 
 # 2. tarball asset.
@@ -145,15 +154,17 @@ run expired fail "expired" MONOAGENT_RELEASE_PUBKEY="$pub"
 # sudo; and the PATH hint when the dir is not on PATH.
 write_manifest "$asset" "$(sha "$web/$asset")"; sign
 h="$work/home-default"
-out="$(env -u INSTALL_DIR -u MONOAGENT_RELEASE_PUBKEY MONOAGENT_INSTALL_UNSAFE_OVERRIDES=1 HOME="$h" PATH="/usr/bin:/bin" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)" || true
-if [ -w /usr/local/bin ]; then want_dir=/usr/local/bin; else want_dir="$h/.local/bin"; fi
-if [ "$want_dir" = "$h/.local/bin" ] && [ -x "$h/.local/bin/monoagentcli" ] \
-   && printf '%s' "$out" | grep -q "is not on your PATH" && printf '%s' "$out" | grep -q "fish_add_path $h/.local/bin"; then
-  echo "PASS default-dir-no-sudo"
-elif [ "$want_dir" = /usr/local/bin ]; then
+if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+  # The default would be the real /usr/local/bin, so the installer is not run.
   echo "SKIP default-dir-no-sudo (/usr/local/bin is writable here)"
 else
-  echo "FAIL default-dir-no-sudo"; printf '%s\n' "$out" | sed 's/^/    /'; fails=$((fails+1))
+  run_installer default INSTALL_DIR= PATH="/usr/bin:/bin" MONOAGENT_RELEASE_PUBKEY="$pub" || fails=$((fails+1))
+  if [ -x "$h/.local/bin/monoagentcli" ] \
+     && printf '%s' "$out" | grep -q "is not on your PATH" && printf '%s' "$out" | grep -q "fish_add_path $h/.local/bin"; then
+    echo "PASS default-dir-no-sudo"
+  else
+    echo "FAIL default-dir-no-sudo"; printf '%s\n' "$out" | sed 's/^/    /'; fails=$((fails+1))
+  fi
 fi
 
 # 7g. --app installs the desktop app next to its CLI, with a launcher entry.
@@ -268,10 +279,13 @@ EOF
   check mac-app-tampered-nothing-installed "$st"
   cp "$work/good.zip" "$web/MonoAgent-darwin-arm64.zip"
 
-  # 9e. an openssl without pkeyutl -rawin (LibreSSL) is checksum-only and
-  # says so, rather than failing every signature.
-  run mac-libressl ok "cannot verify raw Ed25519 signatures" \
+  # 9e. an openssl without pkeyutl -rawin (LibreSSL), with no ssh-keygen on
+  # this PATH: the install stops; the opt-in is checksum-only and says so,
+  # rather than failing every signature. (With ssh-keygen: 10.)
+  run mac-libressl-stops fail "could not be checked on this machine" \
     PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+  run mac-libressl ok "cannot verify raw Ed25519 signatures" \
+    PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_ALLOW_UNSIGNED=1 --app-flag
   st=0
   { printf '%s\n' "$out" | grep -q "Checksum verified: MonoAgent-darwin-arm64.zip" \
     && ! printf '%s\n' "$out" | grep -q "signature verified"; } || st=1
@@ -284,6 +298,72 @@ else
   echo "SKIP mac-app (needs zip, unzip, shasum and perl)"
 fi
 
+# 10. manifest.json.sshsig, where openssl cannot verify: checked with the real
+# ssh-keygen and a temporary key.
+if command -v ssh-keygen >/dev/null 2>&1; then
+  ssh-keygen -q -t ed25519 -N '' -f "$work/sshkey" >/dev/null
+  ssh-keygen -q -t ed25519 -N '' -f "$work/sshother" >/dev/null
+  sshline="$(awk '{print $1" "$2}' "$work/sshkey.pub")"
+  sshpub="$(awk '{print $2}' "$work/sshkey.pub" | openssl base64 -d -A | tail -c 32 | openssl base64 -A)"
+  sshsign() { # <key-file> [namespace] — (re)write manifest.json.sshsig
+    ssh-keygen -Y sign -q -f "$1" -n "${2:-monoagent-manifest}" < "$web/manifest.json" > "$web/manifest.json.sshsig"
+  }
+  nossl="PATH=$work/stub:$PATH"
+  key="MONOAGENT_RELEASE_PUBKEY=$sshpub"
+  write_manifest "$asset" "$(sha "$web/$asset")"; sign; sshsign "$work/sshkey"
+  run sshsig-verified ok "Manifest signature verified (Ed25519, checked by ssh-keygen" "$nossl" "$key"
+  # the embedded RELEASE_SSH_PUBKEY (no override): a copy that pins the test key.
+  sed -e "s#^RELEASE_PUBKEY=\"[A-Za-z0-9+/]*=\"\$#RELEASE_PUBKEY=\"$sshpub\"#" \
+    -e "s#^RELEASE_SSH_PUBKEY=\"ssh-ed25519 .*\"\$#RELEASE_SSH_PUBKEY=\"$sshline\"#" "$installer" > "$work/install-testpin.sh"
+  INSTALLER_SCRIPT="$work/install-testpin.sh"
+  run sshsig-embedded-key ok "checked by ssh-keygen" "$nossl"
+  unset INSTALLER_SCRIPT
+  run sshsig-real-pin-refuses-other fail "signature verification FAILED" "$nossl"
+  # a signature that does not verify is refused, opt-in or not.
+  sed 's/v9.9.9/v6.6.6/' "$web/manifest.json" > "$work/m4" && cp "$work/m4" "$web/manifest.json"
+  run sshsig-tampered fail "signature verification FAILED" "$nossl" "$key"
+  run sshsig-tampered-opt-in fail "signature verification FAILED" "$nossl" "$key" MONOAGENT_ALLOW_UNSIGNED=1
+  write_manifest "$asset" "$(sha "$web/$asset")"; sign; sshsign "$work/sshother"
+  run sshsig-wrong-key fail "signature verification FAILED" "$nossl" "$key"
+  sshsign "$work/sshkey" git
+  run sshsig-wrong-namespace fail "signature verification FAILED" "$nossl" "$key"
+  echo garbage > "$web/manifest.json.sshsig"
+  run sshsig-garbage fail "signature verification FAILED" "$nossl" "$key"
+  # a ssh-keygen too old for -Y verify cannot check; it is not a bad signature.
+  mkdir -p "$work/oldssh" && printf '#!/bin/sh\necho "unknown option -- Y" >&2\nexit 1\n' > "$work/oldssh/ssh-keygen" && chmod +x "$work/oldssh/ssh-keygen"
+  sshsign "$work/sshkey"
+  run sshsig-old-ssh-keygen fail "too old to verify signatures" PATH="$work/oldssh:$work/stub:$PATH" "$key"
+  # a stock Mac: LibreSSL, ssh-keygen present.
+  if [ "$mac_ok" -eq 1 ]; then
+    mkdir -p "$mac/ssh"
+    for t in ssh-keygen base64; do ln -s "$(command -v "$t")" "$mac/ssh/$t"; done
+    write_mac_manifest "$app_sha"; sshsign "$work/sshkey"
+    run mac-sshsig ok "checked by ssh-keygen" PATH="$mac/libressl:$mac/ssh:$mac/bin" "$key" --app-flag
+    # no openssl at all (key id and base64 never need it on this path).
+    rm -f "$mac/bin/openssl"
+    run mac-sshsig-no-openssl ok "checked by ssh-keygen" PATH="$mac/ssh:$mac/bin" "$key" --app-flag
+    ln -s "$(command -v openssl)" "$mac/bin/openssl"
+  fi
+  # no .sshsig (an older release): fail closed, with what to do; the opt-in
+  # installs checksum-only; a working openssl still verifies it.
+  write_manifest "$asset" "$(sha "$web/$asset")"; sign; rm -f "$web/manifest.json.sshsig"
+  run sshsig-missing-stops fail "no manifest.json.sshsig could be fetched" "$nossl" "$key"
+  st=0; printf '%s\n' "$out" | grep -q "install an openssl that verifies Ed25519.*MONOAGENT_ALLOW_UNSIGNED=1" || st=1
+  if [ "$st" -eq 0 ]; then echo "PASS sshsig-missing says what to do"; else echo "FAIL sshsig-missing says what to do"; fails=$((fails+1)); fi
+  run sshsig-missing-opt-in ok "signature verification is SKIPPED" "$nossl" "$key" MONOAGENT_ALLOW_UNSIGNED=1
+  run older-release-openssl ok "Manifest signature verified (Ed25519, key $keyid)" MONOAGENT_RELEASE_PUBKEY="$pub"
+else
+  echo "SKIP sshsig (no ssh-keygen)"
+fi
+
+# 11. an unreachable manifest is an error, never a fall back to the unsigned
+# GitHub path. The curl wrapper refuses and records every non-loopback URL.
+mkdir -p "$work/netguard"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in %s/*) ;; http://*|https://*) echo "$a" >> "%s/netguard.log"; exit 7 ;; esac; done\nexec "%s" "$@"\n' \
+  "$base" "$work" "$(command -v curl)" > "$work/netguard/curl" && chmod +x "$work/netguard/curl"
+run manifest-unreachable-stops fail "could not be fetched" PATH="$work/netguard:$PATH" MONOAGENT_MANIFEST_URL="$base/no-such-manifest.json"
+if [ ! -s "$work/netguard.log" ]; then echo "PASS no legacy fallback"; else echo "FAIL fell back to the network"; sed 's/^/    /' "$work/netguard.log"; fails=$((fails+1)); fi
+
 # 8. no asset for this platform.
 printf '{"schema":1,"version":"v9.9.9","assets":[]}' > "$web/manifest.json"; sign
 run no-asset fail "no CLI asset" MONOAGENT_RELEASE_PUBKEY="$pub"
@@ -295,8 +375,13 @@ run override-warns fail "WARNING: MONOAGENT_MANIFEST_URL is set" MONOAGENT_RELEA
 # 15. without a test prefix every curl call is https-only, redirects included (a stub curl records its arguments and fails).
 mkdir -p "$work/curlstub"
 printf '#!/bin/sh\necho "$@" >> "%s/curl.log"\nexit 1\n' "$work" > "$work/curlstub/curl" && chmod +x "$work/curlstub/curl"
-env -u MONOAGENT_TEST_ASSET_URL_PREFIX -u MONOAGENT_MANIFEST_URL -u MONOAGENT_RELEASE_PUBKEY HOME="$work/home-proto" PATH="$work/curlstub:$PATH" INSTALL_DIR="$work/p-proto" bash "$installer" >/dev/null 2>&1 || true
+run_installer proto unset:MONOAGENT_TEST_ASSET_URL_PREFIX unset:MONOAGENT_MANIFEST_URL PATH="$work/curlstub:$PATH" || fails=$((fails+1))
 if [ -s "$work/curl.log" ] && ! grep -v -e "--proto =https --proto-redir =https" "$work/curl.log" | grep -q .; then echo "PASS curl https-only"; else echo "FAIL curl calls not https-only"; sed 's/^/    /' "$work/curl.log" 2>/dev/null; fails=$((fails+1)); fi
+
+# 16. nothing reached the canary tree this script's own environment points at.
+if canary_check; then echo "PASS canary unchanged"; else
+  echo "FAIL canary changed: an installer run used an inherited destination"; fails=$((fails+1))
+fi
 
 if [ "$fails" -ne 0 ]; then echo "install-test: $fails failure(s)"; exit 1; fi
 echo "install-test: all passed"

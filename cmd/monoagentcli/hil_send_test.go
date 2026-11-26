@@ -79,6 +79,9 @@ func queueViaNodeRun(t *testing.T, cfg *globalConfig, config string) string {
 
 const sendConfig = `{"smtp_host":"127.0.0.1","from":"me@example.test","to":"ada@example.test","subject":"Hi","body":"Original","password":"hunter2"}`
 
+// otherSubjectSendConfig is sendConfig under another subject: a second card, as identical sends share one.
+const otherSubjectSendConfig = `{"smtp_host":"127.0.0.1","from":"me@example.test","to":"ada@example.test","subject":"Hi again","body":"Original","password":"hunter2"}`
+
 func swapRunner(t *testing.T) *[]hilsend.Run {
 	t.Helper()
 	var calls []hilsend.Run
@@ -124,7 +127,7 @@ func TestResolveApproveRunsOnceRejectNever(t *testing.T) {
 	cfg := sendEnv(t)
 	calls := swapRunner(t)
 	approveID := queueViaNodeRun(t, cfg, sendConfig)
-	rejectID := queueViaNodeRun(t, cfg, sendConfig)
+	rejectID := queueViaNodeRun(t, cfg, otherSubjectSendConfig)
 	asOperatorProcess(t)
 
 	out, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", approveID, "--approve", "--edit-text", "Edited by me")

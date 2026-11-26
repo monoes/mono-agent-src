@@ -1,24 +1,25 @@
 // Presentation helpers for the Documents panel. The view itself is built in Go
 // (`monoagentcli org documents`, internal/orgbridge/docs_view.go); nothing here
 // derives document state. The live stream only says "something changed".
+import i18n from '../../i18n.js'
 
 // monomind's version status -> what the panel calls it. `pending` is a
 // published version nobody has decided yet.
 export const STATUS_META = {
-  pending: { label: 'published', color: 'var(--cyan, #22d3ee)' },
-  accepted: { label: 'accepted', color: 'var(--green-neon, #4ade80)' },
-  rejected: { label: 'rejected', color: 'var(--red, #ef4444)' },
-  superseded: { label: 'superseded', color: 'var(--text-muted)' },
+  pending: { get label() { return i18n.t('ui6OrgsCanvas.doc_published') }, color: 'var(--cyan, #22d3ee)' },
+  accepted: { get label() { return i18n.t('ui6OrgsCanvas.doc_accepted') }, color: 'var(--green-neon, #4ade80)' },
+  rejected: { get label() { return i18n.t('ui6OrgsCanvas.doc_rejected') }, color: 'var(--red, #ef4444)' },
+  superseded: { get label() { return i18n.t('ui6OrgsCanvas.doc_superseded') }, color: 'var(--text-muted)' },
 }
 
 export function statusMeta(status) {
-  return STATUS_META[status] || { label: String(status || 'unknown'), color: 'var(--text-muted)' }
+  return STATUS_META[status] || { label: String(status || i18n.t('ui6OrgsCanvas.doc_unknown')), color: 'var(--text-muted)' }
 }
 
 /** A version's label: a rejected version that was replaced says so. */
 export function versionLabel(v) {
   const base = statusMeta(v?.status).label
-  return v?.status === 'rejected' && v.superseded_by ? `${base}, superseded by v${v.superseded_by}` : base
+  return v?.status === 'rejected' && v.superseded_by ? i18n.t('ui6OrgsCanvas.doc_superseded_by', { status: base, version: v.superseded_by }) : base
 }
 
 /**

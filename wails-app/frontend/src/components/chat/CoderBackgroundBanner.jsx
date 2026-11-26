@@ -4,6 +4,7 @@ import { AlertTriangle, Square } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { vaultRelated } from './toolLinks.js'
 import { maskCredentials } from './credentials.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // The warning a coder turn leaves when it ends with background processes
 // still running (notice coder.background, #203), with "Stop all": `coder
@@ -15,18 +16,16 @@ import { maskCredentials } from './credentials.js'
 const mono = 'var(--font-mono)'
 const AMBER = '#fbbf24'
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 'es'}`
-
 // stopSummary turns {stopped, gone, refused} into one line.
 export function stopSummary(res) {
   const stopped = res?.stopped?.length || 0
   const gone = res?.gone?.length || 0
   const refused = res?.refused?.length || 0
   const parts = []
-  if (stopped) parts.push(`Stopped ${plural(stopped, 'process')}`)
-  if (gone) parts.push(`${gone} had already exited`)
-  if (refused) parts.push(`${refused} not stopped (no longer this turn's: ${res.refused.join(', ')})`)
-  return parts.length ? parts.join(' · ') : 'Nothing left to stop'
+  if (stopped) parts.push(i18nOr('ui7Chat.bg_stopped', { count: stopped }))
+  if (gone) parts.push(i18nOr('ui7Chat.bg_gone', { count: gone }))
+  if (refused) parts.push(i18nOr('ui7Chat.bg_refused', { count: refused, pids: res.refused.join(', ') }))
+  return parts.length ? parts.join(' · ') : i18nOr('ui7Chat.bg_nothing')
 }
 
 // shownCommand is a process's command line as the banner shows it: one that
@@ -58,7 +57,7 @@ export function CoderBackgroundBanner({ notice }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
         <AlertTriangle size={11} color={done ? '#94a3b8' : AMBER} style={{ marginTop: 1, flexShrink: 0 }} />
         <span style={{ flex: 1, fontFamily: mono, fontSize: 10, color: done ? '#94a3b8' : AMBER }}>
-          {n > 0 ? `${n} ${n === 1 ? 'process' : 'processes'} started during this turn ${n === 1 ? 'is' : 'are'} still running:` : notice.message}
+          {n > 0 ? i18nOr('ui7Chat.bg_running', { count: n }) : notice.message}
         </span>
         {canStop && !done && (
           <button type="button" onClick={stopAll} disabled={!!state?.busy} style={{
@@ -66,7 +65,7 @@ export function CoderBackgroundBanner({ notice }) {
             background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 5,
             padding: '2px 7px', color: '#ef4444', fontFamily: mono, fontSize: 9.5,
           }}>
-            <Square size={8} fill="#ef4444" /> {state?.busy ? 'Stopping…' : 'Stop all'}
+            <Square size={8} fill="#ef4444" /> {i18nOr(state?.busy ? 'ui7Chat.bg_stopping' : 'ui7Chat.bg_stop_all')}
           </button>
         )}
       </div>
@@ -75,13 +74,13 @@ export function CoderBackgroundBanner({ notice }) {
           {processes.map(p => (
             <li key={p.pid} style={{ display: 'flex', gap: 8, fontFamily: mono, fontSize: 9.5, minWidth: 0 }}>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{p.pid}</span>
-              <span title={shownCommand(p.command, t)} style={{ color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shownCommand(p.command, t) || '(unknown command)'}</span>
+              <span title={shownCommand(p.command, t)} style={{ color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shownCommand(p.command, t) || i18nOr('ui7Chat.bg_unknown_command')}</span>
             </li>
           ))}
         </ul>
       )}
       {done && <div data-testid="coder-background-result" role="status" style={{ fontFamily: mono, fontSize: 9.5, color: '#e2e8f0', paddingLeft: 17 }}>{stopSummary(state.result)}</div>}
-      {state?.error && <div role="alert" style={{ fontFamily: mono, fontSize: 9.5, color: '#fca5a5', paddingLeft: 17 }}>Could not stop them: {state.error}</div>}
+      {state?.error && <div role="alert" style={{ fontFamily: mono, fontSize: 9.5, color: '#fca5a5', paddingLeft: 17 }}>{i18nOr('ui7Chat.bg_stop_failed')} {state.error}</div>}
     </div>
   )
 }

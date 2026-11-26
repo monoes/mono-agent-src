@@ -15,9 +15,9 @@ import { useEscapeClose } from '../../lib/escapeStack.js'
 export const GRANT_DEFAULTS = { mode: 'run', wait: true, timeout_seconds: 600, max_calls_per_run: 20 }
 
 const MODES = [
-  { id: 'run', label: 'Run', hint: 'Start the workflow with input.' },
-  { id: 'trigger', label: 'Trigger', hint: 'Fire its trigger without input.' },
-  { id: 'status', label: 'Status', hint: 'Only read run status and output.' },
+  { id: 'run', labelKey: 'ui6OrgsDesigner.mode_run', hintKey: 'ui6OrgsDesigner.mode_run_hint' },
+  { id: 'trigger', labelKey: 'ui6OrgsDesigner.mode_trigger', hintKey: 'ui6OrgsDesigner.mode_trigger_hint' },
+  { id: 'status', labelKey: 'ui6OrgsDesigner.mode_status', hintKey: 'ui6OrgsDesigner.mode_status_hint' },
 ]
 
 /** Whether a role's tool policy still allows Bash (plan §8 layer 8). */
@@ -107,7 +107,7 @@ export default function GrantDialog({ open, orgName, role, automation, grant, au
     const res = await api.setOrgGrant(orgName, spec)
     setSaving(false)
     if (!res || res.error) {
-      setError(res?.error || 'Could not save the grant.')
+      setError(res?.error || t('ui6OrgsDesigner.grant_save_failed'))
       return
     }
     if (showBash && denyBash) onDenyBash?.(role)
@@ -118,56 +118,56 @@ export default function GrantDialog({ open, orgName, role, automation, grant, au
 
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div role="dialog" aria-modal="true" aria-label="Grant automation" className="modal" style={{ width: 460 }}>
+      <div role="dialog" aria-modal="true" aria-label={t('ui6OrgsDesigner.grant_automation')} className="modal" style={{ width: 460 }}>
         <div className="modal-title" style={{ justifyContent: 'flex-start', gap: 8 }}>
-          <KeyRound size={15} /> {grant ? 'Edit grant' : 'Grant automation'}
+          <KeyRound size={15} /> {grant ? t('ui6OrgsDesigner.grant_edit') : t('ui6OrgsDesigner.grant_automation')}
         </div>
         <div style={{ ...mono, fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 14 }}>
-          <b style={{ color: 'var(--text)' }}>{role.title || role.id}</b> may run <b style={{ color: 'var(--text)' }}>{automation.workflow_name || automation.alias}</b> as the tool <code>monoagent__automation_{automation.alias}</code>.
+          <b style={{ color: 'var(--text)' }}>{role.title || role.id}</b> {t('ui6OrgsDesigner.grant_may_run')} <b style={{ color: 'var(--text)' }}>{automation.workflow_name || automation.alias}</b> {t('ui6OrgsDesigner.grant_as_tool')} <code>monoagent__automation_{automation.alias}</code>.
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={label}>
-            Mode
-            <select aria-label="Mode" className="form-select" value={mode} onChange={e => setMode(e.target.value)} style={{ fontSize: 11, padding: '4px 28px 4px 8px', width: 'auto' }}>
-              {MODES.map(m => <option key={m.id} value={m.id} title={m.hint}>{m.label}</option>)}
+            {t('ui6OrgsDesigner.mode')}
+            <select aria-label={t('ui6OrgsDesigner.mode')} className="form-select" value={mode} onChange={e => setMode(e.target.value)} style={{ fontSize: 11, padding: '4px 28px 4px 8px', width: 'auto' }}>
+              {MODES.map(m => <option key={m.id} value={m.id} title={t(m.hintKey)}>{t(m.labelKey)}</option>)}
             </select>
           </label>
 
           <label style={label}>
             <input type="checkbox" checked={wait} onChange={e => setWait(e.target.checked)} />
-            Wait for the result
-            <span style={mutedText}>(off: returns a run id to check later)</span>
+            {t('ui6OrgsDesigner.wait_result')}
+            <span style={mutedText}>{t('ui6OrgsDesigner.wait_off')}</span>
           </label>
 
           <label style={label}>
-            Timeout
-            <input aria-label="Timeout seconds" type="number" min="1" className="form-input" value={timeout} onChange={e => setTimeoutSec(e.target.value)} style={{ width: 90, fontSize: 11, padding: '4px 8px' }} />
-            <span style={mutedText}>seconds</span>
+            {t('ui6OrgsDesigner.timeout')}
+            <input aria-label={t('ui6OrgsDesigner.timeout_seconds')} type="number" min="1" className="form-input" value={timeout} onChange={e => setTimeoutSec(e.target.value)} style={{ width: 90, fontSize: 11, padding: '4px 8px' }} />
+            <span style={mutedText}>{t('ui6OrgsDesigner.seconds')}</span>
           </label>
 
-          <div role="radiogroup" aria-label="Needs a decision" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div role="radiogroup" aria-label={t('ui6OrgsDesigner.needs_decision')} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={label}>
-              Needs a decision:
+              {t('ui6OrgsDesigner.needs_decision_colon')}
               <label style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <input type="radio" name="needs-decision" checked={needsDecision} onChange={() => setNeedsDecision(true)} aria-label="yes" /> yes
+                <input type="radio" name="needs-decision" checked={needsDecision} onChange={() => setNeedsDecision(true)} aria-label={t('ui6OrgsDesigner.yes')} /> {t('ui6OrgsDesigner.yes')}
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <input type="radio" name="needs-decision" checked={!needsDecision} onChange={() => setNeedsDecision(false)} aria-label="no" /> no
+                <input type="radio" name="needs-decision" checked={!needsDecision} onChange={() => setNeedsDecision(false)} aria-label={t('ui6OrgsDesigner.no')} /> {t('ui6OrgsDesigner.no')}
               </label>
             </div>
             <div data-testid="grant-tier" style={{ display: 'flex', alignItems: 'center', gap: 6, ...mutedText }}>
               {needsDecision ? (
                 <>
                   <TierChip tier={tier} />
-                  <span>at {level}: {routeLabel(route, autonomy?.decider?.kind)}</span>
+                  <span>{t('ui6OrgsDesigner.at_level_route', { level: t(`ui6Orgs.level_${level}`, { defaultValue: level }), route: routeLabel(route, autonomy?.decider?.kind) })}</span>
                 </>
               ) : (
-                <span>Runs without a decision.</span>
+                <span>{t('ui6OrgsDesigner.runs_without_decision')}</span>
               )}
             </div>
             {!needsDecision && automation.has_outbound_nodes && (
-              <div style={{ ...mono, fontSize: 10.5, color: '#eab308' }}>This workflow sends outside mono-agent.</div>
+              <div style={{ ...mono, fontSize: 10.5, color: '#eab308' }}>{t('ui6OrgsDesigner.sends_outside')}</div>
             )}
           </div>
 
@@ -191,19 +191,19 @@ export default function GrantDialog({ open, orgName, role, automation, grant, au
           )}
 
           <label style={label}>
-            Per-run cap
-            <input aria-label="Per-run cap" type="number" min="1" className="form-input" value={cap} onChange={e => setCap(e.target.value)} style={{ width: 90, fontSize: 11, padding: '4px 8px' }} />
-            <span style={mutedText}>calls</span>
+            {t('ui6OrgsDesigner.per_run_cap')}
+            <input aria-label={t('ui6OrgsDesigner.per_run_cap')} type="number" min="1" className="form-input" value={cap} onChange={e => setCap(e.target.value)} style={{ width: 90, fontSize: 11, padding: '4px 8px' }} />
+            <span style={mutedText}>{t('ui6OrgsDesigner.calls')}</span>
           </label>
 
           {showBash && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid var(--red, #ef4444)', borderRadius: 'var(--radius)', background: 'rgba(239,68,68,0.08)' }}>
               <div style={{ ...mono, fontSize: 11, color: 'var(--red, #ef4444)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <AlertTriangle size={12} /> This role can run Bash, which can bypass its grants.
+                <AlertTriangle size={12} /> {t('ui6OrgsDesigner.bash_bypass')}
               </div>
               <label style={label}>
                 <input type="checkbox" checked={denyBash} onChange={e => setDenyBash(e.target.checked)} />
-                Deny Bash for {role.title || role.id} (recommended)
+                {t('ui6OrgsDesigner.deny_bash_for', { role: role.title || role.id })}
               </label>
             </div>
           )}
@@ -211,8 +211,8 @@ export default function GrantDialog({ open, orgName, role, automation, grant, au
 
         {error && <div style={{ ...mono, fontSize: 11, color: '#f87171', marginTop: 12 }}>{error}</div>}
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : grant ? 'Save grant' : 'Grant'}</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t('ui6OrgsDesigner.cancel')}</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('ui6OrgsDesigner.saving') : grant ? t('ui6OrgsDesigner.save_grant') : t('ui6OrgsDesigner.grant')}</button>
         </div>
       </div>
     </div>

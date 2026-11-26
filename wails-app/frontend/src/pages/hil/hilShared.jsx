@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import t from '../../lib/i18nOr.js'
 import { ExternalLink } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 
@@ -66,11 +68,12 @@ export function ReadonlyField({ label, value }) {
 }
 
 export function EditableField({ label, value, onChange }) {
+  useTranslation() // renders again on a language change
   const isLong = typeof value === 'string' && value.length > 80
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#00b4d8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-        {label} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(editable)</span>
+        {label} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{t('ui7Hil.editable')}</span>
       </div>
       <textarea
         value={typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '')}

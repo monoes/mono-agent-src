@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Eye, EyeOff } from 'lucide-react'
+import i18nOr from '../lib/i18nOr.js'
 
 let nextRowId = 0
 
@@ -37,10 +39,10 @@ export function validateRows(rows) {
   for (const row of rows) {
     const key = row.key.trim()
     if (!key) {
-      if (row.value) return { fields: null, error: 'Every field with a value needs a key.' }
+      if (row.value) return { fields: null, error: i18nOr('ui6Set.kv_needs_key') }
       continue
     }
-    if (seen.has(key)) return { fields: null, error: `Duplicate field key "${key}".` }
+    if (seen.has(key)) return { fields: null, error: i18nOr('ui6Set.kv_duplicate', { key }) }
     seen.add(key)
   }
   return { fields: rowsToFields(rows), error: null }
@@ -56,6 +58,7 @@ const inputStyle = {
 // fieldsToRows/rowsToFields for converting to/from the plain map the Wails
 // API uses.
 export default function KeyValueFields({ rows, onChange }) {
+  const { t } = useTranslation()
   const [shown, setShown] = useState({})
 
   const updateRow = (id, patch) => {
@@ -78,14 +81,14 @@ export default function KeyValueFields({ rows, onChange }) {
       {rows.map(row => (
         <div key={row.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input
-            placeholder="key"
+            placeholder={t('ui6Set.kv_key')}
             value={row.key}
             onChange={e => updateRow(row.id, { key: e.target.value })}
             style={{ ...inputStyle, flex: '0 0 120px' }}
           />
           <input
             type={shown[row.id] ? 'text' : 'password'}
-            placeholder="value"
+            placeholder={t('ui6Set.kv_value')}
             value={row.value}
             onChange={e => updateRow(row.id, { value: e.target.value })}
             style={inputStyle}
@@ -93,7 +96,7 @@ export default function KeyValueFields({ rows, onChange }) {
           <button
             type="button"
             onClick={() => setShown(prev => ({ ...prev, [row.id]: !prev[row.id] }))}
-            title={shown[row.id] ? 'Hide' : 'Show'}
+            title={shown[row.id] ? t('ui6Set.hide') : t('ui6Set.show')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 4, display: 'flex' }}
           >
             {shown[row.id] ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -101,7 +104,7 @@ export default function KeyValueFields({ rows, onChange }) {
           <button
             type="button"
             onClick={() => removeRow(row.id)}
-            title="Remove field"
+            title={t('ui6Set.kv_remove')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 4, display: 'flex' }}
           >
             <Trash2 size={13} />
@@ -117,7 +120,7 @@ export default function KeyValueFields({ rows, onChange }) {
           display: 'flex', alignItems: 'center', gap: 4,
         }}
       >
-        <Plus size={11} /> Add field
+        <Plus size={11} /> {t('ui6Set.kv_add')}
       </button>
     </div>
   )

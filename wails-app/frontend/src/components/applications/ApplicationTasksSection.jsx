@@ -1,8 +1,22 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { ListTodo, CheckCircle2, Clock, Circle } from 'lucide-react'
-import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle } from './constants.jsx'
+import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle, statusWord } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
+
+const TASK_STATUS_KEYS = {
+  todo: 'ui6PagesApps.task_todo',
+  inbox: 'ui6PagesApps.task_inbox',
+  ready: 'ui6PagesApps.task_ready',
+  in_progress: 'ui6PagesApps.task_in_progress',
+  review: 'ui6PagesApps.task_review',
+  running: 'ui6PagesApps.task_running',
+  done: 'ui6PagesApps.task_done',
+  completed: 'ui6PagesApps.task_completed',
+}
 
 function TaskStatusBadge({ status }) {
+  useTranslation()
   const norm = (status || 'todo').toLowerCase()
   let bg = 'rgba(100,116,139,0.15)'
   let color = '#94a3b8'
@@ -21,7 +35,7 @@ function TaskStatusBadge({ status }) {
   return (
     <span
       role="status"
-      aria-label={`Task status: ${norm}`}
+      aria-label={t('ui6PagesApps.task_status_label', { status: norm === 'in_progress' ? t('ui6PagesApps.task_in_progress_raw') : Object.hasOwn(TASK_STATUS_KEYS, norm) ? t(TASK_STATUS_KEYS[norm]) : norm })}
       style={{
         background: bg,
         border: `1px solid ${color}33`,
@@ -34,17 +48,18 @@ function TaskStatusBadge({ status }) {
         textTransform: 'uppercase',
       }}
     >
-      {norm.replace(/_/g, ' ')}
+      {statusWord(TASK_STATUS_KEYS, norm)}
     </span>
   )
 }
 
 export default function ApplicationTasksSection({ tasks = [], onNavigate }) {
+  useTranslation()
   const taskList = Array.isArray(tasks) ? tasks : []
 
-  const handleOpenTask = (t) => {
+  const handleOpenTask = (task) => {
     if (typeof onNavigate === 'function') {
-      onNavigate('tasks', { taskId: t.id })
+      onNavigate('tasks', { taskId: task.id })
     }
   }
 
@@ -53,10 +68,10 @@ export default function ApplicationTasksSection({ tasks = [], onNavigate }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <h3 id="section-tasks-title" style={sectionTitleStyle}>
           <ListTodo size={14} style={{ color: '#00b4d8' }} />
-          Tasks ({taskList.length})
+          {t('ui6PagesApps.tasks_n', { n: taskList.length })}
         </h3>
         <span style={{ fontSize: 11, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono)' }}>
-          Board items
+          {t('ui6PagesApps.board_items')}
         </span>
       </div>
 
@@ -72,13 +87,13 @@ export default function ApplicationTasksSection({ tasks = [], onNavigate }) {
             textAlign: 'center',
           }}
         >
-          No tasks linked to this application.
+          {t('ui6PagesApps.no_tasks')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {taskList.map((t, idx) => (
+          {taskList.map((task, idx) => (
             <div
-              key={t.id || idx}
+              key={task.id || idx}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -101,19 +116,19 @@ export default function ApplicationTasksSection({ tasks = [], onNavigate }) {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {t.title || 'Untitled task'}
+                  {task.title || t('ui6PagesApps.untitled_task')}
                 </span>
-                <TaskStatusBadge status={t.status} />
+                <TaskStatusBadge status={task.status} />
               </div>
 
               {onNavigate && (
                 <button
                   type="button"
-                  onClick={() => handleOpenTask(t)}
+                  onClick={() => handleOpenTask(task)}
                   style={subtleBtnStyle}
-                  aria-label={`Open task board for ${t.title || 'task'}`}
+                  aria-label={t('ui6PagesApps.open_board_for', { name: task.title || t('ui6PagesApps.task_word') })}
                 >
-                  View
+                  {t('ui6PagesApps.view')}
                 </button>
               )}
             </div>

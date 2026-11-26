@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Plus, ExternalLink } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { statusWord } from '../components/applications/constants.jsx'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { notify } from '../services/api.js'
@@ -8,8 +10,20 @@ import ApplicationDetailModal from '../components/applications/ApplicationDetail
 import ApplyQueueButton from '../components/applications/ApplyQueueButton.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 import { useDialog } from './connections/ui.jsx'
+import t from '../lib/i18nOr.js'
 
 const STATUS_TABS = ['pending', 'awaiting_submit', 'needs_you', 'applied', 'rejected', 'cancelled', 'all']
+
+const STATUS_KEYS = {
+  all: 'ui6PagesApps.status_all',
+  pending: 'ui6PagesApps.status_pending',
+  applied: 'ui6PagesApps.status_applied',
+  rejected: 'ui6PagesApps.status_rejected',
+  cancelled: 'ui6PagesApps.status_cancelled',
+  awaiting_submit: 'ui6PagesApps.status_awaiting_submit',
+  needs_you: 'ui6PagesApps.status_needs_you',
+}
+const KIND_KEYS = { job: 'ui6PagesApps.kind_job', tender: 'ui6PagesApps.kind_tender' }
 
 const STATUS_COLORS = {
   pending: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' },
@@ -48,10 +62,11 @@ const headerBtnStyle = {
 }
 
 function StatusBadge({ status }) {
+  useTranslation()
   const s = STATUS_COLORS[status] || { bg: '#1a2332', color: '#64748b' }
   return (
     <span style={{ background: s.bg, borderRadius: 3, padding: '1px 6px', fontFamily: 'var(--font-mono)', fontSize: 9, color: s.color }}>
-      {status.replace(/_/g, ' ')}
+      {statusWord(STATUS_KEYS, status)}
     </span>
   )
 }
@@ -62,29 +77,30 @@ function emptyAddForm() {
 
 // Add form overlay: a real dialog (role, Escape, focus in/out, labelled inputs).
 function AddApplicationDialog({ addForm, setAddForm, onSubmit, onClose }) {
+  useTranslation()
   const dialog = useDialog(onClose)
   const set = (k) => (e) => setAddForm(f => ({ ...f, [k]: e.target.value }))
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
       <form {...dialog} role="dialog" aria-modal="true" aria-labelledby="add-application-title" onSubmit={onSubmit} style={{ background: 'var(--surface, #0d1520)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 20, width: 400, fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <h3 id="add-application-title" style={{ margin: 0, fontSize: 14 }}>Add Application</h3>
-        <select aria-label="Kind" className="select-compact" style={{ fontSize: 11 }} value={addForm.kind} onChange={set('kind')}>
-          <option value="job">Job</option>
-          <option value="tender">Tender</option>
+        <h3 id="add-application-title" style={{ margin: 0, fontSize: 14 }}>{t('ui6PagesApps.add_title')}</h3>
+        <select aria-label={t('ui6PagesApps.kind')} className="select-compact" style={{ fontSize: 11 }} value={addForm.kind} onChange={set('kind')}>
+          <option value="job">{t('ui6PagesApps.job')}</option>
+          <option value="tender">{t('ui6PagesApps.tender')}</option>
         </select>
-        <input aria-label="Title" style={inputStyle} placeholder="Title" required value={addForm.title} onChange={set('title')} />
-        <input aria-label="URL" style={inputStyle} placeholder="URL" required value={addForm.url} onChange={set('url')} />
+        <input aria-label={t('ui6PagesApps.field_title')} style={inputStyle} placeholder={t('ui6PagesApps.field_title')} required value={addForm.title} onChange={set('title')} />
+        <input aria-label={t('ui6PagesApps.field_url')} style={inputStyle} placeholder={t('ui6PagesApps.field_url')} required value={addForm.url} onChange={set('url')} />
         {addForm.kind === 'job' ? (
-          <input aria-label="Company" style={inputStyle} placeholder="Company" required value={addForm.company} onChange={set('company')} />
+          <input aria-label={t('ui6PagesApps.field_company')} style={inputStyle} placeholder={t('ui6PagesApps.field_company')} required value={addForm.company} onChange={set('company')} />
         ) : (
           <>
-            <input aria-label="Issuing Organization" style={inputStyle} placeholder="Issuing Organization" required value={addForm.issuingOrg} onChange={set('issuingOrg')} />
-            <input aria-label="Submission Deadline" style={inputStyle} placeholder="Submission Deadline" required value={addForm.submissionDeadline} onChange={set('submissionDeadline')} />
+            <input aria-label={t('ui6PagesApps.field_org')} style={inputStyle} placeholder={t('ui6PagesApps.field_org')} required value={addForm.issuingOrg} onChange={set('issuingOrg')} />
+            <input aria-label={t('ui6PagesApps.field_deadline')} style={inputStyle} placeholder={t('ui6PagesApps.field_deadline')} required value={addForm.submissionDeadline} onChange={set('submissionDeadline')} />
           </>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button type="button" style={headerBtnStyle} onClick={onClose}>Cancel</button>
-          <button type="submit" style={{ ...headerBtnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}>Add</button>
+          <button type="button" style={headerBtnStyle} onClick={onClose}>{t('ui6PagesApps.cancel')}</button>
+          <button type="submit" style={{ ...headerBtnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}>{t('ui6PagesApps.add')}</button>
         </div>
       </form>
     </div>
@@ -92,6 +108,7 @@ function AddApplicationDialog({ addForm, setAddForm, onSubmit, onClose }) {
 }
 
 export default function Applications({ isActive = true, navData = null, onNavigate, onOpenCoderChat }) {
+  useTranslation()
   const [applications, setApplications] = useState([])
   const [statusTab, setStatusTab] = useState('pending')
   const [search, setSearch] = useState('')
@@ -109,7 +126,7 @@ export default function Applications({ isActive = true, navData = null, onNaviga
       const list = await WailsApp.GetApplications('', '', '')
       setApplications(list || [])
     } catch (e) {
-      setError('Failed to load applications: ' + e)
+      setError(t('ui6PagesApps.load_failed', { error: String(e) }))
     }
   }, [])
 
@@ -148,7 +165,7 @@ export default function Applications({ isActive = true, navData = null, onNaviga
       const d = await WailsApp.GetApplication(id)
       if (seq === detailSeq.current) setDetail(d)
     } catch (e) {
-      if (seq === detailSeq.current) setError('Failed to load detail: ' + e)
+      if (seq === detailSeq.current) setError(t('ui6PagesApps.detail_failed', { error: String(e) }))
     }
   }
 
@@ -166,32 +183,32 @@ export default function Applications({ isActive = true, navData = null, onNaviga
       setShowAdd(false)
       load()
     } catch (e) {
-      setError('Add failed: ' + e)
+      setError(t('ui6PagesApps.add_failed', { error: String(e) }))
     }
   }
 
   const handleSetStatus = async (id, status) => {
-    if (status === 'cancelled' && !(await confirm('Mark this application as cancelled?', { title: 'Cancel Application', confirmLabel: 'Cancel Application' }))) return
+    if (status === 'cancelled' && !(await confirm(t('ui6PagesApps.cancel_question'), { title: t('ui6PagesApps.cancel_application'), confirmLabel: t('ui6PagesApps.cancel_application') }))) return
     try {
       await WailsApp.SetApplicationStatus(id, status, '')
       await load()
       if (selectedId === id) openDetail(id)
     } catch (e) {
-      notify('application status', e?.message || String(e))
+      notify(t('ui6PagesApps.op_status'), e?.message || String(e))
     }
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 16, gap: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>Applications</h2>
+        <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>{t('ui6PagesApps.applications')}</h2>
         <div style={{ flex: 1 }} />
-        <button style={headerBtnStyle} onClick={() => setShowAdd(true)}><Plus size={13} /> Add</button>
+        <button style={headerBtnStyle} onClick={() => setShowAdd(true)}><Plus size={13} /> {t('ui6PagesApps.add')}</button>
         {visible.some(queueable) && (
           <ApplyQueueButton ids={pickedIds} style={headerBtnStyle} onStarted={() => { setPicked(new Set()); load() }} />
         )}
         <button style={{ ...headerBtnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }} onClick={() => setShowProcessPending(true)}>
-          Process Pending
+          {t('ui6PagesApps.process_pending')}
         </button>
       </div>
 
@@ -206,9 +223,9 @@ export default function Applications({ isActive = true, navData = null, onNaviga
               border: `1px solid ${statusTab === tab ? 'rgba(0,180,216,0.4)' : 'rgba(255,255,255,0.1)'}`,
               color: statusTab === tab ? '#00b4d8' : 'var(--text-secondary)',
             }}
-          >{tab.replace('_', ' ')}</button>
+          >{statusWord(STATUS_KEYS, tab)}</button>
         ))}
-        <input style={{ ...inputStyle, flex: 1, marginLeft: 8 }} placeholder="Search title, company, tags..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input style={{ ...inputStyle, flex: 1, marginLeft: 8 }} placeholder={t('ui6PagesApps.search')} value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {error && <div style={{ color: '#ff6b6b', fontSize: 12 }}>{error}</div>}
@@ -217,13 +234,13 @@ export default function Applications({ isActive = true, navData = null, onNaviga
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase' }}>
-              <th style={{ padding: '6px 8px', width: 24 }}><span className="sr-only" style={{ position: 'absolute', left: -9999 }}>Select</span></th>
-              <th style={{ padding: '6px 8px' }}>Title</th>
-              <th style={{ padding: '6px 8px' }}>Company / Org</th>
-              <th style={{ padding: '6px 8px' }}>Kind</th>
-              <th style={{ padding: '6px 8px' }}>Status</th>
-              <th style={{ padding: '6px 8px' }}>Tags</th>
-              <th style={{ padding: '6px 8px' }}>Updated</th>
+              <th style={{ padding: '6px 8px', width: 24 }}><span className="sr-only" style={{ position: 'absolute', left: -9999 }}>{t('ui6PagesApps.select')}</span></th>
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.field_title')}</th>
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_company')}</th>
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.kind')}</th>
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_status')}</th>
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_tags')}</th>
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_updated')}</th>
             </tr>
           </thead>
           <tbody>
@@ -231,23 +248,23 @@ export default function Applications({ isActive = true, navData = null, onNaviga
               <tr key={a.id} onClick={() => openDetail(a.id)} style={{ cursor: 'pointer', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                 <td style={{ padding: '8px' }} onClick={e => e.stopPropagation()}>
                   {queueable(a) && (
-                    <input type="checkbox" aria-label={`Select ${a.title} to apply with coder`} checked={picked.has(a.id)} onChange={() => togglePicked(a.id)} />
+                    <input type="checkbox" aria-label={t('ui6PagesApps.select_apply', { title: a.title })} checked={picked.has(a.id)} onChange={() => togglePicked(a.id)} />
                   )}
                 </td>
                 <td style={{ padding: '8px' }}>{a.title}</td>
                 <td style={{ padding: '8px' }}>{a.company}</td>
-                <td style={{ padding: '8px' }}>{a.kind}</td>
+                <td style={{ padding: '8px' }}>{statusWord(KIND_KEYS, a.kind || '')}</td>
                 <td style={{ padding: '8px' }}>
                   <StatusBadge status={a.status} />
-                  {a.status === 'awaiting_submit' && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>waiting for your submit</div>}
-                  {a.status === 'needs_you' && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>reopen and refill</div>}
+                  {a.status === 'awaiting_submit' && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{t('ui6PagesApps.waiting_submit')}</div>}
+                  {a.status === 'needs_you' && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{t('ui6PagesApps.reopen_refill')}</div>}
                 </td>
                 <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{(a.tags || []).join(', ')}</td>
                 <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{a.updated_at}</td>
               </tr>
             ))}
             {visible.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>No applications.</td></tr>
+              <tr><td colSpan={7} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>{t('ui6PagesApps.none')}</td></tr>
             )}
           </tbody>
         </table>

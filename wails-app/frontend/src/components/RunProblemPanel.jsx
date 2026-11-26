@@ -1,4 +1,6 @@
 import { AlertCircle, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import '../i18n.js'
 import { withoutAgentSetupMarker } from '../lib/agentSetup.js'
 import SendToCoderButton from './SendToCoderButton.jsx'
 import { selectionText } from './SendToCoderApi.js'
@@ -39,6 +41,7 @@ export function failedRunContext(problem, workflowId, executionId) {
 // failure text and returns { goal, origin } (how to frame the task and which
 // tab it came from); the failure itself goes to the coder as selection text.
 export default function RunProblemPanel({ problem, onSelectNode, onClose, onSendToCoder, workflowId, executionId }) {
+  const { t } = useTranslation()
   if (!problem) return null
   const failed = problem.status === 'FAILED'
   const tone = failed ? '#ef4444' : '#fbbf24'
@@ -54,9 +57,9 @@ export default function RunProblemPanel({ problem, onSelectNode, onClose, onSend
       <AlertCircle size={14} color={tone} style={{ flexShrink: 0, marginTop: 1 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ color: tone, fontWeight: 700, marginBottom: 3 }}>
-          {failed ? 'Run failed' : 'Run finished with errors'}
+          {failed ? t('nodeRunnerMore.runFailed') : t('ui6Node.runWithErrors')}
           {problem.failed.length > 0 && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
-            {' '}· {problem.failed.length === 1 ? '1 node' : `${problem.failed.length} nodes`} marked on the canvas
+            {' '}· {t('ui6Node.marked', { count: problem.failed.length })}
           </span>}
         </div>
         {problem.error && (
@@ -73,10 +76,10 @@ export default function RunProblemPanel({ problem, onSelectNode, onClose, onSend
         ))}
       </div>
       {coder && (
-        <SendToCoderButton kind="failed-run-fix" label="Fix with coder" goal={coder.goal} origin={coder.origin}
+        <SendToCoderButton kind="failed-run-fix" label={t('ui6Node.fixWithCoder')} goal={coder.goal} origin={coder.origin}
           context={() => [selectionText(failedRunContext(problem, workflowId, executionId))]} />
       )}
-      <button onClick={onClose} aria-label="Hide error" title="Hide error" style={{
+      <button onClick={onClose} aria-label={t('ui6Node.hideError')} title={t('ui6Node.hideError')} style={{
         background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex',
       }}><X size={12} /></button>
     </div>

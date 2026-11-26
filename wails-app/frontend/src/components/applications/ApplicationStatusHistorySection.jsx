@@ -1,6 +1,17 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { History, ArrowRight, User, Bot, Server } from 'lucide-react'
 import { sectionCardStyle, sectionTitleStyle } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
+
+const HISTORY_KEYS = {
+  pending: 'ui6PagesApps.history_pending',
+  applied: 'ui6PagesApps.history_applied',
+  rejected: 'ui6PagesApps.history_rejected',
+  cancelled: 'ui6PagesApps.history_cancelled',
+  awaiting_submit: 'ui6PagesApps.history_awaiting_submit',
+  needs_you: 'ui6PagesApps.history_needs_you',
+}
 
 function ActorIcon({ actor }) {
   const norm = (actor || '').toLowerCase()
@@ -14,6 +25,8 @@ function ActorIcon({ actor }) {
 }
 
 export default function ApplicationStatusHistorySection({ statusLog = [] }) {
+  useTranslation()
+  const shown = (value) => (Object.hasOwn(HISTORY_KEYS, value) ? t(HISTORY_KEYS[value]) : value)
   const log = Array.isArray(statusLog) ? statusLog : []
 
   return (
@@ -21,7 +34,7 @@ export default function ApplicationStatusHistorySection({ statusLog = [] }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <h3 id="section-status-history-title" style={sectionTitleStyle}>
           <History size={14} style={{ color: '#00b4d8' }} />
-          Status History ({log.length})
+          {t('ui6PagesApps.history_n', { n: log.length })}
         </h3>
       </div>
 
@@ -37,13 +50,13 @@ export default function ApplicationStatusHistorySection({ statusLog = [] }) {
             textAlign: 'center',
           }}
         >
-          No status history recorded.
+          {t('ui6PagesApps.no_history')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {log.map((entry, idx) => {
-            const from = entry.from_status || '(created)'
-            const to = entry.to_status || 'unknown'
+            const from = entry.from_status ? shown(entry.from_status) : t('ui6PagesApps.created')
+            const to = entry.to_status ? shown(entry.to_status) : t('ui6PagesApps.unknown')
             const actor = entry.actor || 'system'
             const time = entry.created_at || entry.createdAt || ''
 
@@ -81,7 +94,7 @@ export default function ApplicationStatusHistorySection({ statusLog = [] }) {
                     }}
                   >
                     <ActorIcon actor={actor} />
-                    {actor}
+                    {entry.actor ? actor : t('ui6PagesApps.system')}
                   </span>
                 </div>
 

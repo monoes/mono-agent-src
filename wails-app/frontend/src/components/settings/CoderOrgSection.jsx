@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Users, Send, AppWindow, X } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Coder chats' dynamic org and agents' sends (epic #475): settings the CLI
 // has had without a GUI. part="machine" is this computer's (`coder set
@@ -26,7 +27,7 @@ const name = { fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--tex
 export const ORG_ROUTERS = ['auto', 'jev', 'model']
 export const SEND_ACTIONS = ['email', 'dm', 'comment', 'post', 'connect', 'publish']
 
-const errMsg = (e) => String(e?.message || e || 'unknown error')
+const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
 
 // labelLike says whether a recipient reads like a label ("the ticket's
 // requester") rather than an address, handle or name: once invisible format

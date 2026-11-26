@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { FolderRoot, FolderOpen, History } from 'lucide-react'
 import { folderName, coderRuntimes, runtimeReadiness, useActiveProfile } from './useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // FolderPicker is where a coding chat works: the active profile's folder
 // (default), a folder picked with the native dialog, or a recent one, and
@@ -29,12 +30,12 @@ export function FolderPicker({ status, workspace, onWorkspaceChange, recent = []
   // A parent that already loaded the profile passes it, so the name is there at once.
   const loaded = useActiveProfile(!given && !!status?.enabled)
   const profile = given || loaded
-  const agent = runtimeId ? runtimeLabel(runtimeId) : 'The agent'
+  const agent = runtimeId ? runtimeLabel(runtimeId) : i18nOr('ui7Chat.the_agent')
   const pickedPath = workspace?.kind === 'folder' ? workspace.path : ''
   const pickedIsRecent = recent.some(w => w.path === pickedPath)
   return (
 
-    <div data-testid="folder-picker" role="radiogroup" aria-label="Coder workspace" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div data-testid="folder-picker" role="radiogroup" aria-label={i18nOr('ui7Chat.coder_workspace')} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <button type="button" role="radio" aria-checked={workspace?.kind !== 'folder'} disabled={disabled}
         onClick={() => onWorkspaceChange({ kind: 'root' })} style={optionStyle(workspace?.kind !== 'folder')}>
         <FolderRoot size={12} color={CYAN} style={{ marginTop: 1, flexShrink: 0 }} />
@@ -55,7 +56,7 @@ export function FolderPicker({ status, workspace, onWorkspaceChange, recent = []
       </button>
       {recent.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, margin: '4px 0 1px 8px', fontFamily: mono, fontSize: 8.5, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase' }}>
-          <History size={9} /> Recent
+          <History size={9} /> {i18nOr('ui7Chat.recent')}
         </div>
       )}
       {recent.slice(0, 5).map(w => (
@@ -63,12 +64,12 @@ export function FolderPicker({ status, workspace, onWorkspaceChange, recent = []
           title={w.path} onClick={() => onWorkspaceChange({ kind: 'folder', path: w.path })} style={optionStyle(pickedPath === w.path)}>
           <span style={{ minWidth: 0, paddingLeft: 19 }}>
             <div style={optTitle}>{folderName(w.path)}</div>
-            <div style={optHint}>{w.path}{w.conversations ? ` · ${w.conversations} chat${w.conversations === 1 ? '' : 's'}` : ''}</div>
+            <div style={optHint}>{w.path}{w.conversations ? ` · ${i18nOr('ui7Chat.chats', { count: w.conversations })}` : ''}</div>
           </span>
         </button>
       ))}
       <div style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 2 }}>
-        {agent} will run commands and change files in this folder without asking.
+        {i18nOr('ui7Chat.no_asking', { agent })}
       </div>
       {Array.isArray(status.runtimes) && (
         <div data-testid="coder-runtimes" style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>

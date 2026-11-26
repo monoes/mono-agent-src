@@ -28,7 +28,7 @@ export default function FixMonomindButton({ onDone }) {
       <span>
         {t('monomindFix.confirmBody')}
         <code style={{ display: 'block', marginTop: 8, padding: '6px 8px', background: 'rgba(0,0,0,.35)', borderRadius: 4, wordBreak: 'break-all' }}>
-          {FIX_MONOMIND_COMMAND}
+          {FIX_MONOMIND_COMMAND.replace('runs:', t('ui6Set.fix_runs'))}
         </code>
       </span>,
       { title: t('monomindFix.action'), confirmLabel: t('monomindFix.run'), cancelLabel: t('monomindFix.cancel'), danger: false },
@@ -43,7 +43,7 @@ export default function FixMonomindButton({ onDone }) {
       const st = await onDone?.()
       if (st && monomindNeedsFix(st)) setState({ phase: 'still', lines: [], error: missingText(st) })
     } else {
-      setState(s => ({ ...s, phase: 'error', error: res.message || 'failed' }))
+      setState(s => ({ ...s, phase: 'error', error: res.message || t('ui6Set.failed_word') }))
     }
   }
 

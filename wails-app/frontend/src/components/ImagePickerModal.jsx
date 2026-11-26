@@ -3,6 +3,8 @@ import { X, Search } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { isVaultImage } from '../lib/vaultItems.js'
 import { useEscapeClose } from '../lib/escapeStack.js'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../lib/i18nOr.js'
 
 function VaultThumb({ id }) {
   const [src, setSrc] = useState(null)
@@ -19,6 +21,7 @@ function VaultThumb({ id }) {
 }
 
 export default function ImagePickerModal({ onSelect, onClose }) {
+  useTranslation() // render again on a language change
   const [images, setImages] = useState([])
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(null)
@@ -57,14 +60,14 @@ export default function ImagePickerModal({ onSelect, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Pick an image" style={{
+      <div role="dialog" aria-modal="true" aria-label={i18nOr('ui6PagesImages.pick')} style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 10,
         padding: 16, width: 360, maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: 10,
         boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#e2e8f0' }}>Pick an image</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#e2e8f0' }}>{i18nOr('ui6PagesImages.pick')}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569' }}>
             <X size={14} />
           </button>
@@ -76,7 +79,7 @@ export default function ImagePickerModal({ onSelect, onClose }) {
             ref={searchRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="search…"
+            placeholder={i18nOr('ui6PagesImages.search')}
             style={{
               width: '100%', background: '#060b11', border: '1px solid #1e3a4f',
               borderRadius: 5, padding: '5px 8px 5px 26px', color: '#e2e8f0',
@@ -88,7 +91,7 @@ export default function ImagePickerModal({ onSelect, onClose }) {
         <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {filtered.length === 0 && (
             <div style={{ color: '#475569', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '12px 0', textAlign: 'center' }}>
-              No images found
+              {i18nOr('ui6PagesImages.none')}
             </div>
           )}
           {filtered.map(img => (
@@ -127,7 +130,7 @@ export default function ImagePickerModal({ onSelect, onClose }) {
               fontFamily: 'var(--font-mono)', fontSize: 11, cursor: selected ? 'pointer' : 'not-allowed',
             }}
           >
-            Select
+            {i18nOr('ui6PagesImages.select')}
           </button>
           <button
             onClick={onClose}
@@ -137,7 +140,7 @@ export default function ImagePickerModal({ onSelect, onClose }) {
               fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
             }}
           >
-            Cancel
+            {i18nOr('ui6PagesImages.cancel')}
           </button>
         </div>
       </div>

@@ -23,6 +23,7 @@ import SandboxFallbackSection from '../components/settings/SandboxFallbackSectio
 import ProfileSection from '../components/settings/ProfileSection.jsx'
 import ApiKeysSection from '../components/settings/api/ApiKeysSection.jsx'
 import { ScopeGroup } from '../components/settings/ScopeGroup.jsx'
+import i18nOr from '../lib/i18nOr.js'
 
 const headingStyle = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }
 const headingText = { fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 2 }
@@ -30,6 +31,7 @@ const headingText = { fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 
 // ── VersionRow ──────────────────────────────────────────────────────────────
 
 function VersionRow() {
+  const { t } = useTranslation()
   const [ver, setVer] = useState(null)
   const [update, setUpdate] = useState(null)
   const upToDateTimer = useRef(null)
@@ -61,7 +63,7 @@ function VersionRow() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Version
+          {t('ui6SetPage.version')}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -82,32 +84,32 @@ function VersionRow() {
               opacity: (update?.checking || update?.updating) ? 0.5 : 1,
             }}
           >
-            {update?.checking ? 'Checking...' : 'Check for updates'}
+            {update?.checking ? t('ui6Set.update_checking') : i18nOr('ui6SetPage.check_updates')}
           </button>
         </div>
       </div>
       {update?.upToDate && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00f5d4', marginTop: 6 }}>
-          You're on the latest version.
+          {t('ui6SetPage.on_latest')}
         </div>
       )}
       {update?.available && !update.updating && !update.done && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: '#fbbf24' }}>{update.latest} is available</span>
+          <span style={{ color: '#fbbf24' }}>{t('ui6SetPage.is_available', { latest: update.latest })}</span>
           <button onClick={doUpdate} style={{
             background: '#00b4d8', color: '#fff', border: 'none', borderRadius: 4,
             padding: '3px 12px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10,
-          }}>Install Update</button>
+          }}>{i18nOr('ui6SetPage.install_update')}</button>
         </div>
       )}
       {update?.updating && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00b4d8', marginTop: 6 }}>
-          Updating...
+          {t('ui6Set.update_running')}
         </div>
       )}
       {update?.done && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00f5d4', marginTop: 6 }}>
-          Updated to {update.latest} — restart the app to apply.
+          {i18nOr('ui6SetPage.updated_restart', { latest: update.latest })}
         </div>
       )}
       {update?.done && update.noticeOpen && (
@@ -130,13 +132,14 @@ function VersionRow() {
 // ── ExportRow ───────────────────────────────────────────────────────────────
 
 function ExportRow() {
-  const [state, setState] = useState(null) // { exporting } | { done, summary } | { error }
+  const { t } = useTranslation()
+  const [state, setState] = useState(null) // { exporting } | { done, result } | { error }
 
   function doExport() {
     setState({ exporting: true })
     api.exportData().then(r => {
       if (!r || r.cancelled) { setState(null); return }
-      setState({ done: true, summary: `Exported ${r.people_count} people and ${r.actions_count} actions to ${r.output_dir}` })
+      setState({ done: true, result: r })
     }).catch(e => setState({ error: String(e) }))
   }
 
@@ -144,7 +147,7 @@ function ExportRow() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Data Export
+          {i18nOr('settingsPage.dataExport')}
         </span>
         <button
           onClick={doExport}
@@ -163,12 +166,12 @@ function ExportRow() {
           }}
         >
           <Download size={10} />
-          {state?.exporting ? 'Exporting...' : 'Export to JSON'}
+          {state?.exporting ? t('ui6SetPage.exporting') : t('ui6SetPage.export_json')}
         </button>
       </div>
       {state?.done && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00f5d4', marginTop: 6, wordBreak: 'break-all' }}>
-          {state.summary}
+          {t('ui6SetPage.exported', { people: state.result.people_count, actions: state.result.actions_count, dir: state.result.output_dir })}
         </div>
       )}
       {state?.error && (
@@ -187,6 +190,7 @@ function ExportRow() {
 // read by the AI chat panels at send time; a visible indicator in the panel
 // shows when tools are active. Toggling applies to the next message sent.
 function AssistantToolsSection() {
+  const { t } = useTranslation()
   const [tools, setTools] = useState(() => getAssistantTools())
   const [allowRuns, setAllowRuns] = useState(() => getAssistantAllowRuns())
 
@@ -220,19 +224,17 @@ function AssistantToolsSection() {
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
         <input {...checkbox(tools, false, toggleTools)} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Enable monoagent tools (workflows, people, vault metadata)
+          {t('ui6SetPage.tools_enable')}
         </span>
       </label>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: tools ? 'pointer' : 'default', opacity: tools ? 1 : 0.45, paddingLeft: 24 }}>
         <input {...checkbox(allowRuns, !tools, toggleAllowRuns)} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Allow running workflows/actions from chat
+          {t('ui6SetPage.tools_runs')}
         </span>
       </label>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        Both options are on by default. The AI assistant can read your workflows,
-        people and vault metadata; the second option additionally lets it trigger
-        workflow runs and actions from chat.
+        {t('ui6SetPage.tools_note')}
       </div>
     </div>
   )
@@ -514,7 +516,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
             {/* DB path */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, flexShrink: 0, paddingTop: 1 }}>
-                Database Path
+                {i18nOr('ui6SetPage.db_path')}
               </span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', wordBreak: 'break-all', textAlign: 'right' }}>
                 {dbPath || '—'}
@@ -524,7 +526,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
             {/* DB status */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                Database Status
+                {t('ui6SetPage.db_status')}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{
@@ -533,7 +535,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
                   boxShadow: dbConnected ? '0 0 5px var(--green-neon)' : 'none',
                 }} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: dbConnected ? 'var(--green-neon)' : 'var(--red)' }}>
-                  {dbConnected ? 'Connected' : 'Disconnected'}
+                  {dbConnected ? t('ui6Set.status_connected') : t('ui6SetPage.disconnected')}
                 </span>
               </div>
             </div>
@@ -598,8 +600,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
             border: '1px solid rgba(0,245,212,.12)',
             borderRadius: 'var(--radius)',
           }}>
-            All authentication is managed in <strong style={{ color: 'var(--text-secondary)', cursor: 'pointer' }} onClick={() => onNavigate?.('connections')}>Connections</strong>.
-            OAuth credentials, API keys, and browser sessions are configured there.
+            {t('ui6SetPage.auth_lead')} <strong style={{ color: 'var(--text-secondary)', cursor: 'pointer' }} onClick={() => onNavigate?.('connections')}>{t('ui6SetPage.connections_link')}</strong>. {t('ui6SetPage.auth_tail')}
           </div>
         </ScopeGroup>
       </div>

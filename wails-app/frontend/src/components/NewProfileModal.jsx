@@ -61,7 +61,7 @@ export default function NewProfileModal({ open, onClose, onCreated }) {
       const path = await ChooseProfileFolder()
       if (path) setRootDir(path)
     } catch (e) {
-      setError(e?.message || 'Failed to choose folder')
+      setError(e?.message || t('ui6Set.profile_folder_failed'))
     }
   }
 
@@ -75,7 +75,7 @@ export default function NewProfileModal({ open, onClose, onCreated }) {
       onCreated?.(profile)
       onClose?.()
     } catch (e) {
-      setError(e?.message || 'Failed to create profile')
+      setError(e?.message || t('ui6Set.profile_create_failed'))
     } finally {
       setBusy(false)
     }

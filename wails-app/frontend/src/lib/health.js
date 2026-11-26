@@ -4,6 +4,7 @@
 // re-requests it.
 import { RunHealthCheck, RunHealthFix, InstallAgentRuntime, CancelHealthRun } from '../wailsjs/go/main/App'
 import { subscribeEvent } from '../services/api.js'
+import i18nOr from './i18nOr.js'
 
 export const BACKGROUND_INTERVAL_MS = 30 * 60 * 1000
 
@@ -311,7 +312,7 @@ export const FIX_IDLE_TIMEOUT_MS = 10 * 60 * 1000
 // run per key: a second start while one runs is refused.
 function runStreamed(key, start, onLine) {
   const lock = runKey(key)
-  if (runningFixes.has(lock)) return Promise.resolve({ ok: false, busy: true, message: 'already running' })
+  if (runningFixes.has(lock)) return Promise.resolve({ ok: false, busy: true, message: i18nOr('ui6Set.already_running') })
   runningFixes.add(lock)
   return new Promise(resolve => {
     // Watchdog: if the terminal event is lost (CLI killed, window event
@@ -321,7 +322,7 @@ function runStreamed(key, start, onLine) {
       clearTimeout(watchdog)
       watchdog = setTimeout(() => {
         off()
-        resolve({ ok: false, message: 'no progress from the command; gave up waiting' })
+        resolve({ ok: false, message: i18nOr('ui6Set.no_progress') })
       }, FIX_IDLE_TIMEOUT_MS)
     }
     const off = subscribeEvent('health:fixProgress', ev => {
@@ -329,7 +330,7 @@ function runStreamed(key, start, onLine) {
       if (ev.kind === 'line') { arm(); onLine?.(ev.message || ''); return }
       clearTimeout(watchdog)
       off()
-      resolve(ev.kind === 'done' ? { ok: true, message: ev.message || '' } : { ok: false, cancelled: !!ev.cancelled, message: ev.message || 'failed' })
+      resolve(ev.kind === 'done' ? { ok: true, message: ev.message || '' } : { ok: false, cancelled: !!ev.cancelled, message: ev.message || i18nOr('ui6Set.failed_word') })
     })
     start()
       .then(s => {

@@ -2,6 +2,7 @@
 // The CLI assigns the real tier (Go, before any decider runs); these helpers
 // only preview it — e.g. in the grant dialog before a grant row exists — and
 // explain where a tier is routed at each level.
+import i18nOr from '../../lib/i18nOr.js'
 
 // label/hint are the English wording; the UI shows the locale's
 // orgs.autonomy.levels.<id> / <id>Hint (and deciders.*) instead.
@@ -109,9 +110,13 @@ export function routeFor(level, tier) {
 }
 
 export function routeLabel(route, deciderKind) {
-  if (route === 'rule') return 'approved by rule'
-  if (route === 'decider') return `decided by ${deciderKind || 'model'}`
-  return 'waits for you'
+  if (route === 'rule') return i18nOr('ui6Orgs.route_rule')
+  if (route === 'decider') {
+    const kind = deciderKind || 'model'
+    // English keeps the CLI's own word; other languages name it.
+    return i18nOr('ui6Orgs.route_decider', { who: i18nOr(`ui6Orgs.decider_${kind}`, { defaultValue: kind }) })
+  }
+  return i18nOr('ui6Orgs.route_you')
 }
 
 /**
