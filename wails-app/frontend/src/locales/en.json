@@ -3617,5 +3617,23 @@
     "unsandboxed": "No sandbox for this turn: the agent is not confined to a working folder.",
     "boxOff": "{{level}} access is not enforced because the coder box is off: this chat can run any command and change any file on this computer as you.",
     "workerUnsandboxed": "No sandbox for this agent: its runtime cannot limit it to reading, so it has full access and is only told not to change files."
+  },
+  "hilAll": {
+    "thisProfile": "This profile",
+    "allProfiles": "All profiles",
+    "readOnly": "Read only. Switch to an item's profile to approve or reject it.",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "empty": "Nothing is waiting in any profile.",
+    "error": "Could not list every profile: {{error}}",
+    "badAnswer": "unexpected answer",
+    "profile": "Profile: {{name}}",
+    "send": "{{action}} via {{channel}} to {{recipient}}",
+    "since": "Waiting since {{when}}",
+    "from": "From {{account}}",
+    "via": "Via {{host}}",
+    "subject": "Subject: {{subject}}",
+    "attachment": "Attachment: {{name}}",
+    "unreviewable": "Can't be reviewed: {{reason}}"
   }
 }

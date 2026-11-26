@@ -208,15 +208,20 @@ func Guard(ctx context.Context, nodeType string, in workflow.NodeInput, config m
 	}
 	items := make([]workflow.Item, 0, len(prepared))
 	for _, p := range prepared {
-		q, err := st.createHeld(ctx, p.payload, p.replay)
+		q, merged, err := st.createHeld(ctx, p.payload, p.replay)
 		if err != nil {
 			return nil, true, err
 		}
-		items = append(items, workflow.NewItem(map[string]interface{}{
+		out := map[string]interface{}{
 			"success": false, "pending": true, "status": "queued for approval", "state": string(q.State),
 			"hil_id": q.ID, "action": q.Action, "channel": q.Channel, "recipient": q.Recipient.Name,
 			"message": "Prepared but NOT sent: it waits for the operator's approval in the Human in Loop queue. Do not retry or send it another way." + heldByRunToken(),
-		}))
+		}
+		if merged {
+			out["merged"] = true
+			out["message"] = out["message"].(string) + mergedNote
+		}
+		items = append(items, workflow.NewItem(out))
 	}
 	return []workflow.NodeOutput{{Handle: "main", Items: items}}, true, nil
 }

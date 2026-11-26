@@ -17,6 +17,7 @@ const RejectDraftPersonMessage = WailsApp.RejectDraftPersonMessage ?? (async () 
 import { HILCard, DraftMessageCard, suggestionOf, sortBySuggestion, SuggestionChip } from './hil/HILCards.jsx'
 import { LeadApprovalCard } from './hil/LeadApprovalCard.jsx'
 import { OrgDecisionCard } from './hil/OrgDecisionCard.jsx'
+import { HilScope } from './hil/AllProfiles.jsx'
 
 export { suggestionOf, sortBySuggestion, SuggestionChip }
 
@@ -303,6 +304,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
         </div>
       )}
 
+      <HilScope>
       <PersonItemsInbox />
 
       {/* Filter Tabs / Pills */}
@@ -451,6 +453,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
           onRejectGate={handleRejectGate}
         />
       ))}
+      </HilScope>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </>
