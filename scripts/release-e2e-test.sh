@@ -177,22 +177,27 @@ publish_assets v9.9.9; publish_assets v9.0.0
 # ── (5) install.sh ───────────────────────────────────────────────────────────
 echo "== 5: install.sh"
 n=0
-inst() { # <name> <ok|fail> <pattern> [env...]
+installer="$root/install.sh"
+sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
+# From here on nothing builds; every installer run is isolated (see the sourced file).
+# shellcheck source=scripts/install-test-isolation.sh
+. "$root/scripts/install-test-isolation.sh"
+inst() { # <name> <ok|fail> <pattern> [--unpinned] [env...]
   local name="$1" want="$2" pat="$3"; shift 3
-  local script="$root/install.sh"
+  local script="$installer"
   if [ "${1:-}" = --unpinned ]; then script="$work/install-unpinned.sh"; shift; fi
-  n=$((n+1)); local dest="$work/inst-$n" rc=0 o
-  o="$(env -u MONOAGENT_RELEASE_PUBKEY HOME="$home" INSTALL_DIR="$dest" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" \
-       MONOAGENT_MANIFEST_URL="$base/sh/manifest.json" "$@" bash "$script" 2>&1)" || rc=$?
+  n=$((n+1)); local dest="$work/prefix-inst-$n" isolated=0
+  INSTALLER_SCRIPT="$script" run_installer "inst-$n" MONOAGENT_MANIFEST_URL="$base/sh/manifest.json" "$@" || isolated=1
   local ok=0
   if [ "$want" = ok ]; then
     [ "$rc" -eq 0 ] && [ -x "$dest/monoagentcli" ] && [ "$("$dest/monoagentcli" version 2>&1 | head -n1 | grep -c 'v9.9.9')" -ge 1 ] && ok=1
   else
     [ "$rc" -ne 0 ] && [ ! -e "$dest/monoagentcli" ] && ok=1
   fi
-  grep -q -e "$pat" <<<"$o" || ok=0
-  case "$name" in *no-false-claim*) ! grep -qi "signature verified" <<<"$o" || ok=0 ;; esac
-  if [ "$ok" -eq 1 ]; then pass "install: $name"; else fail "install: $name (rc=$rc)" "$o"; fi
+  [ "$isolated" -eq 0 ] || ok=0
+  grep -q -e "$pat" <<<"$out" || ok=0
+  case "$name" in *no-false-claim*) ! grep -qi "signature verified" <<<"$out" || ok=0 ;; esac
+  if [ "$ok" -eq 1 ]; then pass "install: $name"; else fail "install: $name (rc=$rc)" "$out"; fi
 }
 # install.sh pins the release key; the "no key configured" cases run a copy
 # with the pin blanked, as a build without a key would ship.
@@ -230,7 +235,8 @@ inst "missing signature with a key configured" fail "signature verification FAIL
 # ── (6) update (the Go client) ───────────────────────────────────────────────
 echo "== 6: monoagentcli update"
 upd() { # runs the installed binary with the loopback + pinned key; extra args = update flags
-  HOME="$home" MONOAGENT_E2E_LOOPBACK="127.0.0.1:$port" MONOAGENT_E2E_PINNED_KEY="${PIN:-$good_line}" "$work/up/monoagentcli" update "$@" 2>&1
+  env -i PATH="$PATH" TMPDIR="$work/tmp" HOME="$home" XDG_DATA_HOME="$home/.local/share" XDG_CONFIG_HOME="$home/.config" \
+    MONOAGENT_E2E_LOOPBACK="127.0.0.1:$port" MONOAGENT_E2E_PINNED_KEY="${PIN:-$good_line}" "$work/up/monoagentcli" update "$@" 2>&1
 }
 ver() { "$work/up/monoagentcli" version 2>&1 | head -n1; }
 fresh_old() { mkdir -p "$work/up"; find "$work/up" -name monoagentcli -delete; cp "$bin/old-cli" "$work/up/monoagentcli"; }
@@ -273,6 +279,8 @@ set_go_latest "$work/art-v9.9.9/manifest.json" "$work/art-v9.9.9/manifest.json.s
 printf 'x' >> "$srv/$dl/v9.9.9/monoagentcli-$goos-$goarch"
 bad "tampered asset" "mismatch\|bytes"
 publish_assets v9.9.9
+
+canary_check; check "isolation: nothing reached the canary tree" $?
 
 echo
 echo "release-e2e: $passes passed, $fails failed"
