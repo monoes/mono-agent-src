@@ -11,12 +11,13 @@ import (
 
 const unsandboxedMark = "without a sandbox"
 
-func missingNotices(j journaledTurn) []chatevents.NoticePayload {
+// warningNotices returns the turn's agent.sandbox notices that are warnings.
+func warningNotices(j journaledTurn) []chatevents.NoticePayload {
 	var out []chatevents.NoticePayload
 	for _, n := range j.byType(chatevents.EventNotice) {
 		var p chatevents.NoticePayload
 		json.Unmarshal(n.Payload, &p)
-		if p.Code == "agent.sandbox.missing" {
+		if p.Code == noticeAgentSandbox && p.Severity == chatevents.SeverityWarning {
 			out = append(out, p)
 		}
 	}
@@ -52,12 +53,9 @@ func TestEveryUnsandboxedTurnWarns(t *testing.T) {
 			t.Setenv(monomind.EnvOverride, bin)
 			for _, turn := range []string{"turn-1", "turn-2"} {
 				out, errOut := chatWithStderr(t, dbPath, "--conversation", conv.ID, "--turn", turn, "--", "hi")
-				notices := missingNotices(parseJournaledTurn(t, out))
+				notices := warningNotices(parseJournaledTurn(t, out))
 				if (len(notices) == 1) != tc.want || len(notices) > 1 {
-					t.Errorf("%s: notices = %+v, want one: %v", turn, notices, tc.want)
-				}
-				if len(notices) == 1 && (notices[0].Severity != chatevents.SeverityWarning || !strings.Contains(notices[0].Message, unsandboxedMark)) {
-					t.Errorf("%s: notice = %+v", turn, notices[0])
+					t.Errorf("%s: warning notices = %+v, want one: %v", turn, notices, tc.want)
 				}
 				if got := strings.Count(errOut, unsandboxedMark); (got == 1) != tc.want || got > 1 {
 					t.Errorf("%s: stderr warned %d times, want one: %v; %q", turn, got, tc.want, errOut)

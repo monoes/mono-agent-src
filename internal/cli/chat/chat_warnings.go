@@ -5,7 +5,40 @@ import (
 	"io"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/monomind"
 )
+
+// unsandboxed is the warning ev calls for: non-empty for the start event of a
+// turn that runs without a sandbox, whatever the fallback setting was.
+func unsandboxed(runtime string, ev monomind.Event) string {
+	if ev.Type != monomind.EventStart || !monomind.SandboxMissing(ev.SandboxStatus) {
+		return ""
+	}
+	return monomind.UnsandboxedWarning(runtime, ev.SandboxStatus)
+}
+
+// warnUnsandboxed wraps a plain turn's event handler with the stderr warning.
+func warnUnsandboxed(w io.Writer, runtime string, next func(monomind.Event)) func(monomind.Event) {
+	return func(ev monomind.Event) {
+		if msg := unsandboxed(runtime, ev); msg != "" {
+			fmt.Fprintln(w, "warning: "+msg)
+		}
+		next(ev)
+	}
+}
+
+// sandboxSeverity is the severity of a journaled turn's agent.sandbox notice:
+// "warning" (said on stderr too) when the turn runs without a sandbox, which
+// the app shows as a warning on the turn, else "info".
+func (j *turnJournal) sandboxSeverity(ev monomind.Event) chatevents.NoticeSeverity {
+	msg := unsandboxed(j.runtimeID, ev)
+	if msg == "" {
+		return chatevents.SeverityInfo
+	}
+	fmt.Fprintln(j.warnTo, "warning: "+msg)
+	return chatevents.SeverityWarning
+}
 
 // The warnings a chat prints on stderr, never stdout: a --json result and a
 // turn's event stream stay parseable.

@@ -111,6 +111,7 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			return err
 		}
 		journal = newTurnJournal(jstore, jprofile, conversationID, turnID, conv.RuntimeID, os.Stdout)
+		journal.warnTo = cmd.ErrOrStderr()
 		journal.print(chatAdmission{Admitted: !existed, Existed: existed, Turn: turn.Record()})
 		if existed {
 			return nil // a retried start of a turn that already ran
@@ -448,7 +449,7 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 	// res.ResultText holds the reply even when the result event has
 	// no text (monomind.ApplyEventToResult assembles it from the
 	// assistant events), including a failed turn's partial reply.
-	onEvent := func(ev monomind.Event) { emit(ev) }
+	onEvent := warnUnsandboxed(cmd.ErrOrStderr(), runtime, func(ev monomind.Event) { emit(ev) })
 	if journal != nil {
 		onEvent = journal.handle
 	}
