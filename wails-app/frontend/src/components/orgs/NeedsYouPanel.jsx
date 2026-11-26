@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, MessageCircleQuestion, ShieldAlert, KeyRound, Clock, Hourglass, Workflow } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { KVBlock } from '../KVBlock.jsx'
+import { ApprovalCommand } from '../ApprovalCommand.jsx'
 import { pendingRawItems, joinNeedsYou } from './needsYouModel.js'
 import { waitedLabel, idleStopRemainingMs, idleStopLabel } from './waiting.js'
 import { Card, Chip, TierChip, mono, mutedText, sectionLabel } from './ui.jsx'
@@ -70,6 +71,7 @@ function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
           {raw?.count > 1 && <Chip>{raw.count} calls</Chip>}
         </div>
         {summary && <div style={{ ...mono, fontSize: 11.5, color: 'var(--text)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{summary}</div>}
+        {raw?.commands?.map((c, i) => <ApprovalCommand key={i} {...c} />)}
         <WaitingLine since={item?.waiting_since ?? raw?.since} idleSeconds={item?.idle_stop_in_seconds} fetchedAt={fetchedAt} now={now} />
         {raw && (
           <details>

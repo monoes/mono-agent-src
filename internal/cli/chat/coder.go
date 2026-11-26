@@ -42,6 +42,9 @@ type coderSettings struct {
 	MaxTurns      int     `json:"maxTurns"`
 	Timeout       string  `json:"timeout"`
 	BudgetUSD     float64 `json:"budgetUsd"`
+	// StartupTimeout is how long claude may take to initialize in a coder turn; unset is the default
+	// (resolveStartupTimeout), and is not filled in by withDefaults. Only the operator changes it.
+	StartupTimeout string `json:"startupTimeout,omitempty"`
 	// Dynamic org (#226): per-turn worker limits, the workers' budget
 	// (0 = none), and who picks a worker's model when the lead doesn't
 	// ("lead-then-jev" or "lead").
@@ -397,6 +400,10 @@ type coderStatus struct {
 	// DefaultAccessSource says whether defaultAccess is the built-in default
 	// or one the operator set.
 	DefaultAccessSource string `json:"defaultAccessSource"`
+	// StartupTimeoutEffective is the claude start-up limit coder turns run under now; StartupTimeoutSource says
+	// whether that is the default ("default"), the stored setting ("set") or the environment's ("env").
+	StartupTimeoutEffective string `json:"startupTimeoutEffective"`
+	StartupTimeoutSource    string `json:"startupTimeoutSource"`
 	// PeercredBindingEffective is whether turn tokens are bound now; PeercredBindingSource says whether that is the default
 	// ("default") or a stored choice ("set"); PeercredBindingNote says why a default that is on elsewhere is off here.
 	PeercredBindingEffective bool   `json:"peercredBindingEffective"`
@@ -426,6 +433,8 @@ func currentCoderStatus(cmd *cobra.Command, s coderSettings) coderStatus {
 	}
 	st.DefaultAccess = s.defaultAccess()
 	st.Box = s.boxMode()
+	startup, startupSource := s.resolveStartupTimeout()
+	st.StartupTimeoutEffective, st.StartupTimeoutSource = startup.String(), startupSource
 	rb := s.resolveBinding()
 	st.PeercredBindingEffective, st.PeercredBindingSource, st.PeercredBindingNote = rb.On, rb.Source, rb.Note
 	if !rb.On {
@@ -629,6 +638,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "enabled: %v\nworkspace root: %s\nmax turns: %d\ntimeout: %s\nbudget: $%g\nready: %v\n",
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
+			fmt.Fprintf(cmd.OutOrStdout(), "claude start-up limit of a coder turn: %s\n", startupTimeoutText(st))
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
 			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s\n", bindingStatusText(st))

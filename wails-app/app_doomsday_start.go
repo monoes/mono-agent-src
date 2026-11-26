@@ -274,7 +274,7 @@ func (a *App) DoomsdayStart(charterJSON, token, chatID, chatSpec string) string 
 		shown = at
 	}
 	if !returned {
-		return startDoc("not_started", "", "the confirmation did not return in time; nothing started", "declined")
+		return startDoc("not_started", "", dialogTimedOutDetail("nothing started"), "declined")
 	}
 	if errors.Is(err, errDialogBusy) {
 		return startDoc("not_started", "", err.Error(), "busy")
@@ -344,6 +344,12 @@ func (a *App) startRun(pid, charterJSON, phrase, chatID, mode string) string {
 // doomsdayDialogTimeout is how long a start waits for the native dialog before it gives the start lock back and counts
 // the start as declined (a dialog that never returns must not leave every later start busy).
 var doomsdayDialogTimeout = 5 * time.Minute
+
+// dialogTimedOutDetail is what a request says when it stops waiting for its native dialog. Wails cannot close a message
+// dialog, so the window stays up and its answer is dropped.
+func dialogTimedOutDetail(outcome string) string {
+	return "the confirmation did not return in time; " + outcome + ". Its window may still be open and answering it now does nothing: close it before you try again"
+}
 
 // dialogOpen is true while a native confirmation is on screen, including one the start stopped waiting for: it stays up
 // until the person dismisses it, and a second one must not be stacked on it.

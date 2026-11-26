@@ -47,6 +47,8 @@ type Approval struct {
 	Approved   *bool   `json:"approved"`
 	RequestID  *string `json:"requestId"`
 	ResolvedBy *string `json:"resolvedBy"`
+	// Input is the call's arguments, redacted and cut by monomind.
+	Input map[string]interface{} `json:"input"`
 }
 
 // Gate is one decision gate (`org gates <org> --all`).

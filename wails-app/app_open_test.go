@@ -210,7 +210,8 @@ func TestRevealArgv(t *testing.T) {
 	}
 	rec = &recorder{}
 	_ = revealChatPath(rec.opener("linux"), root, "docs")
-	if len(rec.starts) != 1 || rec.starts[0].args[0] != filepath.Join(root, "docs") {
+	// The resolved folder: the temp dir goes through a link on macOS.
+	if len(rec.starts) != 1 || rec.starts[0].args[0] != filepath.Dir(real) {
 		t.Fatalf("dir: %+v", rec.starts)
 	}
 

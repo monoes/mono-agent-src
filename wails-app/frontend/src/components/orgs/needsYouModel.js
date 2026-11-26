@@ -33,15 +33,17 @@ export function pendingRawItems(questionsRes, gatesRes, approvalsRes) {
     const key = `approval:${a.roleId}:${a.action}`
     const g = groups.get(key)
     const since = toMillis(a.ts)
+    const commands = a.command ? [{ command: a.command, truncated: !!a.command_truncated, cwd: a.cwd }] : []
     if (!g) {
       groups.set(key, {
         kind: 'approval', key, ref: `${a.roleId}:${a.action}`, role: a.roleId ?? null, action: a.action,
-        since, count: 1, requestIds: a.requestId ? [a.requestId] : [], text: a.question ?? `Approve ${a.action}?`, raw: a,
+        since, count: 1, requestIds: a.requestId ? [a.requestId] : [], text: a.question ?? `Approve ${a.action}?`, raw: a, commands,
       })
     } else {
       g.count++
       if (since != null && (g.since == null || since < g.since)) g.since = since
       if (a.requestId) g.requestIds.push(a.requestId)
+      g.commands.push(...commands)
     }
   }
   out.push(...groups.values())

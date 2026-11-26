@@ -79,6 +79,11 @@ type Item struct {
 	Answer     string `json:"answer,omitempty"`
 	// Blocking: a question that holds the org back until it is closed.
 	Blocking bool `json:"blocking,omitempty"`
+	// An approval of a shell call: the command (CommandTruncated when only its
+	// start is known) and the role's folder, which `org chat history` fills in.
+	Command          string `json:"command,omitempty"`
+	CommandTruncated bool   `json:"command_truncated,omitempty"`
+	Cwd              string `json:"cwd,omitempty"`
 }
 
 var approvalStatus = regexp.MustCompile(`^Approval (granted|denied) for (.+)$`)
@@ -208,7 +213,9 @@ func (b *builder) event(e Event) {
 			if ref == "" {
 				ref = e.From + ":" + action
 			}
-			i := b.add(Item{ID: e.ID, TS: e.TS, Kind: ItemApproval, Role: e.From, Ref: ref, Action: action, Text: str(d, "question"), Pending: true})
+			input, _ := d["input"].(map[string]interface{})
+			command, truncated := Command(input)
+			i := b.add(Item{ID: e.ID, TS: e.TS, Kind: ItemApproval, Role: e.From, Ref: ref, Action: action, Text: str(d, "question"), Pending: true, Command: command, CommandTruncated: truncated})
 			b.byRef[ItemApproval+"\x00"+ref] = i
 			b.approval[e.From+":"+action] = i
 		}
@@ -316,6 +323,10 @@ func (b *builder) merge(h HumanItems) {
 		it.Ref = ref
 		it.Pending = a.Approved == nil
 		it.Resolution = approvalState(a)
+		// The list is the record of what is being approved.
+		if command, truncated := Command(a.Input); command != "" {
+			it.Command, it.CommandTruncated = command, truncated
+		}
 		if a.ResolvedBy != nil {
 			it.ResolvedBy = *a.ResolvedBy
 		}

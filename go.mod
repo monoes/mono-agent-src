@@ -21,12 +21,12 @@ require (
 	github.com/jlaffaye/ftp v0.2.4
 	github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0
 	github.com/lib/pq v1.12.3
-	github.com/microsoft/go-mssqldb v1.11.2
+	github.com/microsoft/go-mssqldb v1.12.0
 	github.com/mmcdole/gofeed v1.5.0
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/olekukonko/tablewriter v1.1.5
 	github.com/pkg/sftp v1.13.12
-	github.com/rabbitmq/amqp091-go v1.16.0
+	github.com/rabbitmq/amqp091-go v1.17.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.35.1
@@ -39,9 +39,9 @@ require (
 	github.com/ysmood/gson v0.7.3
 	github.com/yuin/goldmark v1.8.7
 	github.com/zalando/go-keyring v0.2.8
-	go.mongodb.org/mongo-driver/v2 v2.10.0
+	go.mongodb.org/mongo-driver/v2 v2.10.1
 	golang.org/x/crypto v0.59.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
 	golang.org/x/text v0.44.0

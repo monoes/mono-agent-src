@@ -7,10 +7,10 @@ import { chatAccessApi } from '../../lib/chatAccessApi.js'
 import { ACCESS_LEVELS, isAccess, isCoderAccess, isRaise, browserKindFor } from '../../lib/chatAccess.js'
 import { getAssistantTools, getAssistantAllowRuns } from '../../lib/assistantTools.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
-import { money } from '../settings/aitaskBudgetApi.js'
 import { CapLower } from './PaneCapLower.jsx'
+import { SpendNotes, SpendValue } from './PaneSpend.jsx'
 import { SessionSettings } from './SessionSettings.jsx'
-import { useBrowserLevel, useCostVsCap } from './useChatPaneData.js'
+import { useBrowserLevel, useSpendCap, useTaskCap } from './useChatPaneData.js'
 
 const mono = 'var(--font-mono)'
 const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid var(--border)' }
@@ -130,7 +130,7 @@ function OrgRow({ bubble, store }) {
 const linkBtn = { fontSize: 10, padding: '1px 6px' }
 
 // PaneSettings is the popover of one open conversation: what it runs on
-// (fixed once created), its access level, its spend against the cap, the
+// (fixed once created), its access level, the cap on its next message, the
 // browser level for its kind, the org mode and the assistant tools. Only the
 // access level and the org mode are changed here; the rest links to Settings.
 export function PaneSettings({ bubble, access, store, confined, onNavigate, onClose }) {
@@ -138,7 +138,9 @@ export function PaneSettings({ bubble, access, store, confined, onNavigate, onCl
   const ref = useRef(null)
   const coder = isCoderAccess(access)
   const [costVersion, setCostVersion] = useState(0)
-  const cost = useCostVsCap(bubble.taskId || '', true, costVersion)
+  // A change of access changes which caps apply.
+  const spend = useSpendCap(bubble.conversationId || '', true, `${access}/${costVersion}`)
+  const taskCap = useTaskCap(bubble.taskId || '', true, costVersion)
   // A confined apply chat runs under the apply browser kind.
   const browserKind = confined ? 'apply' : browserKindFor(access)
   const browser = useBrowserLevel(browserKind, true)
@@ -160,13 +162,11 @@ export function PaneSettings({ bubble, access, store, confined, onNavigate, onCl
       <AccessRow bubble={bubble} access={access} store={store} confined={confined} />
       <div style={row} data-testid="pane-cost">
         <span style={label}>{t('bubbles.pane.spend')}</span>
-        <span style={value}>
-          {cost === undefined ? t('bubbles.loading')
-            : cost ? t(cost.scope === 'task' ? 'bubbles.pane.spendTask' : 'bubbles.pane.spendGlobal', { spent: cost.spentUsd == null ? '–' : money(cost.spentUsd), cap: money(cost.capUsd) })
-              : t('bubbles.pane.noCap')}
-        </span>
+        <span style={value}><SpendValue cap={spend} /></span>
         <button type="button" className="btn btn-ghost btn-sm" style={linkBtn} onClick={toSettings}>{t('bubbles.pane.budgetsLink')}</button>
-        <CapLower taskId={bubble.taskId || ''} conversationId={bubble.conversationId || ''} cost={cost} enabled={isAccess(access)} confined={confined} onLowered={() => setCostVersion(v => v + 1)} />
+        <SpendNotes cap={spend} />
+        {/* Lowering writes an AI-task cap, which bounds only a task's turns. */}
+        {bubble.taskId && <CapLower taskId={bubble.taskId} conversationId={bubble.conversationId || ''} cost={taskCap} enabled={isAccess(access)} confined={confined} onLowered={() => setCostVersion(v => v + 1)} />}
       </div>
       <div style={row} data-testid="pane-browser">
         <span style={label}>{t('bubbles.pane.browser')}</span>

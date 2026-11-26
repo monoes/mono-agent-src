@@ -174,24 +174,6 @@ func newOrgStatusCmd(root func() string) *cobra.Command {
 	}
 }
 
-func newOrgLogsCmd(root func() string) *cobra.Command {
-	var run string
-	c := &cobra.Command{
-		Use:   "logs <name>",
-		Short: "Show the org's bus event log",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := monomind.OrgLogs(cmd.Context(), root(), args[0], run)
-			if err != nil {
-				return err
-			}
-			return printOrgJSON(out)
-		},
-	}
-	c.Flags().StringVar(&run, "run", "", "Specific run id (default: most recent run)")
-	return c
-}
-
 func newOrgReportCmd(root func() string) *cobra.Command {
 	var all bool
 	var run string
@@ -341,13 +323,15 @@ func newOrgApprovalsCmd(root func() string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "approvals <name>",
 		Short: "List pending tool/action approval requests",
-		Args:  cobra.ExactArgs(1),
+		Long: "An approval of a shell call also carries command (command_truncated when monomind kept only " +
+			"its start) and cwd, the folder the org file gives the role.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out, err := monomind.OrgApprovals(cmd.Context(), root(), args[0])
 			if err != nil {
 				return err
 			}
-			return printOrgJSON(out)
+			return printOrgJSON(withApprovalCommands(root(), args[0], out))
 		},
 	}
 }
