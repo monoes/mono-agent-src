@@ -301,10 +301,12 @@ models (Jev)" describes the result.
   sampled-threshold warnings and the HIL skip reasons.
 
 **Open (not fixed, owner's call).**
-- A sampled provider cannot reach a 0.9 threshold on 5 samples. The default thresholds of HIL,
-  people links and asks are 0.9, and the org decider's 0.8 at level mid is out of reach on three
-  verdicts, so such a provider only suggests there. Raise the sample count or lower those
-  thresholds.
+- Settled (2026-11-26, owner): a sampled provider cannot read a threshold above (n+1)/(n+k) on
+  5 samples. On the low-risk surfaces only (`inbox`, `capture`, `people_links`, `retry`,
+  `api_auto`) such a threshold is lowered to what a unanimous result reads
+  (`jevconf.GateThreshold`). Everything else, HIL and asks at 0.9 and the org decider's 0.8 at
+  level mid included, is unchanged, so such a provider only suggests there. See AGENTS.md,
+  "Sampled thresholds".
 - There is no CLI to set the `decider` or `dynorg` surface's provider for a profile.
 - A vault entry named with `--secret-name` carries no bound origin.
 - The monomind side is tracked as monomind issue #835.

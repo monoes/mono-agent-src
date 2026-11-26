@@ -34,7 +34,7 @@ case "$*" in
   *" jev provider use "*) echo '{"scope":"default","surface":"","provider":"local","cleared":false}';;
   *" jev provider probe "*) echo '{"ok":true,"caps":{"kinds":["choice"],"probability":"logprob","max_choice_options":20,"questions_per_request":1,"models":true},"latency_ms":42,"error":""}';;
   *" jev provider remove "*) echo '{"removed":true,"name":"local","key_removed":false}';;
-  *" jev status"*) echo '{"profile_id":"work","key_source":"vault","key_entry":"typesafe","model":"jev-latest","base_url":"https://api.typesafe.ai","provider":"local","provider_kind":"openai","provider_host":"localhost:11434","probability":"logprob","provider_key_source":"keyless","provider_error":"jev: provider local cannot be used","surfaces":[{"surface":"hil","title":"t","description":"d","egress":["a"],"enabled":true,"threshold":0.9,"default_threshold":0.9,"provider":"local","provider_pinned":true},{"surface":"inbox","title":"t","description":"d","egress":["a"],"enabled":false,"threshold":0.7,"default_threshold":0.7}]}';;
+  *" jev status"*) echo '{"profile_id":"work","key_source":"vault","key_entry":"typesafe","model":"jev-latest","base_url":"https://api.typesafe.ai","provider":"local","provider_kind":"openai","provider_host":"localhost:11434","probability":"logprob","provider_key_source":"keyless","provider_error":"jev: provider local cannot be used","surfaces":[{"surface":"hil","title":"t","description":"d","egress":["a"],"enabled":true,"threshold":0.9,"default_threshold":0.9,"provider":"local","provider_pinned":true},{"surface":"inbox","title":"t","description":"d","egress":["a"],"enabled":false,"threshold":0.7,"default_threshold":0.7,"sampled_lowers_threshold":true}]}';;
   *" jev usage"*) echo '{"profile_id":"work","since":"x","surfaces":[{"surface":"hil","provider":"local","calls":2,"failures":0,"input_tokens":100,"output_tokens":2,"estimated_usd":0,"avg_latency_ms":30}],"total":{"surface":"total","calls":2,"input_tokens":100,"output_tokens":2}}';;
   *) echo 'unexpected' >&2; exit 2;;
 esac
@@ -137,6 +137,10 @@ func TestJevStatusAndUsageCarryProvider(t *testing.T) {
 	// A surface with no choice of its own follows the default: no provider, not pinned.
 	if s := st.Surfaces[1]; s.Provider != "" || s.ProviderPinned {
 		t.Fatalf("inbox = %+v", s)
+	}
+	// Which surfaces lower a sampled threshold is the CLI's word.
+	if st.Surfaces[0].SampledLowers || !st.Surfaces[1].SampledLowers {
+		t.Fatalf("sampled_lowers_threshold = %+v", st.Surfaces)
 	}
 	u, err := a.JevUsage("7d")
 	if err != nil || u.Surfaces[0].Provider != "local" || u.Surfaces[0].OutputTokens != 2 || u.Total.OutputTokens != 2 {

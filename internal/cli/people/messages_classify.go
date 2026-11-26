@@ -178,8 +178,9 @@ func classifyInboxMessage(ctx context.Context, c *jev.Client, m inboxCandidate, 
 	if err != nil {
 		return nil, err
 	}
-	intent, p := jev.GateValue(resp, resp.Answers["intent"]) // no probability gates as 0: unsure (plan D7)
-	unsure := p < threshold
+	answer := resp.Answers["intent"]
+	intent, p := jev.GateValue(resp, answer) // no probability gates as 0: unsure (plan D7)
+	unsure := p < jevconf.GateThreshold(jevconf.Inbox, resp, answer, threshold)
 	if unsure {
 		intent = ""
 	}
@@ -267,7 +268,8 @@ func (d Deps) newPeopleMessagesClassifyCmd() *cobra.Command {
 			"stores the answer in the message's metadata under _classification. When the top\n" +
 			"intent's probability is below the inbox threshold (default 0.7, `jev enable inbox\n" +
 			"--threshold`), the message is stored as unsure (no intent) and not asked again\n" +
-			"unless --reclassify.\n" +
+			"unless --reclassify. A provider that samples (5 answers) cannot read a threshold\n" +
+			"above what 5 agreeing answers read; such a threshold is lowered to that.\n" +
 			"\n" +
 			"Messages that already have a classification are skipped unless --reclassify.\n" +
 			"Sent to TypeSafe: sender name, subject and the first 6,000 characters of the body.\n" +

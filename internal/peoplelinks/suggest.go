@@ -60,8 +60,9 @@ func personState(p Person) map[string]any {
 // Suggest asks Jev, one request per pair, whether each pair is the same
 // human, and records the answer: p ≥ threshold ⇒ a "suggested" link
 // (relation "same", confidence p, source "jev:<model>", "jev:<provider>/<model>"
-// for a provider other than TypeSafe); p ≤ DismissAt with a native or logprob
-// probability ⇒ a "dismissed" link (relation "not_same", source "jev") so the
+// for a provider other than TypeSafe; for a sampled answer a unanimous result
+// reaches any threshold, jevconf.GateThreshold); p ≤ DismissAt with a native or
+// logprob probability ⇒ a "dismissed" link (relation "not_same", source "jev") so the
 // pair is never asked again;
 // anything in between, and any answer with no probability, records nothing. Pairs already linked are
 // skipped without a request. It returns ErrDisabled, making no request,
@@ -153,11 +154,12 @@ func suggestOne(ctx context.Context, c *jev.Client, db *storage.Database, profil
 		// same" — record nothing, as for an undecided pair.
 		return "", nil
 	}
-	_, p := jev.GateValue(resp, resp.Answers[QuestionID])
+	answer := resp.Answers[QuestionID]
+	_, p := jev.GateValue(resp, answer)
 	model := jev.ResponseLabel(resp, c.Model)
 	link := &storage.PersonLink{ProfileID: profileID, PersonA: a.ID, PersonB: b.ID, Confidence: p, Model: model}
 	switch {
-	case p >= threshold:
+	case p >= jevconf.GateThreshold(jevconf.PeopleLinks, resp, answer, threshold):
 		link.Relation, link.Status, link.Source = storage.PersonLinkSame, storage.PersonLinkSuggested, "jev:"+model
 	case p <= DismissAt && calibrated(resp):
 		link.Relation, link.Status, link.Source = storage.PersonLinkNotSame, storage.PersonLinkDismissed, "jev"

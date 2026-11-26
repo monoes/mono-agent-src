@@ -1942,6 +1942,7 @@ export namespace main {
 	    default_threshold: number;
 	    provider: string;
 	    provider_pinned?: boolean;
+	    sampled_lowers_threshold?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new JevSurface(source);
@@ -1958,6 +1959,7 @@ export namespace main {
 	        this.default_threshold = source["default_threshold"];
 	        this.provider = source["provider"];
 	        this.provider_pinned = source["provider_pinned"];
+	        this.sampled_lowers_threshold = source["sampled_lowers_threshold"];
 	    }
 	}
 	export class JevStatusInfo {

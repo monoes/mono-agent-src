@@ -25,6 +25,9 @@ type JevSurface struct {
 	// true when it has a choice of its own (a CLI before pinning leaves it out).
 	Provider       string `json:"provider"`
 	ProviderPinned bool   `json:"provider_pinned,omitempty"`
+	// SampledLowers is true when the surface lowers a threshold a sampling
+	// provider cannot read (the CLI's list; a CLI without it leaves it out).
+	SampledLowers bool `json:"sampled_lowers_threshold,omitempty"`
 }
 
 // JevStatusInfo mirrors `jev status --json`: where the key comes from

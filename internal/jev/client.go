@@ -73,6 +73,11 @@ type Answer struct {
 	Noul          float64            `json:"noul,omitempty"`
 	Score         float64            `json:"score,omitempty"`
 	Legend        map[string]string  `json:"legend,omitempty"`
+	// Unanimous is set by a sampling adapter alone: the probability the
+	// answered option would read had every sample named it, which a low-risk
+	// surface may lower its threshold to (jevconf.GateThreshold). 0 for an
+	// answer read any other way; never on the wire.
+	Unanimous float64 `json:"-"`
 
 	// noulMissing is set by UnmarshalJSON when the decoded object had no
 	// (or a null) "noul" field, so Validate can tell a missing noul from a

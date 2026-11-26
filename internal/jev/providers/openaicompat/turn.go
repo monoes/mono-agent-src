@@ -19,6 +19,7 @@ type turn struct {
 	q            jev.Question
 	sampled      bool // some request of the turn was sampled
 	tried        trial
+	unanimous    float64 // jev.Answer.Unanimous of the answer (answerOnce)
 
 	mu     sync.Mutex // guards usage and served: a question's samples run at once
 	usage  jev.Usage
@@ -44,10 +45,11 @@ var errNotALabel = fmt.Errorf("%w: the model did not answer with a single option
 // model put on it, through every level of a hierarchy, and the rest goes to
 // the other options.
 func (t *turn) answer(ctx context.Context) (map[string]float64, error) {
-	probs, cov, err := t.answerOnce(ctx)
+	probs, cov, ceil, err := t.answerOnce(ctx)
 	if errors.Is(err, errReplan) {
-		probs, cov, err = t.answerOnce(ctx)
+		probs, cov, ceil, err = t.answerOnce(ctx)
 	}
+	t.unanimous = ceil
 	if err != nil {
 		return nil, err
 	}
@@ -58,10 +60,13 @@ func (t *turn) answer(ctx context.Context) (map[string]float64, error) {
 // the labels the model was offered, and the share of the model's mass that
 // reached its most probable key: the product of the label coverage of every
 // request on the way to it (1 for a sampled request, already conservative).
-func (t *turn) answerOnce(ctx context.Context) (map[string]float64, float64, error) {
+// The third value is what that probability would be had every sample agreed:
+// the product of jev.UnanimousProbability over those requests, 0 when any of
+// them was read from log-probabilities.
+func (t *turn) answerOnce(ctx context.Context) (map[string]float64, float64, float64, error) {
 	opts, err := optionsOf(t.q)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	switch t.q.Type {
 	case jev.TypeNoul:
@@ -82,10 +87,11 @@ func (t *turn) answerOnce(ctx context.Context) (map[string]float64, float64, err
 // When the most probable option then falls in a group not visited (a torn
 // model), that group is answered too, so the answer is always an option the
 // model judged. The coverage returned is the group request's times that of
-// the requests inside the answer's group.
-func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, float64, error) {
+// the requests inside the answer's group, and so is the unanimous
+// probability.
+func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, float64, float64, error) {
 	if len(opts) == 1 {
-		return map[string]float64{opts[0].id: 1}, 1, nil // nothing to ask
+		return map[string]float64{opts[0].id: 1}, 1, 1, nil // nothing to ask
 	}
 	limit := t.b.perRequest()
 	if len(opts) <= limit {
@@ -97,9 +103,9 @@ func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, f
 	for i, g := range groups {
 		gopts[i] = option{id: fmt.Sprint(i), text: summary(g, budget)}
 	}
-	gp, gcov, err := t.flat(ctx, gopts, letters(len(gopts)), true)
+	gp, gcov, gceil, err := t.flat(ctx, gopts, letters(len(gopts)), true)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	best := 0
 	for i := range groups {
@@ -108,10 +114,10 @@ func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, f
 		}
 	}
 	inner := map[int]map[string]float64{}
-	innerCov := map[int]float64{}
+	innerCov, innerCeil := map[int]float64{}, map[int]float64{}
 	for {
-		if inner[best], innerCov[best], err = t.choose(ctx, groups[best]); err != nil {
-			return nil, 0, err
+		if inner[best], innerCov[best], innerCeil[best], err = t.choose(ctx, groups[best]); err != nil {
+			return nil, 0, 0, err
 		}
 		out := make(map[string]float64, len(opts))
 		top, topP := -1, -1.0
@@ -130,10 +136,10 @@ func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, f
 			}
 		}
 		if _, seen := inner[top]; seen {
-			return out, gcov * innerCov[top], nil
+			return out, gcov * innerCov[top], gceil * innerCeil[top], nil
 		}
 		if len(groups[top]) == 1 {
-			return out, gcov, nil
+			return out, gcov, gceil, nil
 		}
 		best = top
 	}
@@ -150,24 +156,27 @@ func split(opts []option, limit int) [][]option {
 }
 
 // flat asks one question over opts labelled labels and returns the
-// distribution over the options' ids and the request's label coverage.
-func (t *turn) flat(ctx context.Context, opts []option, labels []string, grouped bool) (map[string]float64, float64, error) {
-	byLabel, cov, err := t.dist(ctx, t.prompt(opts, labels, grouped), labels)
+// distribution over the options' ids, the request's label coverage and its
+// unanimous probability (dist).
+func (t *turn) flat(ctx context.Context, opts []option, labels []string, grouped bool) (map[string]float64, float64, float64, error) {
+	byLabel, cov, ceil, err := t.dist(ctx, t.prompt(opts, labels, grouped), labels)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	out := make(map[string]float64, len(opts))
 	for i, o := range opts {
 		out[o.id] = byLabel[labels[i]]
 	}
-	return out, cov, nil
+	return out, cov, ceil, nil
 }
 
 // dist is the distribution over labels the model gives for user,
 // renormalised over the labels, and the raw mass that fell on them: from
 // one request's log-probabilities, or from samples (coverage 1: already
-// conservative) when the provider has none.
-func (t *turn) dist(ctx context.Context, user string, labels []string) (map[string]float64, float64, error) {
+// conservative) when the provider has none. A sampled request also returns
+// jev.UnanimousProbability of its samples and labels; one read from
+// log-probabilities returns 0.
+func (t *turn) dist(ctx context.Context, user string, labels []string) (map[string]float64, float64, float64, error) {
 	if t.b.isSampled() {
 		return t.sample(ctx, user, labels, false)
 	}
@@ -194,7 +203,7 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 		return t.sample(ctx, user, labels, true)
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	top := res.top()
 	if len(top) < minAlternatives {
@@ -207,18 +216,18 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 	probs, coverage := jev.FromLogprobs(top, labels)
 	if coverage < minCoverage && len(labels) > t.b.perRequest() {
 		// Fewer alternatives came back than this request offered labels.
-		return nil, 0, errReplan
+		return nil, 0, 0, errReplan
 	}
 	if _, isLabel := matchOne(res.text(), labels); coverage < noCoverage && !isLabel {
 		// The one token was no label and nearly no mass fell on any: a
 		// thinking model starts with its reasoning. Asking again would too.
-		return nil, 0, errNotALabel
+		return nil, 0, 0, errNotALabel
 	}
 	if coverage < minCoverage {
-		return nil, 0, fmt.Errorf("%w: the model put %.0f%% of its answer on the %d allowed labels (it wanted to say something else)",
+		return nil, 0, 0, fmt.Errorf("%w: the model put %.0f%% of its answer on the %d allowed labels (it wanted to say something else)",
 			jev.ErrInvalidAnswer, coverage*100, len(labels))
 	}
-	return probs, coverage, nil
+	return probs, coverage, 0, nil
 }
 
 // conservative is jev.Conservative of probs scaled by coverage: the most
@@ -238,7 +247,7 @@ func conservative(probs map[string]float64, coverage float64) map[string]float64
 // them but toward no label. learn marks the provider as one without
 // log-probabilities once a request without them succeeds: that first
 // request is sent alone, so a provider refusing it is asked only once.
-func (t *turn) sample(ctx context.Context, user string, labels []string, learn bool) (map[string]float64, float64, error) {
+func (t *turn) sample(ctx context.Context, user string, labels []string, learn bool) (map[string]float64, float64, float64, error) {
 	t.sampled = true
 	body := t.request(user, 1, 0)
 	got := make([]*chatResponse, samples)
@@ -251,7 +260,7 @@ func (t *turn) sample(ctx context.Context, user string, labels []string, learn b
 	first := 0
 	if learn {
 		if err := one(ctx, 0); err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 		t.b.setSampled(true)
 		first = 1
@@ -271,7 +280,7 @@ func (t *turn) sample(ctx context.Context, user string, labels []string, learn b
 	}
 	wg.Wait()
 	if err := firstErr(errs); err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	counts := map[string]int{}
 	valid := 0
@@ -282,9 +291,9 @@ func (t *turn) sample(ctx context.Context, user string, labels []string, learn b
 		}
 	}
 	if valid < minValidSamples {
-		return nil, 0, fmt.Errorf("%w: only %d of %d samples named an allowed label", jev.ErrInvalidAnswer, valid, samples)
+		return nil, 0, 0, fmt.Errorf("%w: only %d of %d samples named an allowed label", jev.ErrInvalidAnswer, valid, samples)
 	}
-	return jev.SampledProbs(counts, samples, labels), 1, nil
+	return jev.SampledProbs(counts, samples, labels), 1, jev.UnanimousProbability(samples, len(labels)), nil
 }
 
 // firstErr is the first error of errs that is not the cancellation the

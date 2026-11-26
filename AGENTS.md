@@ -1216,7 +1216,8 @@ a key. It lives in `internal/openaiapi/`; the spec is
   answer with no probability (`none`: Jev did not decide, which does not
   count toward the pause below) or a
   probability under the surface's threshold (default 0, set it with `jev
-  enable api_auto --threshold`) uses a rule instead: of the validated models
+  enable api_auto --threshold`; for a sampled answer lowered to what a
+  unanimous one reads) uses a rule instead: of the validated models
   the most confined, then the cheapest, then the fastest, and with none
   validated a runtime's default model, claude first. Three questions in a row
   with no answer stop a profile's questions for 30 seconds (then one question
@@ -4594,7 +4595,8 @@ resolver prefix `jev:`.
   both discard anything that is not an allowed label; no provider's text
   ever reaches a caller. Gates compare the top option's
   probability with a per-surface threshold; below it the surface does exactly
-  what it did without Jev.
+  what it did without Jev. Five surfaces lower a threshold a sampling
+  provider cannot read (below, "Sampled thresholds").
 - **Which provider answers.** The first that applies: the call's own
   (`provider` in a node's config, `jev@<provider>` in `applications.evaluate`'s
   `runtime`, the org decider's `--decider-provider`, `jev ask --provider`) →
@@ -4627,14 +4629,44 @@ resolver prefix `jev:`.
   add-one smoothed over the samples asked, p = (count + 1) / (asked +
   options), a sample that named no option counting toward the samples asked
   and toward no option (fewer than 3 valid of 5 is an error). So five
-  agreeing answers read 6/7 ≈ 0.857 on two options and 0.75 on three, and a
-  `sampled` provider never reaches HIL's 0.9, `people_links`' 0.9, `asks`'
-  0.9 or the org decider's 0.8 at level mid (three verdicts: approve, deny,
-  escalate): there it only suggests, and the org decider hands every such
-  item to its model decider. Score answers from a sampled provider are
-  pulled toward the middle level. `people_links` records a permanent "not
-  the same" only from a `native` or `logprob` answer; a `sampled` or
-  `softmax` one leaves the pair to be asked again.
+  agreeing answers read 6/7 ≈ 0.857 on two options and 0.75 on three, and
+  outside the five surfaces below a `sampled` provider never reaches HIL's
+  0.9, `asks`' 0.9 or the org decider's 0.8 at level mid (three verdicts:
+  approve, deny, escalate): there it only suggests, and the org decider hands
+  every such item to its model decider. Score answers from a sampled
+  provider are pulled toward the middle level. `people_links` records a
+  permanent "not the same" only from a `native` or `logprob` answer; a
+  `sampled` or `softmax` one leaves the pair to be asked again.
+- **Sampled thresholds** (`jevconf.GateThreshold`,
+  `internal/jev/jevconf/sampled.go`). On the low-risk surfaces, and only
+  there, a sampled answer is compared with min(the configured threshold, what
+  a unanimous result reads on that question: (n+1)/(n+k) for n = 5 samples
+  and k options; for a choice split over several requests, the product over
+  the requests on the way to the answer). Five agreeing answers therefore
+  pass any threshold there, and anything less passes only a threshold it
+  reaches on its own. The bar falls as options grow: 0.3 on 15. A threshold a
+  sample can reach is unchanged, as is every `native`, `logprob`, `softmax`
+  and `none` answer, and a split choice with any request read from
+  log-probabilities.
+
+  | Lowered | What it can do |
+  |---|---|
+  | `inbox` | stores an intent label on a message |
+  | `capture` | suggests where to file a captured page; nothing is routed by itself |
+  | `people_links` | stores a suggested link (a permanent dismissal stays `native`/`logprob` only) |
+  | `retry` | stops or delays a retry of a failed node |
+  | `api_auto` | takes the picked model, among those the server serves |
+
+  Everything else compares with the configured threshold: HIL `auto_decide`
+  (`approve_above` and `reject_above`), the org decider at every level,
+  `asks`, `action_fallback` (the browser actions' fallback, record replay and
+  the social bots' element pick), `people_review`, the `ai.choose`,
+  `ai.decide`, `browser.jev` (plain and vault values) and
+  `applications.evaluate` nodes, and any surface added later. `ai.choose` and
+  `ai.decide` stay as configured because a routed branch may lead to a send,
+  which a node cannot tell. A surface gets the lowering only by being added
+  to the list in `sampled.go`; the tests beside it pin the list and every
+  caller.
 - **Cost shape.** TypeSafe answers many questions in one request; an
   `openai` provider makes one request per question (two or more for a large
   choice, five times as many when it samples) and

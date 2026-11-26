@@ -83,8 +83,9 @@ type Result struct {
 var now = time.Now
 
 // Classify asks Jev for the capture's kind. The kind is always recorded;
-// SuggestedRoute only when the top probability reaches the threshold and the
-// kind is one with a destination.
+// SuggestedRoute only when the top probability reaches the threshold (for a
+// sampled answer, jevconf.GateThreshold) and the kind is one with a
+// destination.
 func Classify(ctx context.Context, c *jev.Client, in Input) (Result, error) {
 	if c == nil {
 		return Result{}, errors.New("captureclassify: no Jev client")
@@ -107,7 +108,7 @@ func Classify(ctx context.Context, c *jev.Client, in Input) (Result, error) {
 	if th <= 0 {
 		th = DefaultThreshold
 	}
-	if route, ok := routes[kind]; ok && p >= th {
+	if route, ok := routes[kind]; ok && p >= jevconf.GateThreshold(jevconf.Capture, resp, a, th) {
 		r.SuggestedRoute = route
 	}
 	return r, nil

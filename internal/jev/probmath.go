@@ -182,8 +182,9 @@ func Conservative(mass map[string]float64) map[string]float64 {
 // where a sample that named no option (junk) counts toward asked but toward
 // no option, then Conservative for the mass junk left over. So 5 of 5 on a
 // two-option question is 6/7 ≈ 0.857 and on three options 6/8 = 0.75: five
-// samples never clear a 0.9 threshold. counts of an id not in options are
-// ignored.
+// samples never read 0.9 (jevconf.GateThreshold says which surfaces lower a
+// threshold for that).
+// counts of an id not in options are ignored.
 func SampledProbs(counts map[string]int, asked int, options []string) map[string]float64 {
 	return sampleShares(counts, asked, options, 1)
 }
