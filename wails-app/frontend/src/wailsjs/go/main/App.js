@@ -890,6 +890,10 @@ export function HILList() {
   return window['go']['main']['App']['HILList']();
 }
 
+export function HILOrgPendingAll() {
+  return window['go']['main']['App']['HILOrgPendingAll']();
+}
+
 export function HILPendingAll() {
   return window['go']['main']['App']['HILPendingAll']();
 }

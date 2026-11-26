@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { UnsandboxedWarning } from './chat/ChatWarnings.jsx'
 import { useTranslation } from 'react-i18next'
 import { X, ExternalLink, AlertTriangle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -140,6 +141,7 @@ export default function CaptureViewerModal({ doc, onClose }) {
                   {summaryStatusText(view.summary_status)}
                 </div>
               )}
+              {view.summary_status?.sandbox && <UnsandboxedWarning />}
               {view.summary && <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{view.summary}</ReactMarkdown>}
             </div>
           ) : tab === 'transcript' && view.transcript ? (

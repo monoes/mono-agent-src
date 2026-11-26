@@ -722,6 +722,7 @@ jobs:
     env:
       TAG:  ${{ needs.version.outputs.tag }}
       PREV: ${{ needs.version.outputs.prev }}
+      TOKEN_SET: ${{ secrets.RELEASES_REPO_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -848,6 +849,19 @@ jobs:
             echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
+      # The release is created NOT "latest": it has no signed manifest yet, and install.sh and
+      # `monoagentcli update` read releases/latest. It becomes latest in the last step of
+      # publish-releases-repo (or of this job where nothing is signed). Only a re-run of this
+      # job for the release that already is latest answers true, so it does not lose it.
+      - name: Does this release already hold latest
+        id: holds
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          holds="$(bash scripts/release-latest.sh holds)"
+          echo "holds=${holds}" >> "$GITHUB_OUTPUT"
+
       - name: Create the release in the releases repository
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
@@ -862,6 +876,16 @@ jobs:
           tag_name: ${{ env.TAG }}
           body: ${{ steps.notes.outputs.NOTES }}
           files: release-files/*
+          # A comparison, so a missing output means "false", never the API default (latest).
+          make_latest: ${{ steps.holds.outputs.holds == 'true' }}
+
+      # Without RELEASES_REPO_TOKEN (possible only while this repository is the releases
+      # repository) nothing is signed, so there is nothing to wait for. Last step of the job.
+      - name: Mark the release latest (no signed manifest is configured)
+        if: env.TOKEN_SET != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release-latest.sh mark
 
   # ─── 4. Sign the manifest ──────────────────────────────────────────────────
   # The release signing key lives ONLY as the `release` environment secret RELEASE_SIGNING_KEY.
@@ -927,9 +951,9 @@ jobs:
           path: artifacts/
 
       # The min-version floor comes from the RELEASES repo, not from this repo: the `release` job
-      # has already published ${TAG} here, so this repo's latest release is always the one being
-      # signed. An API failure fails the job (closed); an empty list is accepted only for the very
-      # first release.
+      # has already published ${TAG} there (not yet marked latest), and the floor is the highest
+      # other release. An API failure fails the job (closed); an empty list is accepted only for the
+      # very first release.
       - name: Latest published release in the releases repo
         if: steps.gate.outputs.enabled == 'true'
         id: latest
@@ -1043,7 +1067,9 @@ jobs:
   # nothing unless the secret RELEASES_REPO_TOKEN exists. It writes to RELEASES_REPO
   # with RELEASES_REPO_TOKEN. Assets,
   # manifest.json, manifest.json.sig and manifest.json.sshsig go up together, so the unsigned
-  # manifest never sits alone in the public release. install.sh is published last.
+  # manifest never sits alone in the public release. Then the published files are checked,
+  # install.sh is published, and only as the last step is the release marked "latest": a failure
+  # anywhere before leaves the previous release latest. Every step is safe to re-run.
   publish-releases-repo:
     needs: [version, release-manifest, release, sign-manifest]
     runs-on: ubuntu-latest
@@ -1157,16 +1183,31 @@ jobs:
           set +x
           if gh release view "${TAG}" --repo "${RELEASES_REPO}" >/dev/null 2>&1; then
             # A different version always makes a new release, so an existing one is a re-run.
-            # Never replace a manifest that is already signed.
-            if gh release view "${TAG}" --repo "${RELEASES_REPO}" --json assets -q '.assets[].name' | grep -qx 'manifest.json.sig'; then
-              echo "::error::${RELEASES_REPO} release ${TAG} already has manifest.json.sig; refusing to overwrite manifest.json. Delete the signature deliberately first if this re-run is intended."
-              exit 1
+            # Never replace a manifest that is already signed. A release that carries exactly this
+            # signed manifest is left as it is, so a re-run can finish the steps that follow.
+            names="$(gh release view "${TAG}" --repo "${RELEASES_REPO}" --json assets -q '.assets[].name')"
+            if grep -qx 'manifest.json.sig' <<<"${names}"; then
+              same="$(bash scripts/release-latest.sh same-manifest upload)"
+              if [ "${same}" != "yes" ]; then
+                echo "::error::${RELEASES_REPO} release ${TAG} already has manifest.json.sig; refusing to overwrite manifest.json. Delete the signature deliberately first if this re-run is intended."
+                exit 1
+              fi
+              echo "::notice::${RELEASES_REPO} release ${TAG} already carries exactly this signed manifest: nothing uploaded."
+            else
+              gh release upload "${TAG}" upload/* --repo "${RELEASES_REPO}" --clobber
             fi
-            gh release upload "${TAG}" upload/* --repo "${RELEASES_REPO}" --clobber
           else
-            gh release create "${TAG}" upload/* --repo "${RELEASES_REPO}" --title "${TAG}" \
+            gh release create "${TAG}" upload/* --repo "${RELEASES_REPO}" --latest=false --title "${TAG}" \
               --notes "Release ${TAG}. Update integrity: manifest.json is verified against manifest.json.sig."
           fi
+
+      # What the release serves now, downloaded and compared with the files verified above. Only
+      # a release that passes this may get install.sh published and be marked latest.
+      - name: Verify the published release
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: bash scripts/release-latest.sh verify-published upload
 
       # The README one-liner serves install.sh from the releases repository. It installs only from
       # a signed release (and needs manifest.json.sshsig where openssl cannot verify), so it is
@@ -1180,7 +1221,21 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
         run: |
           set -euo pipefail
+          # An older run finishing late must not put its installer over a newer release's.
+          superseded="$(bash scripts/release-latest.sh superseded)"
+          if [ "${superseded}" != "no" ]; then
+            echo "::notice::A newer release is latest: install.sh is left as it is."
+            exit 0
+          fi
           sha="$(gh api "repos/${RELEASES_REPO}/contents/install.sh?ref=${RELEASES_BRANCH}" --jq .sha 2>/dev/null || true)"
           args=(-f message="install.sh from ${TAG}" -f branch="${RELEASES_BRANCH}" -f content="$(base64 < install.sh | tr -d '\n')")
           if [ -n "${sha}" ]; then args+=(-f sha="${sha}"); fi
           gh api -X PUT "repos/${RELEASES_REPO}/contents/install.sh" "${args[@]}" > /dev/null
+
+      # The last step: from here install.sh and `monoagentcli update` use this release. It does
+      # nothing when a newer release already is latest.
+      - name: Mark the release latest
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: bash scripts/release-latest.sh mark

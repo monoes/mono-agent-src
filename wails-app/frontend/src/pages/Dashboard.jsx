@@ -95,12 +95,14 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
     await reloadLists()
   }
 
+  const versionTag = ver ? ` · v${ver.version.replace(/^v/, '')}` : ''
+
   return (
     <>
       <div className="page-header">
         <div className="page-header-left">
           <div className="page-title">{t('dashboard.title')}</div>
-          <div className="page-subtitle">{t('dashboard.subtitle')}{ver ? ` · v${ver.version.replace(/^v/, '')}` : ''}</div>
+          <div className="page-subtitle" title={`${t('dashboard.subtitle')}${versionTag}`}>{t('dashboard.subtitle')}{versionTag}</div>
         </div>
         <div className="page-header-right">
           <div className="dash-scope" role="group" aria-label={t('dashboard.scope.label')}>

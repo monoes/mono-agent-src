@@ -3642,6 +3642,15 @@
     "attachment": "Adjunto: {{name}}",
     "unreviewable": "No se puede revisar: {{reason}}"
   },
+  "ui8HilOrg": {
+    "heading": "Organizaciones",
+    "loading": "Leyendo las organizaciones…",
+    "org": "Organización: {{name}}",
+    "error": "No se pudieron listar los elementos de las organizaciones: {{error}}",
+    "unread": "No se pudieron leer algunos elementos de las organizaciones:",
+    "orgError": "{{profile}} · {{org}}: {{error}}",
+    "profileError": "{{profile}}: {{error}}"
+  },
   "ui6PagesDocs": {
     "title": "Documentos",
     "filter_by_name": "Filtrar por {{name}}",
@@ -6422,5 +6431,9 @@
     "task_complete": "completada",
     "task_failed": "con error",
     "task_cancelled": "cancelada"
+  },
+  "ui8Sandbox": {
+    "badge": "Sin sandbox",
+    "agentLabel": "Sin sandbox: este agente tiene acceso completo"
   }
 }

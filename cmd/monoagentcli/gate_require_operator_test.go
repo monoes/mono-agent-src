@@ -49,6 +49,7 @@ func requireOperatorRows() []reqOpRow {
 		{name: "publication delete", file: "publication.go", build: newPublicationCmd, args: []string{"delete", "no-such-publication"}},
 		{name: "table delete", file: "table_adapter.go", build: newTableCmd, args: []string{"delete", "no-such-table"}},
 		{name: "sandbox fallback --set", file: "sandbox.go", build: newSandboxCmd, args: []string{"fallback", "--set", "strictest"}},
+		orgPendingRow,
 	}
 }
 
