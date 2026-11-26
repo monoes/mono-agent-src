@@ -110,7 +110,11 @@ func TestFirstTurnBelowFullDoesNotWarnFull(t *testing.T) {
 
 // `chat --mode coder` is a new full-access chat.
 func TestPlainCoderTurnAtFullAccessWarns(t *testing.T) {
-	dbPath := fullAccessRig(t)
+	dbPath := newChatCLITestDB(t)
+	bin, _ := writeCoderMonomind(t, coderTranscript)
+	t.Setenv(monomind.EnvOverride, bin)
+	withCoderCaps(t, monomind.CoderCapabilities...)
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
 	_, errOut := chatWithStderr(t, dbPath, "--mode", "coder", "--runtime", "claude", "--cwd", t.TempDir(), "--", "fix it")
 	if !strings.Contains(errOut, fullWarningMark) {
 		t.Errorf("plain coder turn did not warn: %q", errOut)
