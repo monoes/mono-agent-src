@@ -25,6 +25,12 @@ const repoRoot = "../../.."
 // threshold: the gate functions (with the surface they name) and the
 // adapters' unanimous probability.
 var sampledUses = []string{
+	"internal/captureclassify/classify.go: GateThreshold(jevconf.Capture)",
+	"internal/cli/jevcli/retry.go: GateThreshold(jevconf.Retry)",
+	"internal/cli/people/messages_classify.go: GateThreshold(jevconf.Inbox)",
+	"internal/openaiapi/auto.go: CapThreshold",
+	"internal/openaiapi/auto_jev.go: SampledCeiling(jevconf.APIAuto)",
+	"internal/peoplelinks/suggest.go: GateThreshold(jevconf.PeopleLinks)",
 	"internal/jev/jevtest/sampled.go: Unanimous",
 	"internal/jev/jevtest/sampled.go: UnanimousProbability",
 	"internal/jev/providers/anthropic/anthropic.go: Unanimous",

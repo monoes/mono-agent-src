@@ -104,10 +104,10 @@ func TestImagesGiveTheSlotBack(t *testing.T) {
 		c.MaxConcurrent = 1
 		d.Auto = AutoFuncs{
 			Status: func(context.Context, string) AutoStatus { return AutoStatus{Available: true} },
-			Choose: func(cx context.Context, _, _ string, _ map[string]string) (string, float64, error) {
+			Choose: func(cx context.Context, _, _ string, _ map[string]string) (string, float64, float64, error) {
 				leave()
 				<-cx.Done()
-				return "", 0, cx.Err()
+				return "", 0, 0, cx.Err()
 			},
 		}
 	})

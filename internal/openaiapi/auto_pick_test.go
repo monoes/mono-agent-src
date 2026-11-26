@@ -119,6 +119,7 @@ type fakeAuto struct {
 	err     error
 	block   bool
 	thr     float64
+	ceiling float64
 	asked   int
 	prompt  string
 	options map[string]string
@@ -140,18 +141,18 @@ func (f *fakeAuto) script(block bool, err error, id string, p float64) {
 func (f *fakeAuto) funcs() AutoFuncs {
 	return AutoFuncs{
 		Status: func(context.Context, string) AutoStatus { return AutoStatus{Available: true} },
-		Choose: func(ctx context.Context, profile string, prompt string, options map[string]string) (string, float64, error) {
+		Choose: func(ctx context.Context, profile string, prompt string, options map[string]string) (string, float64, float64, error) {
 			f.mu.Lock()
 			f.asked++
 			f.chooseProfile, f.prompt, f.options = profile, prompt, options
-			block, id, p, err := f.block, f.id, f.p, f.err
+			block, id, p, ceiling, err := f.block, f.id, f.p, f.ceiling, f.err
 			f.mu.Unlock()
 			f.calls.Add(1)
 			if block {
 				<-ctx.Done()
-				return "", 0, ctx.Err()
+				return "", 0, 0, ctx.Err()
 			}
-			return id, p, err
+			return id, p, ceiling, err
 		},
 		Threshold: func(profile string) float64 {
 			f.thresholdProfile = profile
@@ -255,9 +256,9 @@ func TestPickAutoDoesNotWaitForAQuestionThatIgnoresItsContext(t *testing.T) {
 	h := newHarness(t, okTurn("ok"), func(d *Deps, c *Config) {
 		d.Auto = AutoFuncs{
 			Status: func(context.Context, string) AutoStatus { return AutoStatus{Available: true} },
-			Choose: func(context.Context, string, string, map[string]string) (string, float64, error) {
+			Choose: func(context.Context, string, string, map[string]string) (string, float64, float64, error) {
 				<-hang
-				return "codex/gpt-6-astra", 1, nil
+				return "codex/gpt-6-astra", 1, 0, nil
 			},
 		}
 		c.AutoTimeout = 50 * time.Millisecond
@@ -282,7 +283,7 @@ func TestPickAutoSurvivesAQuestionThatPanics(t *testing.T) {
 	h := newHarness(t, okTurn("ok"), func(d *Deps, _ *Config) {
 		d.Auto = AutoFuncs{
 			Status: func(context.Context, string) AutoStatus { return AutoStatus{Available: true} },
-			Choose: func(_ context.Context, _ string, prompt string, _ map[string]string) (string, float64, error) {
+			Choose: func(_ context.Context, _ string, prompt string, _ map[string]string) (string, float64, float64, error) {
 				panic("boom: " + prompt)
 			},
 		}
