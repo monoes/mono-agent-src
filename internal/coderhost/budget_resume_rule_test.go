@@ -182,3 +182,22 @@ func TestAnOldCompactedTurnLeavesNothingToSubtract(t *testing.T) {
 		t.Errorf("spent = %v %v, want 0.5 + 0.6", spent, err)
 	}
 }
+
+// A turn that journaled two different sets of counters gives no way to say which are the session's: charged whole.
+func TestATurnWithTwoSetsOfCountersIsChargedInFull(t *testing.T) {
+	for name, sets := range map[string][2]string{"high first": {every(900), every(30)}, "high last": {every(30), every(900)}} {
+		t.Run(name, func(t *testing.T) {
+			st := newStoreT(t)
+			m, _ := master(t, st, "coding")
+			c := m.ConversationID
+			base := time.Now().Add(-time.Hour)
+			journalClaudeTurn(t, st, c, "t0", base, claudeTurn{"s1", "0.4", every(400)})
+			journalClaudeTurn(t, st, c, "t1", base.Add(time.Minute), claudeTurn{"s1", "0.45", sets[0]})
+			event(t, st, c, "t1", 4, "notice", usageNotice(sets[1]))
+			stampEvents(t, st)
+			if spent, err := st.Spent("p", c); err != nil || math.Abs(spent-0.85) > 1e-9 {
+				t.Errorf("spent = %v %v, want 0.4 + 0.45", spent, err)
+			}
+		})
+	}
+}

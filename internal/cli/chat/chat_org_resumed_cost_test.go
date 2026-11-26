@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -62,18 +63,26 @@ type discardEvents struct{}
 func (discardEvents) Emit(chatevents.EventType, any) {}
 
 // An AI task's workers share a pool: a resumed claude run takes from it what it added, so the pool bounds what the
-// workers really spend.
+// workers really spend. A run that counted again from zero takes all it reports.
 func TestTaskWorkersPoolCountsAResumedClaudeRunOnce(t *testing.T) {
+	t.Run("restored totals", func(t *testing.T) {
+		testTaskWorkersPool(t, []float64{0.2, 0.3, 0.55}, []int64{200, 300, 550}, []float64{0.5, 0.3, 0.2}, 0.55)
+	})
+	t.Run("not restored", func(t *testing.T) {
+		testTaskWorkersPool(t, []float64{0.2, 0.25, 0.3}, []int64{900, 300, 200}, []float64{0.5, 0.3, 0.05}, 0.75)
+	})
+}
+
+func testTaskWorkersPool(t *testing.T, totals []float64, tokens []int64, wantCaps []float64, wantUsed float64) {
 	r, st, cfg := workersRig(t)
 	opts := monomind.ExecOptions{BudgetUSD: 1} // the pool is 0.50
-	totals := []float64{0.2, 0.3, 0.55}
 	var caps []float64
 	inner := func(_ context.Context, o monomind.ExecOptions, on func(monomind.Event)) (*monomind.TurnResult, error) {
-		total := totals[len(caps)]
+		total, n := totals[len(caps)], tokens[len(caps)]
 		caps = append(caps, o.BudgetUSD)
 		on(monomind.Event{Type: monomind.EventSession, SessionID: "s1"})
 		return &monomind.TurnResult{SawDone: true, ResultText: "ok", StopReason: monomind.StopEndTurn, SessionID: "s1", CostUSD: total, HasCostUSD: true,
-			ModelUsage: map[string]monomind.ModelUsage{"opus": {Input: int64(total * 1000), Output: 1}}}, nil
+			ModelUsage: map[string]monomind.ModelUsage{"opus": {Input: n, Output: 1}}}, nil
 	}
 	_, exec, _, _ := taskWorkers(st.DB, cfg, r.convID, "turn-1", coderSettings{}, &opts, inner)
 	m := dynorg.Model{Runtime: "claude", Model: "opus", FullAccess: true, Resume: true, ReportsCost: true}
@@ -89,11 +98,12 @@ func TestTaskWorkersPoolCountsAResumedClaudeRunOnce(t *testing.T) {
 		}
 		c.Wait(context.Background(), []string{"w1"}, 10*time.Second)
 	}
-	if len(caps) != 3 || math.Abs(caps[0]-0.5) > 1e-9 || math.Abs(caps[1]-0.3) > 1e-9 || math.Abs(caps[2]-0.2) > 1e-9 {
-		t.Fatalf("caps = %v, want 0.5, then the 0.3 and 0.2 left", caps)
+	near := func(a, b float64) bool { return math.Abs(a-b) <= 1e-9 }
+	if !slices.EqualFunc(caps, wantCaps, near) {
+		t.Fatalf("caps = %v, want %v (what is left of the 0.5 pool)", caps, wantCaps)
 	}
 	var used float64
-	if err := st.DB.QueryRow(`SELECT COALESCE(SUM(spent_usd), 0) FROM ai_budget_pool`).Scan(&used); err != nil || math.Abs(used-0.55) > 1e-9 {
-		t.Fatalf("the pool spent %v (%v), want 0.55", used, err)
+	if err := st.DB.QueryRow(`SELECT COALESCE(SUM(spent_usd), 0) FROM ai_budget_pool`).Scan(&used); err != nil || !near(used, wantUsed) {
+		t.Fatalf("the pool spent %v (%v), want %v", used, err, wantUsed)
 	}
 }

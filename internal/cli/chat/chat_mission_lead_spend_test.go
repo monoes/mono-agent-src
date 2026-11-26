@@ -36,6 +36,8 @@ type leadSpendRig struct {
 	spendCap   func(t *testing.T) chatSpendCap
 	argsLog    string
 	systemFile string
+	// journaled is the largest cost the turn's usage events name: the turn's total as the UI and an AI task read it.
+	journaled func(turn string) float64
 
 	turn    func(id string) (meter, conversation float64)
 	meter   func() (float64, tasks.SessionState)
@@ -142,6 +144,14 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
 		meter, _ := rig.meter()
 		return meter, spent
 	}
+	rig.journaled = func(id string) (usd float64) {
+		t.Helper()
+		if err := db.DB.QueryRow(`SELECT MAX(json_extract(payload, '$.costUsd')) FROM ai_chat_events WHERE conversation_id = ? AND turn_id = ? AND type = 'usage.updated'`,
+			conv.ID, id).Scan(&usd); err != nil {
+			t.Fatal(err)
+		}
+		return usd
+	}
 	rig.atGate = func() {
 		t.Helper()
 		for deadline := time.Now().Add(20 * time.Second); os.Remove(gate+".reached") != nil; time.Sleep(20 * time.Millisecond) {
@@ -181,9 +191,13 @@ func TestMissionLeadTurnsAreChargedOnce(t *testing.T) {
 // The compaction at a turn's end resumes the same session, so its figure includes the turn's: it is counted once,
 // and charged to the mission with the turn it belongs to.
 func TestMissionLeadCompactionIsChargedOnce(t *testing.T) {
-	turn := leadSpendMission(t, "0.41 warn\n0.5\n0.6\n")
+	rig := newLeadSpendRig(t, "0.41 warn\n0.5\n0.6\n", true)
+	turn := rig.turn
 	meter, conv := turn("t1")
 	wantSpend(t, "the compacted turn", meter, conv, 0.5)
+	if got := rig.journaled("t1"); math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("the compacted turn's journaled total = %v, want 0.5", got)
+	}
 	meter, conv = turn("t2")
 	wantSpend(t, "the turn after it", meter, conv, 0.6)
 }
@@ -203,9 +217,13 @@ func TestMissionLeadTurnNotRestoredIsChargedInFull(t *testing.T) {
 // The compaction is judged by the same rule: one that counted from zero is added to its turn, and the next turn is
 // judged against what the compaction reported.
 func TestMissionLeadCompactionNotRestoredIsAddedWhole(t *testing.T) {
-	turn := leadSpendMission(t, "0.41 warn - 900\n0.5 - - 100\n0.9 - - 400\n")
+	rig := newLeadSpendRig(t, "0.41 warn - 900\n0.5 - - 100\n0.9 - - 400\n", true)
+	turn := rig.turn
 	meter, conv := turn("t1")
 	wantSpend(t, "the compacted turn", meter, conv, 0.91)
+	if got := rig.journaled("t1"); math.Abs(got-0.91) > 1e-9 {
+		t.Errorf("the compacted turn's journaled total = %v, want 0.91", got)
+	}
 	meter, conv = turn("t2")
 	wantSpend(t, "the turn after it", meter, conv, 1.31)
 }
