@@ -52,6 +52,9 @@ func (f *pendingFake) All(ctx context.Context, root, org, kind string) (json.Raw
 	f.active[key]++
 	f.maxOrgs = max(f.maxOrgs, len(f.active))
 	hang, failure, payload := f.hang[key], f.fail[key], f.lists[key+"\x00"+kind]
+	if hang {
+		f.finished.Add(1) // under the lock: the cleanup takes it before it waits
+	}
 	f.mu.Unlock()
 	defer func() {
 		f.mu.Lock()
@@ -61,7 +64,6 @@ func (f *pendingFake) All(ctx context.Context, root, org, kind string) (json.Raw
 		f.mu.Unlock()
 	}()
 	if hang {
-		f.finished.Add(1)
 		defer f.finished.Done()
 		<-f.release
 		return nil, errors.New("released")
@@ -89,6 +91,8 @@ func usePendingFake(t *testing.T) *pendingFake {
 	orgChatClient = f
 	t.Cleanup(func() {
 		close(f.release)
+		f.mu.Lock() // orders every Add before the Wait
+		f.mu.Unlock()
 		f.finished.Wait()
 		orgChatClient = prev
 	})
@@ -281,7 +285,7 @@ func TestOrgPendingAllIsBounded(t *testing.T) {
 	}
 	fake.hang[home+"\x00h0"] = true
 	fake.lists[work+"\x00w4\x00gates"] = `{"items":[{"id":"gate-w4","name":"g","description":"d","roleId":"lead","status":"pending","createdAt":3}]}`
-	shortPendingLimits(t, 300*time.Millisecond, time.Minute)
+	shortPendingLimits(t, 2*time.Second, time.Minute) // room for a loaded CI runner
 
 	doc := pendingAll(t, cfg)
 	if len(doc.Items) != 1 || doc.Items[0].Ref != "gate-w4" {

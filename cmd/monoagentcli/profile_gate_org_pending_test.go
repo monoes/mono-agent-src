@@ -8,6 +8,9 @@ import (
 	"github.com/monoes/mono-agent/internal/testhome"
 )
 
+// orgPendingRow is `org pending --all` in the RequireOperator wiring table.
+var orgPendingRow = reqOpRow{name: "org pending --all", file: "org_env.go", build: newOrgCmd, args: []string{"pending", "--all"}}
+
 // Whatever is not the user's own terminal is refused the cross-profile list of
 // what organizations wait on, through the production gate, as `hil pending
 // --all` is: a coder turn and every environment context.
