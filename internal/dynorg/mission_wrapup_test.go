@@ -137,20 +137,113 @@ func TestWrapUpLeadFinishesAndReplans(t *testing.T) {
 	}
 }
 
-func TestWrapUpOperatorPauseGrantsNothing(t *testing.T) {
-	r := newRig(t, rigOpts{conv: "conv-1", budget: 1})
-	a := r.add(spec{title: "mine", exec: ExecLead, files: "a.go"})
+// The operator's pause opens nothing (no hand-back) and lifts no limit: a spent mission starts no paid work, whether
+// the pause landed before the conductor's halt or after a halt, a resume and a pause.
+func TestWrapUpHoldsUnderTheOperatorsPause(t *testing.T) {
+	// All through the store, before any conductor watches the session: no watcher's halt races the operator's steps.
+	for name, arrange := range map[string]func(r *missionRig){
+		"pause before the halt": func(r *missionRig) {
+			r.pause()
+			r.spend(2)
+		},
+		"halt, resume, pause": func(r *missionRig) {
+			r.spend(2)
+			halt := tasks.Actor{Kind: tasks.Agent, Name: missionConductorName, Session: r.sid}
+			if _, err := r.store.PauseSession(tbg, "default", r.sid, halt); err != nil {
+				r.t.Fatal(err)
+			}
+			if _, err := r.store.ResumeSession(tbg, "default", r.sid, operator); err != nil {
+				r.t.Fatal(err)
+			}
+			r.pause()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, rigOpts{conv: "conv-1", budget: 1})
+			a := r.add(spec{title: "mine", exec: ExecLead, files: "a.go"})
+			r.approve()
+			lead := tasks.Actor{Kind: tasks.Agent, Name: missionLeadName, Session: r.sid, Task: a.ID}
+			if _, err := r.store.SessionClaim(tbg, "default", r.sid, a.ID, lead, time.Hour); err != nil {
+				t.Fatal(err)
+			}
+			arrange(r)
+			c := r.conductorFor(Limits{MaxAgents: 20, MaxConcurrent: 5}, r.leadOf("conv-1"))
+			for tool, args := range map[string]string{
+				ToolSpawn:   `{"brief":"look around"}`,
+				ToolMessage: `{"agent_id":"w1","text":"go on"}`,
+			} {
+				_, err := c.Handle(tbg, tool, json.RawMessage(args))
+				if err == nil || !strings.Contains(err.Error(), "budget") || strings.Contains(err.Error(), ToolMissionTaskFinish) {
+					t.Errorf("%s on a spent mission the operator paused: %v", tool, err)
+				}
+			}
+			time.Sleep(50 * time.Millisecond) // anything started by mistake would reach the runtime
+			if n, w := r.ex.execCount(), c.workerCount(); n != 0 || w != 0 {
+				t.Errorf("%d execs and %d workers on a spent mission", n, w)
+			}
+			if _, err := c.Handle(tbg, ToolMissionTaskFinish, json.RawMessage(`{"task_id":`+itoa(a.ID)+`,"result":"done"}`)); err == nil {
+				t.Error("finished a task of a mission the operator paused")
+			}
+			if out := r.call(c, ToolMissionStatus, `{}`); !strings.Contains(out, "Paused by the operator") || strings.Contains(out, "hand back your own tasks") {
+				t.Errorf("status under the operator's pause: %s", out)
+			}
+			se, w, err := c.Mission().WrapUp(tbg)
+			if err != nil || w == nil || w.HandBack {
+				t.Fatalf("wrap-up under the operator's pause: %+v %v", w, err)
+			}
+			if p := WrapUpPrompt("default", *se, *w); strings.Contains(p, ToolMissionTaskFinish) || !strings.Contains(p, "paused") {
+				t.Errorf("the lead is offered a hand-back under the operator's pause: %s", p)
+			}
+		})
+	}
+}
+
+// The operator's pause of a mission with money left is as before: no allowance and no refusal from this rule.
+func TestWrapUpLeavesAnUnspentPauseAlone(t *testing.T) {
+	r := newRig(t, rigOpts{conv: "conv-1", budget: 10})
+	r.add(spec{title: "mine", exec: ExecLead, files: "a.go"})
 	r.approve()
 	c := r.conductorFor(Limits{MaxAgents: 20, MaxConcurrent: 5}, r.leadOf("conv-1"))
-	r.call(c, ToolMissionAssign, `{"task_id":`+itoa(a.ID)+`,"executor":"lead"}`)
-	if _, err := r.store.PauseSession(tbg, "default", r.sid, operator); err != nil {
-		t.Fatal(err)
-	}
-	r.spend(2)
-	if _, err := c.Handle(tbg, ToolMissionTaskFinish, json.RawMessage(`{"task_id":`+itoa(a.ID)+`,"result":"done"}`)); err == nil {
-		t.Fatal("finished a task of a mission the operator paused")
-	}
+	r.pause()
 	if _, w, err := c.Mission().WrapUp(tbg); err != nil || w != nil {
-		t.Fatalf("wrap-up after the operator's pause: %v %v", w, err)
+		t.Fatalf("an allowance without exhaustion: %+v %v", w, err)
+	}
+	if err := c.refusePaidWork(tbg, ToolSpawn); err != nil {
+		t.Fatalf("refused on an unspent mission: %v", err)
+	}
+}
+
+func (r *missionRig) pause() {
+	r.t.Helper()
+	if _, err := r.store.PauseSession(tbg, "default", r.sid, operator); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// org_roster's suggested team can cost a chooser call: a spent mission gets the plain roster and a note instead.
+func TestWrapUpRosterSuggestsNoTeamOnASpentMission(t *testing.T) {
+	r := newRig(t, rigOpts{conv: "conv-1", budget: 1})
+	r.add(spec{title: "one", exec: ExecWorker})
+	r.approve()
+	c := r.conductorFor(Limits{MaxAgents: 20, MaxConcurrent: 5}, r.leadOf("conv-1"))
+	ch := &fakeChooser{}
+	c.cfg.Staffer.Chooser = ch
+	const brief = `{"brief":"implement the cache layer, then write tests that verify it, and review the change for security problems"}`
+	if out := r.call(c, ToolRoster, brief); !strings.Contains(out, `"suggested_team"`) || len(ch.asked) == 0 {
+		t.Fatalf("with money left the suggestion is made: %d chooser calls, %s", len(ch.asked), out)
+	}
+	r.spend(1.2)
+	ch.asked = nil
+	for _, args := range []string{brief, `{}`} {
+		out := r.call(c, ToolRoster, args)
+		if !strings.Contains(out, `"models"`) || strings.Contains(out, `"suggested_team"`) {
+			t.Errorf("the roster of a spent mission for %s: %s", args, out)
+		}
+		if asked := strings.Contains(out, "has spent its budget"); asked != (args == brief) {
+			t.Errorf("the note for %s: %v", args, asked)
+		}
+	}
+	if len(ch.asked) != 0 {
+		t.Errorf("a spent mission paid %d chooser calls: %v", len(ch.asked), ch.asked)
 	}
 }

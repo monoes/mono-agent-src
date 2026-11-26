@@ -102,6 +102,7 @@ var knownPersonSites = map[string]int{
 	"internal/coderhost/person_proof.go:reservedPersonTurn:answerFromPerson": 1,
 	"internal/coderhost/person_proof.go:reservedPersonTurn:askFromPerson":    1,
 	"internal/coderhost/store.go:enqueueOn:reservedPersonTurn":               1, // the refusal
+	"internal/coderhost/mission_wrapup.go:AutomaticTurn:reservedPersonTurn":  1, // a reader: the person's answers may draw on a spent mission's wrap-up allowance
 	"internal/coderhost/ask_reply.go:closeAndDeliver:askFromPerson":          1, // marks the reply person only for the person's origin; its callers are pinned by the AnswerAncestorQuestion entry
 }
 

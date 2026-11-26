@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, MessageCircleQuestion, ShieldAlert, KeyRound } from 'lucide-react'
-import { ApprovalCommand, ApprovalInput } from '../../components/ApprovalCommand.jsx'
+import { ApprovalCall } from '../../components/ApprovalCommand.jsx'
 import { NoRequestID } from '../../components/NoRequestID.jsx'
 
 // ── 4. Org Decision / Question / Gate Card ────────────────────
@@ -106,8 +106,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
 
           {item.kind === 'approval' && (
             <div style={{ marginBottom: 16 }}>
-              <ApprovalCommand command={item.command} truncated={item.command_truncated} cwd={item.cwd} />
-              {!item.command && <ApprovalInput input={item.input} />}
+              <ApprovalCall command={item.command} truncated={item.command_truncated} cwd={item.cwd} input={item.input} />
             </div>
           )}
 

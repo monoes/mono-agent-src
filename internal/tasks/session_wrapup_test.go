@@ -47,8 +47,9 @@ func wantWrapUp(t *testing.T, w *WrapUp, spent, held, left float64) {
 	}
 }
 
-// The allowance exists only for a mission with a budget that it has spent, while it runs or after the conductor's
-// budget halt: never without a budget, with money left, after the operator's pause or stop, or in a draft.
+// The allowance exists for a mission with a budget that it has spent, while it runs or is paused, whoever paused it:
+// never without a budget, with money left, after a stop, or in a draft. The lead's hand-back is open only while the
+// mission runs or the conductor's budget halt paused it: the operator's pause opens nothing and lifts no limit.
 func TestWrapUpAppliesOnlyToExhaustionByBudget(t *testing.T) {
 	s, _, _ := newTestStore(t)
 	if w := wrapUpOf(t, s, spentMission(t, s, 0, 40).ID); w != nil {
@@ -60,31 +61,40 @@ func TestWrapUpAppliesOnlyToExhaustionByBudget(t *testing.T) {
 
 	running := spentMission(t, s, 1, 1)
 	wantWrapUp(t, wrapUpOf(t, s, running.ID), 0, 0, 5)
+	wantHandBack(t, wrapUpOf(t, s, running.ID), true)
 	if _, err := s.PauseSession(bg, "default", running.ID, conductorActor(running.ID)); err != nil {
 		t.Fatal(err)
 	}
 	wantWrapUp(t, wrapUpOf(t, s, running.ID), 0, 0, 5)
+	wantHandBack(t, wrapUpOf(t, s, running.ID), true)
 
 	paused := spentMission(t, s, 1, 0.5)
 	if _, err := s.PauseSession(bg, "default", paused.ID, human); err != nil {
 		t.Fatal(err)
 	}
+	if w := wrapUpOf(t, s, paused.ID); w != nil {
+		t.Errorf("the operator's pause of an unspent mission: %+v", *w)
+	}
 	if _, err := s.AddSessionSpend(bg, "default", paused.ID, 1, "in flight", human); err != nil {
 		t.Fatal(err)
 	}
-	if w := wrapUpOf(t, s, paused.ID); w != nil {
-		t.Errorf("the operator's pause grants nothing: %+v", *w)
+	wantWrapUp(t, wrapUpOf(t, s, paused.ID), 0, 0, 5) // spent: the limit holds under the operator's pause too
+	wantHandBack(t, wrapUpOf(t, s, paused.ID), false)
+	// a halt, a turn, then the operator resumes without raising and pauses: the same allowance, no new one
+	if _, err := s.BeginWrapUpTurn(bg, "default", running.ID, "t1", human); err != nil {
+		t.Fatal(err)
 	}
-	// a halt, then the operator resumes without raising and pauses: the operator's pause again
+	if err := s.SettleWrapUpTurn(bg, "default", running.ID, "t1", 2, human); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.ResumeSession(bg, "default", running.ID, human); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.PauseSession(bg, "default", running.ID, human); err != nil {
 		t.Fatal(err)
 	}
-	if w := wrapUpOf(t, s, running.ID); w != nil {
-		t.Errorf("paused by the operator after the halt: %+v", *w)
-	}
+	wantWrapUp(t, wrapUpOf(t, s, running.ID), 2, 0, 3)
+	wantHandBack(t, wrapUpOf(t, s, running.ID), false)
 
 	stopped := spentMission(t, s, 1, 2)
 	if _, err := s.StopSession(bg, "default", stopped.ID, human); err != nil {
@@ -102,6 +112,13 @@ func TestWrapUpAppliesOnlyToExhaustionByBudget(t *testing.T) {
 	}
 	if w := wrapUpOf(t, s, draft.ID); w != nil {
 		t.Errorf("a draft: %+v", *w)
+	}
+}
+
+func wantHandBack(t *testing.T, w *WrapUp, want bool) {
+	t.Helper()
+	if w == nil || w.HandBack != want || w.Lasts() != want {
+		t.Errorf("hand-back of %+v, want %v", w, want)
 	}
 }
 

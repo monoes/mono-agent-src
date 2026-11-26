@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 const mono = 'var(--font-mono)'
 const note = { fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', overflowWrap: 'anywhere' }
 const warning = { ...note, color: '#fbbf24' }
+const column = { display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }
+const box = { margin: 0, maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: mono, fontSize: 11, color: 'var(--text)', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '6px 8px' }
 
 // Characters that show nothing or reorder what shows: controls (tab and line
 // break aside), format characters (bidi, zero width, tags) and the Unicode
@@ -24,7 +26,7 @@ const visible = text => text.split(unseen).map((part, i) => (i % 2
 const BOX_LINES = 8
 
 // useMoreBelow says whether the box holds more than shows under its edge.
-function useMoreBelow(command) {
+function useMoreBelow(text) {
   const ref = useRef(null)
   const [more, setMore] = useState(false)
   const measure = () => {
@@ -32,26 +34,36 @@ function useMoreBelow(command) {
     if (!el) return
     setMore(el.clientHeight > 0
       ? el.scrollHeight - el.scrollTop - el.clientHeight > 1
-      : command.split('\n').length > BOX_LINES)
+      : text.split('\n').length > BOX_LINES)
   }
-  useLayoutEffect(measure, [command])
+  useLayoutEffect(measure, [text])
   useEffect(() => {
     if (!ref.current || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(measure)
     observer.observe(ref.current)
     return () => observer.disconnect()
-  }, [command])
+  }, [text])
   return { ref, more, measure }
 }
 
-// ApprovalInput is the arguments of a call that is no shell command, as
-// monomind recorded them, with the same escapes as a command.
+// monomind keeps the first 200 UTF-16 units of each string argument and adds
+// "…" (internal/orgchat/command.go).
+const isCut = value => typeof value === 'string' && value.length === 201 && value.endsWith('\u2026')
+
+// ApprovalInput is a call's arguments as monomind recorded them, with the same
+// escapes and warnings as a command.
 export function ApprovalInput({ input }) {
-  if (!input || Object.keys(input).length === 0) return null
+  const { t } = useTranslation()
+  const text = input && Object.keys(input).length > 0 ? JSON.stringify(input, null, 2) : ''
+  const { ref, more, measure } = useMoreBelow(text)
+  if (!text) return null
   return (
-    <pre data-testid="approval-input" tabIndex={0} style={{ margin: '4px 0 0', maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: mono, fontSize: 11, color: 'var(--text)', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '6px 8px' }}>
-      {visible(JSON.stringify(input, null, 2))}
-    </pre>
+    <div style={column}>
+      <pre ref={ref} onScroll={measure} data-testid="approval-input" aria-label={t('ask.inputLabel')} tabIndex={0} style={box}>{visible(text)}</pre>
+      {more && <div role="note" style={warning}>{t('ask.inputMore')}</div>}
+      {Object.values(input).some(isCut) && <div role="note" style={warning}>{t('ask.inputCut')}</div>}
+      {text.includes('[REDACTED]') && <div role="note" style={warning}>{t('ask.inputRedacted')}</div>}
+    </div>
   )
 }
 
@@ -65,12 +77,28 @@ export function ApprovalCommand({ command, truncated, cwd }) {
   const { ref, more, measure } = useMoreBelow(command || '')
   if (!command) return null
   return (
-    <div data-testid="approval-command" style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }}>
-      <pre ref={ref} onScroll={measure} aria-label={t('ask.commandLabel')} tabIndex={0} style={{ margin: 0, maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: mono, fontSize: 11, color: 'var(--text)', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '6px 8px' }}>{visible(command)}</pre>
+    <div data-testid="approval-command" style={column}>
+      <pre ref={ref} onScroll={measure} aria-label={t('ask.commandLabel')} tabIndex={0} style={box}>{visible(command)}</pre>
       {more && <div role="note" style={warning}>{t('ask.commandMore')}</div>}
       {cwd && <div style={note}>{visible(t('ask.commandFolder', { path: cwd }))}</div>}
       {truncated && <div role="note" style={warning}>{t('ask.commandCut')}</div>}
       {command.includes('[REDACTED]') && <div role="note" style={warning}>{t('ask.commandRedacted')}</div>}
     </div>
+  )
+}
+
+// ApprovalCall is all that an Approve releases: the command, if the call has
+// one, and every argument the command box does not already show.
+export function ApprovalCall({ command, truncated, cwd, input }) {
+  let others = input
+  if (command && input?.command === command) {
+    const { command: shown, ...rest } = input
+    others = rest
+  }
+  return (
+    <>
+      <ApprovalCommand command={command} truncated={truncated} cwd={cwd} />
+      <ApprovalInput input={others} />
+    </>
   )
 }

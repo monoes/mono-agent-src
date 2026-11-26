@@ -33,16 +33,17 @@ export function pendingRawItems(questionsRes, gatesRes, approvalsRes) {
     const key = a.requestId ? `approval:${a.requestId}` : `approval:${a.roleId}:${a.action}`
     const g = groups.get(key)
     const since = toMillis(a.ts)
-    const commands = a.command ? [{ command: a.command, truncated: !!a.command_truncated, cwd: a.cwd }] : []
+    // What each call would do, as ApprovalCall shows it.
+    const calls = a.command || a.input ? [{ command: a.command, truncated: !!a.command_truncated, cwd: a.cwd, input: a.input }] : []
     if (!g) {
       groups.set(key, {
         kind: 'approval', key, ref: `${a.roleId}:${a.action}`, role: a.roleId ?? null, action: a.action,
-        since, count: 1, requestId: a.requestId || null, text: a.question ?? `Approve ${a.action}?`, raw: a, commands,
+        since, count: 1, requestId: a.requestId || null, text: a.question ?? `Approve ${a.action}?`, raw: a, calls,
       })
     } else {
       g.count++
       if (since != null && (g.since == null || since < g.since)) g.since = since
-      g.commands.push(...commands)
+      g.calls.push(...calls)
     }
   }
   out.push(...groups.values())

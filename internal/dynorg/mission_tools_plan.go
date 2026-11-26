@@ -379,6 +379,9 @@ func (c *Conductor) missionStatus(ctx context.Context, m *MissionConfig) (string
 		if w, err := m.Store.WrapUpOf(ctx, m.ProfileID, se.ID, m.actor(se.ID)); err == nil && w != nil {
 			out["wrap_up"] = w
 			out["next"] = "Halted: the budget is used up. Start nothing new: report (mission_report), hand back your own tasks (mission_task_finish), bring the plan up to date (mission_replan) and ask the user for more budget."
+			if !w.HandBack {
+				out["next"] = "Paused by the operator, and the budget is used up: do not start new work; report (mission_report) and ask the user for more budget."
+			}
 		}
 	default:
 		out["next"] = "The session is closed: tell the user how it ended; a new mission needs a new plan."
