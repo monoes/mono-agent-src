@@ -738,3 +738,23 @@ func TestSyncDoesNotOfferASendAgainWhileItStarts(t *testing.T) {
 		t.Fatalf("a send that never started: %+v", res)
 	}
 }
+
+// The running turn's question is found however many newer turns the chat
+// holds (notices, cards).
+func TestTheRunningTurnsQuestionIsFoundBehindNewerTurns(t *testing.T) {
+	r := newSysRig(t)
+	openQuestion(t, r, "w1", "q1")
+	for i := 0; i < 8; i++ {
+		if err := r.store.RecordSystemNotice("default", r.conv.ID, "stopped", fmt.Sprintf("notice %d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// the notices are newer than the running turn
+	if newest, _, err := r.store.ListTurns(r.conv.ID, "default", "", 5); err != nil || len(newest) != 5 {
+		t.Fatalf("%d %v", len(newest), err)
+	}
+	turn, qid, err := openQuestionOf(r.store, "default", r.conv.ID, "w1")
+	if err != nil || turn != "live" || qid != "q1" {
+		t.Fatalf("turn %q question %q: %v", turn, qid, err)
+	}
+}

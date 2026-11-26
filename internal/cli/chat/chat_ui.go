@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -247,46 +248,44 @@ func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.A
 // openQuestionOf finds the open question of a worker in the conversation's
 // running turn: the turn and question ids, "" when it has none.
 func openQuestionOf(store *ai.AIStore, profileID, conversationID, agentID string) (turnID, questionID string, err error) {
-	turns, _, err := store.ListTurns(conversationID, profileID, "", 5)
+	t, err := store.ActiveTurn(conversationID, profileID)
+	if errors.Is(err, ai.ErrTurnNotFound) {
+		return "", "", nil
+	}
 	if err != nil {
 		return "", "", err
 	}
-	for _, t := range turns {
-		if t.Status != "active" {
-			continue
+	open := map[string]bool{}
+	var after int64
+	for {
+		evs, err := store.GetEvents(conversationID, t.ID, profileID, after, 500)
+		if err != nil {
+			return "", "", err
 		}
-		open := map[string]bool{}
-		var after int64
-		for {
-			evs, err := store.GetEvents(conversationID, t.ID, profileID, after, 500)
-			if err != nil {
-				return "", "", err
+		for _, ev := range evs {
+			after = ev.Seq
+			var m chatevents.AgentMessagePayload
+			if ev.Type != chatevents.EventAgentMessage || json.Unmarshal(ev.Payload, &m) != nil || m.AgentID != agentID || m.QuestionID == "" {
+				continue
 			}
-			for _, ev := range evs {
-				after = ev.Seq
-				var m chatevents.AgentMessagePayload
-				if ev.Type != chatevents.EventAgentMessage || json.Unmarshal(ev.Payload, &m) != nil || m.AgentID != agentID || m.QuestionID == "" {
-					continue
-				}
-				switch {
-				case m.Direction == "question":
-					open[m.QuestionID] = true
-				case m.Direction == "followup" && (m.From == "user" || m.From == "system"):
-					delete(open, m.QuestionID)
-				}
-			}
-			if len(evs) < 500 {
-				break
+			switch {
+			case m.Direction == "question":
+				open[m.QuestionID] = true
+			case m.Direction == "followup" && (m.From == "user" || m.From == "system"):
+				delete(open, m.QuestionID)
 			}
 		}
-		ids := make([]string, 0, len(open))
-		for q := range open {
-			ids = append(ids, q)
+		if len(evs) < 500 {
+			break
 		}
-		sort.Strings(ids)
-		if len(ids) > 0 {
-			return t.ID, ids[len(ids)-1], nil
-		}
+	}
+	ids := make([]string, 0, len(open))
+	for q := range open {
+		ids = append(ids, q)
+	}
+	sort.Strings(ids)
+	if len(ids) > 0 {
+		return t.ID, ids[len(ids)-1], nil
 	}
 	return "", "", nil
 }
