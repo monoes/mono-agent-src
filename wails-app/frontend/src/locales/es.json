@@ -6112,5 +6112,8 @@
     "choose_icon": "Elige un icono",
     "search_icons": "Buscar iconos…",
     "no_icons": "Ningún icono coincide"
+  },
+  "ui6OrgsStage": {
+    "default_model": "predeterminado"
   }
 }
