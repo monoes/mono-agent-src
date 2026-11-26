@@ -90,7 +90,8 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
   )
 
   // A coder turn's cards take the turn's full width (commands and paths
-  // are long); other turns keep sizing to their content.
+  // are long), and so does a turn with A2UI cards (they have forms to read;
+  // a2ui.css caps them); other turns keep sizing to their content.
   const hasNative = Object.values(calls).some(c => c.native)
   const statusNotices = notices.filter(n => n.code === 'coder.status')
   const lastStatus = statusNotices[statusNotices.length - 1]?.message || ''
@@ -100,7 +101,7 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
   const showStatus = isLive && !state.terminal && parts.length === 0 && !!lastStatus && !/^Ready\b/.test(lastStatus)
 
   return (
-    <div data-testid="chat-timeline" style={hasNative ? { alignSelf: 'stretch' } : undefined}>
+    <div data-testid="chat-timeline" style={hasNative || surfaces.length > 0 ? { alignSelf: 'stretch' } : undefined}>
       {state.sandbox && <SandboxBadge status={state.sandbox} detail={state.sandboxDetail} />}
       {state.sandboxMissing && <UnsandboxedWarning />}
       {notices.filter(n => n.code === 'coder.workspace').slice(-1).map((notice, i) => (

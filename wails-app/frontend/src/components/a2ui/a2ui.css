@@ -1,6 +1,6 @@
 /* Contrast on --surface / --elevated: --red is 4.44:1 on --elevated, so cards
    use a lighter red; --text-dim (3.88:1) is not used for text here. */
-.a2ui-surface { --a2ui-red: #f87171; position: relative; margin: 8px 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); font-family: var(--font-body); color: var(--text); }
+.a2ui-surface { --a2ui-red: #f87171; position: relative; box-sizing: border-box; width: 100%; max-width: 640px; min-width: 0; margin: 8px 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); font-family: var(--font-body); color: var(--text); }
 .a2ui-surface[data-status="resolved"] { border-style: dashed; }
 .a2ui-prov { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--cyan); margin-bottom: 6px; }
 .a2ui-row, .a2ui-column { display: flex; gap: 8px; min-width: 0; }

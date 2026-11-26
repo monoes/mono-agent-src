@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { ChatTimeline } from '../chat/ChatTimeline.jsx'
 import { chatReducer, initialChatState } from '../chat/chatReducer.js'
 import { hilApproval } from './fixtures.js'
@@ -28,5 +30,17 @@ describe('ChatTimeline surfaces', () => {
     s = chatReducer(s, ev(1, 'ui.surface', hilApproval[0]))
     render(<ChatTimeline state={s} />)
     expect(screen.getByTestId('a2ui-surface')).toBeTruthy()
+  })
+  // jsdom lays nothing out: this holds the two rules that give a card its width.
+  it('lets a card take the width of the chat, up to a readable maximum', () => {
+    let s = chatReducer(initialChatState(), { type: 'scope', scope: { conversationId: 'c', turnId: 't' } })
+    s = chatReducer(s, ev(1, 'assistant.delta', { partId: 'p1', text: 'text' }))
+    const { rerender } = render(<ChatTimeline state={s} />)
+    expect(screen.getByTestId('chat-timeline').style.alignSelf).toBe('')
+    rerender(<ChatTimeline state={chatReducer(s, ev(2, 'ui.surface', hilApproval[0]))} />)
+    expect(screen.getByTestId('chat-timeline').style.alignSelf).toBe('stretch')
+    const css = readFileSync(join(__dirname, 'a2ui.css'), 'utf8')
+    const card = /^\.a2ui-surface \{([^}]*)\}/m.exec(css)[1]
+    for (const rule of ['box-sizing: border-box', 'width: 100%', 'max-width: 640px']) expect(card).toContain(rule)
   })
 })
