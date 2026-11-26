@@ -2,13 +2,15 @@
 // bundled automations: per-package status, the review of what would be
 // installed, packages the file does not carry, and packages whose bundled
 // copy differs from the installed one.
+import { useTranslation } from 'react-i18next'
 import { Package } from 'lucide-react'
-import { Chip, body, label, mono, muted, panel } from '../connections/ui.jsx'
+import { Chip, body, label, mono, muted, panel, trustName } from '../connections/ui.jsx'
+import i18nOr from '../../lib/i18nOr.js' // for messages built outside components
 
 export const STATUS_TEXT = {
-  created: (n) => `Imported “${n}”.`,
-  updated: (n) => `Updated “${n}” — it was imported before; this version replaced it.`,
-  unchanged: () => 'Already imported — nothing changed.',
+  created: (name) => i18nOr('ui6ConnWf.imported', { name }),
+  updated: (name) => i18nOr('ui6ConnWf.updated', { name }),
+  unchanged: () => i18nOr('ui6ConnWf.unchanged'),
 }
 const ITEM_COLORS = { present: 'var(--green-neon)', installed: 'var(--green-neon)', replaced: 'var(--green-neon)', missing: 'var(--yellow)', differs: 'var(--yellow)', conflict: 'var(--red)', failed: 'var(--red)' }
 
@@ -20,15 +22,16 @@ export function installSummary(r) {
   const replaced = items.filter(i => i.status === 'replaced').length
   const failed = items.filter(i => i.status === 'failed').length
   const parts = []
-  if (done || !replaced) parts.push(`Installed ${done} bundled automation${done === 1 ? '' : 's'} for “${r.name || r.id}”.`)
-  if (replaced) parts.push(`Replaced ${replaced} installed automation${replaced === 1 ? '' : 's'} with the file's version.`)
-  if (failed) parts.push(`${failed} failed — see below.`)
+  if (done || !replaced) parts.push(i18nOr('ui6ConnWf.installed_count', { count: done, name: r.name || r.id }))
+  if (replaced) parts.push(i18nOr('ui6ConnWf.replaced_count', { count: replaced }))
+  if (failed) parts.push(i18nOr('ui6ConnWf.failed_count', { count: failed }))
   return parts.join(' ')
 }
 
 // ReviewDetail: what installing one bundled package means, from the CLI's
 // dry-run review (reviewDetail), before anything is installed.
 export function ReviewDetail({ item }) {
+  const { t } = useTranslation()
   const d = item.reviewDetail
   const line = { fontFamily: 'var(--font-mono)', fontSize: 10.5 }
   return (
@@ -36,16 +39,16 @@ export function ReviewDetail({ item }) {
       <span style={{ ...line, fontSize: 11.5, color: 'var(--text)' }}>{item.id} {item.version}</span>
       {d ? (
         <>
-          <span style={line}>Publisher: {d.publisher || 'unknown'}</span>
-          <span style={line}>Domains: {(d.domains || []).join(', ') || 'unrestricted'}</span>
+          <span style={line}>{t('ui6ConnWf.publisher_line', { publisher: d.publisher || t('ui6ConnWf.unknown') })}</span>
+          <span style={line}>{t('ui6ConnWf.domains_line', { domains: (d.domains || []).join(', ') || t('ui6ConnWf.unrestricted') })}</span>
           {/* The capabilities list already carries the visibility lines
               ("visits profiles — the profile's owner can see your visit…"),
               as in the automation import review. */}
           {(d.capabilities || []).length > 0 && (
             <ul style={{ margin: 0, paddingLeft: 16 }}>{d.capabilities.map(c => <li key={c} style={line}>{c}</li>)}</ul>
           )}
-          {d.replaceRequired && d.replaces && <span style={{ ...line, color: 'var(--red)' }}>Replaces {d.replaces.source} {d.replaces.id} {d.replaces.version}</span>}
-          {d.trustChange && <span style={{ ...line, color: 'var(--yellow)' }}>⚠ Trust drops from {d.trustChange.from} to {d.trustChange.to}: page scripts stay off and real runs of actions that change things need confirmation again.</span>}
+          {d.replaceRequired && d.replaces && <span style={{ ...line, color: 'var(--red)' }}>{t('ui6ConnWf.replaces', { source: trustName(d.replaces.source), id: d.replaces.id, version: d.replaces.version })}</span>}
+          {d.trustChange && <span style={{ ...line, color: 'var(--yellow)' }}>{t('ui6ConnWf.trust_drop', { from: trustName(d.trustChange.from), to: trustName(d.trustChange.to) })}</span>}
         </>
       ) : item.review ? <span style={line}>{item.review}</span> : null}
       {item.error && <span style={{ ...line, color: 'var(--red)' }}>{item.error}</span>}
@@ -58,12 +61,13 @@ export function ReviewDetail({ item }) {
 // the technical ones (steps, scripts, tier…) are already in the review line.
 const TECHNICAL_CAP = /^(steps|scripts|tier):|^(downloads|policy-blocked)$/
 function ReviewNotes({ d }) {
+  const { t } = useTranslation()
   if (!d) return null
   const note = { ...muted, fontSize: 10, paddingLeft: 19, wordBreak: 'break-word' }
   return (
     <>
-      {d.replaceRequired && d.replaces && <span style={{ ...note, color: 'var(--red)' }}>Replaces {d.replaces.source} {d.replaces.id} {d.replaces.version}</span>}
-      {d.trustChange && <span style={{ ...note, color: 'var(--yellow)' }}>⚠ Trust drops from {d.trustChange.from} to {d.trustChange.to}: page scripts stay off and real runs of actions that change things need confirmation again.</span>}
+      {d.replaceRequired && d.replaces && <span style={{ ...note, color: 'var(--red)' }}>{t('ui6ConnWf.replaces', { source: trustName(d.replaces.source), id: d.replaces.id, version: d.replaces.version })}</span>}
+      {d.trustChange && <span style={{ ...note, color: 'var(--yellow)' }}>{t('ui6ConnWf.trust_drop', { from: trustName(d.trustChange.from), to: trustName(d.trustChange.to) })}</span>}
       {(d.capabilities || []).filter(c => !TECHNICAL_CAP.test(c)).map(c => <span key={c} style={note}>• {c}</span>)}
     </>
   )
@@ -129,21 +133,22 @@ export function notBundledReason(item) {
 }
 
 export function NotIncluded({ items }) {
+  const { t } = useTranslation()
   if (!items.length) return null
   return (
     <div style={{ ...panel, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={label}>Not included in this file</span>
+      <span style={label}>{t('ui6ConnWf.not_included')}</span>
       <span style={{ ...body, fontSize: 11 }}>
-        The workflow uses {items.length === 1 ? 'an automation' : 'automations'} the file does not carry. {items.length === 1 ? 'Its nodes' : 'Their nodes'} will not run until {items.length === 1 ? 'it is' : 'they are'} installed some other way.
+        {t('ui6ConnWf.not_carried', { count: items.length })}
       </span>
       {items.map(it => (
         <div key={it.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ ...mono, fontSize: 11, color: 'var(--text)' }}><Package size={11} color="var(--text-muted)" style={{ verticalAlign: -1, marginRight: 6 }} />{it.id} <span style={muted}>{it.version}</span></span>
           {it.localOnly
-            ? <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>Only works on the sender's machine — recreate it here or ask the sender.</span>
+            ? <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>{t('ui6ConnWf.local_only')}</span>
             : <>
                 {notBundledReason(it) && <span style={{ ...muted, fontSize: 10, paddingLeft: 19, wordBreak: 'break-word' }}>{notBundledReason(it)}</span>}
-                <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>Install it here some other way, or ask the sender to include it in the file.</span>
+                <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>{t('ui6ConnWf.install_other_way')}</span>
               </>}
         </div>
       ))}
@@ -152,16 +157,17 @@ export function NotIncluded({ items }) {
 }
 
 export function Automations({ items }) {
+  const { t } = useTranslation()
   if (!items?.length) return null
   return (
     <div style={{ ...panel, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={label}>Bundled automations</span>
+      <span style={label}>{t('ui6ConnWf.bundled')}</span>
       {items.map(it => (
         <div key={it.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Package size={11} color="var(--text-muted)" />
             <span style={{ ...mono, fontSize: 11, color: 'var(--text)', flex: 1 }}>{it.id} <span style={muted}>{it.version}</span></span>
-            <Chip color={ITEM_COLORS[it.status] || 'var(--text-muted)'}>{it.status}{it.installedVersion && it.status === 'present' ? ` ${it.installedVersion}` : ''}</Chip>
+            <Chip color={ITEM_COLORS[it.status] || 'var(--text-muted)'}>{t(`ui6ConnWf.item_value_${it.status}`, { defaultValue: it.status })}{it.installedVersion && it.status === 'present' ? ` ${it.installedVersion}` : ''}</Chip>
           </div>
           {it.error && <span style={{ ...muted, fontSize: 10, color: 'var(--red)', paddingLeft: 19 }}>{it.error}</span>}
           {it.review && <span style={{ ...muted, fontSize: 10, paddingLeft: 19, wordBreak: 'break-word' }}>{it.review}</span>}
@@ -174,20 +180,21 @@ export function Automations({ items }) {
 
 // CHANGE_LABELS names each ReviewChanges field in plain words.
 const CHANGE_LABELS = [
-  ['addedDomains', 'New sites it may open'],
-  ['addedSteps', 'New step types'],
-  ['addedCallActions', 'New actions it may call'],
-  ['addedScripts', 'New page scripts'],
-  ['changedScripts', 'Changed page scripts'],
+  ['addedDomains', 'ui6ConnWf.change_domains'],
+  ['addedSteps', 'ui6ConnWf.change_steps'],
+  ['addedCallActions', 'ui6ConnWf.change_actions'],
+  ['addedScripts', 'ui6ConnWf.change_new_scripts'],
+  ['changedScripts', 'ui6ConnWf.change_changed_scripts'],
 ]
 
 export function ChangeList({ changes }) {
+  const { t } = useTranslation()
   const rows = CHANGE_LABELS.filter(([k]) => (changes?.[k] || []).length)
-  if (!rows.length) return <span style={{ ...muted, fontSize: 10 }}>Different files, but nothing it is allowed to do changes.</span>
+  if (!rows.length) return <span style={{ ...muted, fontSize: 10 }}>{t('ui6ConnWf.same_permissions')}</span>
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {rows.map(([k, text]) => (
-        <span key={k} style={{ ...mono, fontSize: 10.5, color: 'var(--text-secondary)', wordBreak: 'break-word' }}>{text}: {changes[k].join(', ')}</span>
+      {rows.map(([k, key]) => (
+        <span key={k} style={{ ...mono, fontSize: 10.5, color: 'var(--text-secondary)', wordBreak: 'break-word' }}>{t(key)}: {changes[k].join(', ')}</span>
       ))}
     </div>
   )
@@ -197,12 +204,13 @@ export function ChangeList({ changes }) {
 // other content. The installed copy is kept; replacing it is an explicit
 // choice (the dialog's "Replace with the file's version").
 export function Differs({ items }) {
+  const { t } = useTranslation()
   if (!items.length) return null
   return (
     <div style={{ ...panel, borderColor: 'var(--yellow)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <span style={label}>Different from what is installed</span>
+      <span style={label}>{t('ui6ConnWf.differs_title')}</span>
       <span style={{ ...body, fontSize: 11 }}>
-        The file carries {items.length === 1 ? 'an automation' : 'automations'} with the same version as {items.length === 1 ? 'one' : 'ones'} installed here, but different contents. Your installed copy was kept.
+        {t('ui6ConnWf.differs_note', { count: items.length })}
       </span>
       {items.map(it => (
         <div key={it.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -210,8 +218,8 @@ export function Differs({ items }) {
           <div style={{ paddingLeft: 19 }}><ChangeList changes={it.changes} /></div>
           {/^(not replaced|could not compare)/i.test(it.error || '') && <span style={{ ...muted, fontSize: 10, paddingLeft: 19, color: 'var(--red)' }}>{it.error}</span>}
           {isBuiltinCopy(it)
-            ? <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>The installed copy is a built-in; a workflow file never replaces it.</span>
-            : !isReplaceable(it) && <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>This file cannot replace the installed copy.</span>}
+            ? <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>{t('ui6ConnWf.builtin_kept')}</span>
+            : !isReplaceable(it) && <span style={{ ...muted, fontSize: 10, paddingLeft: 19 }}>{t('ui6ConnWf.cannot_replace')}</span>}
         </div>
       ))}
     </div>
