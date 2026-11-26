@@ -2049,8 +2049,8 @@ the session was the last to exit in the project directory, else the new process 
 meter (compaction included), workers in the mission's meter and an AI task's workers' pool: the previous total of that
 session is subtracted only when the cost AND all four session counters of the result's `model_usage` (input, output,
 cache read, cache creation, summed over models) are at least the previous ones; else, and when either side has no
-counters (an older monomind or journal, a run stopped before its result, a worker kept before migration 174), the whole
-figure is charged. `input_tokens`/`output_tokens` are the run's own and are not compared. Still under-charged, by at most
+counters (an older monomind or journal, a run stopped before its result, a worker kept before migration 174), or the
+previous turn or run of the session recorded no cost, the whole figure is charged. `input_tokens`/`output_tokens` are the run's own and are not compared. Still under-charged, by at most
 the previous total: a process that started from zero and passed it in the cost and every counter. Other runtimes' figures
 are taken as reported.
 What a run costs when it fails, by how far it got: a start failure (no start or usage event, Exec returned an error and

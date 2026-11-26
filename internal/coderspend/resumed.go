@@ -203,13 +203,14 @@ func turnCosts(q Querier, profileID, conversationID string) (map[string]float64,
 }
 
 // deltaOfResumedSessions turns each turn's reported figure into what that turn added, for turns of the cumulative
-// runtime: each report is compared with the previous one of the SAME runtime session (Added), the turns taken in the
-// order they were created. A turn that bound no session has nothing to subtract, and a different session starts from
-// zero: each keeps its whole figure, so a doubt charges more, never less.
+// runtime: each report is compared with that of the previous turn of the SAME runtime session (Added), the turns taken
+// in the order they were created. When that turn recorded no cost, nothing is known of where the session stood. Such a
+// turn, one that bound no session and the first of a session all leave nothing to subtract: the whole figure is
+// charged, so a doubt charges more, never less.
 func deltaOfResumedSessions(lead map[string]float64, reports map[string]*turnReports) {
 	order := make([]string, 0, len(reports))
 	for turn, r := range reports {
-		if _, reported := lead[turn]; reported && r.session != "" {
+		if r.session != "" {
 			order = append(order, turn)
 		}
 	}
@@ -222,6 +223,10 @@ func deltaOfResumedSessions(lead map[string]float64, reports map[string]*turnRep
 	last := map[string]*Totals{} // session -> its latest report
 	for _, turn := range order {
 		r := reports[turn]
+		if _, reported := lead[turn]; !reported {
+			delete(last, r.session)
+			continue
+		}
 		lead[turn], last[r.session] = r.charge(last[r.session])
 	}
 }

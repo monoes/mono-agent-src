@@ -46,11 +46,16 @@ func (w *worker) resumedFromLocked(m Model, resume string) sessionCost {
 	return w.billed
 }
 
-// billLocked remembers the totals w's session reached with the run total, as the runtime reported it. A run that named
-// no session or no usable cost leaves the last one, so the next run is charged what that run spent too. Callers hold
-// c.mu.
+// billLocked remembers the totals w's session reached with the run total, as the runtime reported it: they are what
+// the next run is compared with. A run that named a session or a cost, but not both usably, leaves nothing to compare
+// with, so the next run is charged whole. One that reported neither never reached a session: the last report stands.
+// Callers hold c.mu.
 func (w *worker) billLocked(m Model, total monomind.TurnResult) {
-	if m.Runtime == coderspend.CumulativeRuntime && total.SessionID != "" && total.HasCostUSD && finiteCost(total.CostUSD) {
+	if m.Runtime != coderspend.CumulativeRuntime || (total.SessionID == "" && !total.HasCostUSD) {
+		return
+	}
+	w.billed = sessionCost{}
+	if total.SessionID != "" && total.HasCostUSD && finiteCost(total.CostUSD) {
 		w.billed = sessionCost{session: total.SessionID, totals: totalsOf(total)}
 	}
 }

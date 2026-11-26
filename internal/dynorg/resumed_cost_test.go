@@ -201,7 +201,10 @@ func TestResumedCostDoubtfulCasesAreChargedInFull(t *testing.T) {
 		{"another session", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s2", total: 0.6}}, 1.0},
 		{"no session reported", opus, []totalRun{{session: "s1", total: 0.4}, {total: 0.6}}, 1.0},
 		{"a figure that fell", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.1}, {session: "s1", total: 0.3}}, 0.7},
-		{"a run with no cost", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", noCost: true}, {session: "s1", total: 0.9}}, 0.9},
+		{"after a run with no cost", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", noCost: true}, {session: "s1", total: 0.9}}, 1.3},
+		{"after a cost with no session", opus, []totalRun{{session: "s1", total: 0.4}, {total: 0.5}, {session: "s1", total: 0.9}}, 1.8},
+		// A run that reported nothing at all never reached the session: its last report still stands.
+		{"after a run that reported nothing", opus, []totalRun{{session: "s1", total: 0.4}, {noCost: true}, {session: "s1", total: 0.9}}, 0.9},
 		{"not restored: higher cost, fewer tokens", opus, []totalRun{{session: "s1", total: 0.4, tokens: 900}, {session: "s1", total: 0.6, tokens: 300}}, 1.0},
 		{"no counters now", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6, tokens: -1}}, 1.0},
 		{"no counters before", opus, []totalRun{{session: "s1", total: 0.4, tokens: -1}, {session: "s1", total: 0.6}}, 1.0},

@@ -201,3 +201,21 @@ func TestATurnWithTwoSetsOfCountersIsChargedInFull(t *testing.T) {
 		})
 	}
 }
+
+// The previous turn of a session is the one to compare with: when it recorded no cost (stopped, crashed), nothing is
+// known about where the session ended, so the next turn is charged whole instead of being compared with an older one.
+func TestATurnAfterOneThatRecordedNoCostIsChargedInFull(t *testing.T) {
+	st := newStoreT(t)
+	m, _ := master(t, st, "coding")
+	c := m.ConversationID
+	base := time.Now().Add(-time.Hour)
+	journalClaudeTurn(t, st, c, "t0", base, claudeTurn{"s1", "0.4", every(400)})
+	addTurn(t, st, c, "t1", "cancelled", "x", base.Add(time.Minute))
+	event(t, st, c, "t1", 1, "session.bound", `{"runtime":"claude","sessionId":"s1"}`)
+	journalClaudeTurn(t, st, c, "t2", base.Add(2*time.Minute), claudeTurn{"s1", "0.5", every(900)})
+	journalClaudeTurn(t, st, c, "t3", base.Add(3*time.Minute), claudeTurn{"s1", "0.6", every(950)})
+	stampEvents(t, st)
+	if spent, err := st.Spent("p", c); err != nil || math.Abs(spent-1.0) > 1e-9 {
+		t.Errorf("spent = %v %v, want 0.4 + 0.5 + 0.1", spent, err)
+	}
+}
