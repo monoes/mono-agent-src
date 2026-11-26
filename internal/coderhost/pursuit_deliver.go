@@ -64,6 +64,9 @@ func (h *Host) pursuitDeliverableFor(m pursuitMission, g pursuitGateResult, noWo
 	if g.hourWakes >= MaxPursuitWakesPerHour {
 		return "the host-wide cap on pursuit wake-ups in an hour is used"
 	}
+	if why := h.wrapUpKept(m.Profile, m.Conv); why != "" {
+		return why
+	}
 	return h.pursuitStreakStop(m.Profile, m.Conv, settings)
 }
 

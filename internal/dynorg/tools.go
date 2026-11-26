@@ -158,6 +158,9 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 	if parent != nil && name != ToolSpawn && name != ToolWait && name != ToolMessage {
 		return "", fmt.Errorf("unknown org tool %q", name)
 	}
+	if err := c.refusePaidWork(ctx, name); err != nil {
+		return "", err
+	}
 	switch name {
 	case ToolRoster:
 		var a struct {
@@ -166,7 +169,12 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 		_ = json.Unmarshal(orEmpty(args), &a)
 		v := c.Roster()
 		if strings.TrimSpace(a.Brief) != "" {
-			v.Suggested = c.suggestTeam(ctx, a.Brief)
+			// The suggestion can cost a chooser call: a spent mission gets the roster without it.
+			if err := c.refuseIfSpent(ctx, ToolRoster+" with a brief"); err != nil {
+				v.SuggestedNote = err.Error()
+			} else {
+				v.Suggested = c.suggestTeam(ctx, a.Brief)
+			}
 		}
 		return marshal(v)
 	case ToolSpawn:
@@ -291,6 +299,8 @@ type RosterView struct {
 	Agents     map[string][]AgentInfo `json:"registry_agents,omitempty"`
 	ModelHints []ModelHint            `json:"model_hints"`
 	Suggested  []SuggestedWorker      `json:"suggested_team,omitempty"`
+	// SuggestedNote says why no team was suggested for the brief.
+	SuggestedNote string `json:"suggested_team_note,omitempty"`
 }
 
 // Roster describes what the lead can staff with, and the workers so far.

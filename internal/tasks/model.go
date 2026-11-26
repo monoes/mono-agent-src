@@ -107,6 +107,9 @@ type Actor struct {
 	// MissionPlanner marks the in-process mission planner of a chat (set only by trusted code, never
 	// read from a label, a flag or a token): it alone may start a session of kind mission.
 	MissionPlanner bool
+	// WrapUp marks the in-process mission lead handing back a task under its mission's wrap-up allowance (set only
+	// by trusted code): the store still checks that the allowance applies and lasts (session_wrapup.go).
+	WrapUp bool
 }
 
 // Label is how the actor is written in an event and in a claim.

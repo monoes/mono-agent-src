@@ -154,3 +154,4 @@
 168_mission_pursuit_judge.sql
 169_mission_goal_checks.sql
 170_jev_usage_provider.sql
+171_task_session_wrapup.sql

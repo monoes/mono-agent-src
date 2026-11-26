@@ -19,7 +19,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
 vi.mock('../services/api.js', () => ({
   api: {
     getPendingPeopleApprovals: vi.fn(() => Promise.resolve([])), approvePendingPerson: vi.fn(), rejectPendingPerson: vi.fn(),
-    listOrgDesigns: vi.fn(() => Promise.resolve([])), getOrgQuestions: vi.fn(), getOrgApprovals: vi.fn(), getOrgGates: vi.fn(),
+    listOrgPending: vi.fn(() => Promise.resolve({ items: [] })),
   },
   notify: vi.fn(),
 }))

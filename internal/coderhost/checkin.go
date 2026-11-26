@@ -76,7 +76,8 @@ func (h *Host) checkinOne(now time.Time, m Session, children []Session) {
 	if !m.Unattended || m.State != StateIdle || m.TurnID != "" || h.Store.PendingFor(m.ProfileID, m.ConversationID) > 0 {
 		return
 	}
-	if h.checkinTargetStillValid(m, len(children)) != "" {
+	// A mission budget that does not read still lets the look be recorded; nothing is queued below until it reads.
+	if why := h.checkinTargetStillValid(m, len(children)); why != "" && !strings.HasPrefix(why, readFailed) {
 		return
 	}
 	settings, err := h.Store.GetSettings(m.ProfileID, m.ConversationID)

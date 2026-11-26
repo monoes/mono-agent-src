@@ -300,6 +300,7 @@ The desktop app does everything through these commands; they are equally usable 
 - **Org bubbles (chat with a running org's boss):**
   - `org chat send <org> -- <text>` messages the boss as `human:operator` (live, or queued for the org's next start).
   - `org chat history <org> [--run R] [--limit N]` is the boss thread, built from the bus log and the org's questions, approvals and gates. It holds your messages, the boss's replies (its `chat` events), questions, approvals and gates (each `pending` or with its `resolution`), role-to-role messages as `team` rows, and the org starting and stopping. It also returns the roles (for the stage) and the org's status. A part that can't be read is listed in `warnings`.
+  - `org pending` lists what every org of the folder still waits on a person for (`items` with `org`, `kind`, `ref`, `role`, `text`; approvals add `request_id`, `input`, and for a shell call `command`, `command_truncated`, `cwd`; unreadable lists are in `errors`). The app's Human in Loop page renders it.
   - `org chat answer <org> <questionId> -- <answer>` and `org chat approve|deny <org> <gate-id|request-id|role:action> [-- note]` are idempotent. An item already resolved returns `"already": true` with how it ended, and nothing is sent. While the org is not running they refuse with exit 3 and send nothing, so the item stays pending.
   - `org chat dismiss <org> <questionId> [--reason <text>]` closes a question without answering it (monomind 2.22+; a blocking question stops holding the org back). Same idempotency as `answer`, but it also works on a stopped org: monomind records the dismissal and queues a note for the asking role, so a question left over from the last run can be cleared without starting the org. `org chat history` marks questions `blocking` and, for a `crashed` run (monomind 2.21+: a dead `running` record), returns the cause in `status_error`.
   - `org stop|pause|resume <org>` are the bubble's controls.
@@ -3802,6 +3803,10 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   or gate
   (exit 3 with the operator refusal otherwise; deny stays open), and
   the chat's Bash allowlist leaves out `monomind org approve|gate-approve|answer`.
+  `org approve|deny <org> <role> <action> --request <id>` resolves that one request and
+  is refused when it is no longer pending or monomind lacks `org-decision-attribution`
+  (a request id is never dropped). Without `--request` every pending request of the role
+  and action is resolved, also one queued after you looked; the app always passes the id.
   A called workflow is found with the engine's own lookup
   (`workflow.ResolveSubWorkflow`: by id, else the one workflow of the
   profile with that exact name, files first); anything else counts as

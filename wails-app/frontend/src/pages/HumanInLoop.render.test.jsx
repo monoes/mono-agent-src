@@ -24,10 +24,7 @@ vi.mock('../services/api.js', () => ({
     getPendingPeopleApprovals: vi.fn(),
     approvePendingPerson: vi.fn(),
     rejectPendingPerson: vi.fn(),
-    listOrgDesigns: vi.fn(),
-    getOrgQuestions: vi.fn(),
-    getOrgApprovals: vi.fn(),
-    getOrgGates: vi.fn(),
+    listOrgPending: vi.fn(),
     answerOrgQuestion: vi.fn(),
     approveOrgAction: vi.fn(),
     denyOrgAction: vi.fn(),
@@ -65,7 +62,7 @@ describe('HumanInLoop unified approvals', () => {
         created_at: '2026-09-24 18:00:00',
       },
     ])
-    api.listOrgDesigns.mockResolvedValue({ items: [] })
+    api.listOrgPending.mockResolvedValue({ items: [] })
 
     const onCountChange = vi.fn()
 
@@ -116,7 +113,7 @@ describe('HumanInLoop unified approvals', () => {
     WailsApp.GetDraftPersonMessages.mockResolvedValue([])
     WailsApp.ApproveHIL.mockResolvedValue(undefined)
     api.getPendingPeopleApprovals.mockResolvedValue([])
-    api.listOrgDesigns.mockResolvedValue({ items: [] })
+    api.listOrgPending.mockResolvedValue({ items: [] })
 
     render(<HumanInLoop embedded isOpen={true} onClose={() => {}} />)
 
@@ -152,7 +149,7 @@ describe('HumanInLoop unified approvals', () => {
         suggestion: { suggest: 'reject', p: 0.88, intro_fit: 'generic', intro_fit_p: 0.8 },
       },
     ])
-    api.listOrgDesigns.mockResolvedValue({ items: [] })
+    api.listOrgPending.mockResolvedValue({ items: [] })
 
     render(<HumanInLoop embedded isOpen={true} onClose={() => {}} />)
 

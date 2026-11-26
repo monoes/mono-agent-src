@@ -459,6 +459,9 @@ func (c *Conductor) missionClose() {
 		if c.childHolds(oc.session, id) {
 			continue // its own session works on: the claim is kept, and the next turn's reconcile renews it
 		}
+		if oc.name == missionLeadName && c.wrapUpKeepsLeadClaims(context.WithoutCancel(c.ctx), oc.session) {
+			continue
+		}
 		c.releaseClaim(oc.session, id, oc.name, "the turn that held this task ended")
 	}
 }

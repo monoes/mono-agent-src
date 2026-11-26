@@ -25,6 +25,7 @@ func TestOrgCommandsWithUnopenableDBTouchNothingUnderCwd(t *testing.T) {
 			{"sign", "acme"}, {"serve"}, {"serve", "--stop"}, {"stop", "acme"}, {"pause", "acme"},
 			{"resume", "acme"}, {"summary"}, {"legacy", "list"},
 			{"chat", "history", "acme"}, {"chat", "approve", "acme", "gate-1"}, {"chat", "dismiss", "acme", "q1"},
+			{"pending"},
 		},
 		"profile": {
 			{"send", "acme", "--to", "ceo", "--body", "hi"}, {"rename", "acme", "beta"},

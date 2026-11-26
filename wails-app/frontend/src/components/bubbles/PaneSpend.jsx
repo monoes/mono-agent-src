@@ -10,6 +10,7 @@ function lineKey(cap) {
   if (!cap.bounded) return 'bubbles.pane.spendNone'
   if (cap.source === 'session') return cap.usedUp ? 'bubbles.pane.spendSessionUsedUp' : 'bubbles.pane.spendSession'
   if (cap.source === 'task') return cap.usedUp ? 'bubbles.pane.spendTaskUsedUp' : 'bubbles.pane.spendTask'
+  if (cap.source === 'wrapup') return cap.usedUp ? 'bubbles.pane.spendWrapUpUsedUp' : 'bubbles.pane.spendWrapUp'
   return 'bubbles.pane.spendMessage'
 }
 

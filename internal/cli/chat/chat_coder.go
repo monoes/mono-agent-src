@@ -53,6 +53,9 @@ type coderTurn struct {
 	// missionConfirmed: the user confirmed a mission for this conversation
 	// (mission.propose), so the lead plans one (dynorg.MissionPrompt).
 	missionConfirmed bool
+	// wrapUp: the turn runs under its mission's wrap-up allowance (set by
+	// runCoderTurn; chat_mission_wrapup.go).
+	wrapUp bool
 }
 
 // coderSystemPrompt is appended to the runtime's own system prompt (not a
@@ -229,6 +232,18 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 			journal.notice(noticeCoderStatus, "Kilo takes no "+kiloDropped+": this turn runs without it", chatevents.SeverityWarning)
 		}
 	}
+	// A mission that has spent its budget still runs its lead, under the wrap-up
+	// allowance; once that is used up the message is refused here.
+	var wrap *wrapUpTurn
+	if journal != nil && t.orgMode == ai.OrgModeDynamic {
+		if wrap, err = beginWrapUp(ctx, cfg, journal, t); err != nil {
+			return err
+		}
+	}
+	if wrap != nil {
+		defer wrap.close(ctx)
+		t.wrapUp = true
+	}
 	var closeOrg func()
 	var settleLead func(res *monomind.TurnResult, last bool)
 	if journal != nil && t.orgMode == ai.OrgModeDynamic {
@@ -253,7 +268,14 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 			}
 		}
 	}
+	if wrap != nil {
+		wrap.apply(&opts)
+		onEvent = wrap.watch(onEvent)
+	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
+	if wrap != nil {
+		wrap.settle(ctx, res)
+	}
 	if settleLead != nil {
 		// The lead's own turn counts against the mission's budget, as a worker's run does: charged at once, so
 		// that nothing that follows (closing the workers, a long compaction, a crash) can lose it.
@@ -264,7 +286,10 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 		// ends journaled before the turn finishes.
 		closeOrg()
 	}
-	if journal != nil {
+	switch {
+	case wrap != nil:
+		wrap.warnContext()
+	case journal != nil:
 		compactContext(ctx, journal, opts, res, err)
 	}
 	if settleLead != nil {

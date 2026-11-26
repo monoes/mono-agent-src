@@ -238,6 +238,10 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 			if last {
 				defer db.Close()
 			}
+			if t.wrapUp { // the wrap-up allowance records and charges this turn (chat_mission_wrapup.go)
+				cond.HaltIfSpent(ctx)
+				return
+			}
 			if owed := leadTurnOwed(db.DB, journal, res, charged); cond.ChargeLeadTurn(context.WithoutCancel(ctx), owed) {
 				charged += owed
 			}
@@ -252,18 +256,24 @@ func leadTurnOwed(q coderspend.Querier, journal *turnJournal, res *monomind.Turn
 	return leadTurnCost(q, journal, res) - charged
 }
 
-// leadTurnCost is what the lead's turn added: the figure the conversation's spend counts for it (claude reports a
-// resumed session's total, so the exec's own figure holds the earlier turns again, #1744), else, when the journal
-// can't say, what the exec reported (0: it reported none).
+// leadTurnCost is leadTurnFigure's amount: 0 when no cost was reported.
 func leadTurnCost(q coderspend.Querier, journal *turnJournal, res *monomind.TurnResult) float64 {
+	usd, _ := leadTurnFigure(q, journal, res)
+	return usd
+}
+
+// leadTurnFigure is what the lead's turn added: the figure the conversation's spend counts for it (claude reports a
+// resumed session's total, so the exec's own figure holds the earlier turns again, #1744), else, when the journal
+// can't say, what the exec reported. reported is false when neither names a cost.
+func leadTurnFigure(q coderspend.Querier, journal *turnJournal, res *monomind.TurnResult) (usd float64, reported bool) {
 	usd, reported, err := coderspend.LeadTurn(q, journal.profileID, journal.conversationID, journal.turnID)
 	if err == nil && reported {
-		return usd
+		return usd, true
 	}
 	if res != nil && res.HasCostUSD {
-		return res.CostUSD
+		return res.CostUSD, true
 	}
-	return 0
+	return 0, false
 }
 
 // orgStoredIDs reads the ids of every worker stored for the conversation; tests replace it to inject a read error.

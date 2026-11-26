@@ -25,8 +25,16 @@ func leadSpendMission(t *testing.T, costs string) (turn func(id string) (meter, 
 }
 
 // leadSpendRig is that conversation, its mission's session, and a gate: an exec whose costs line says "hold" as
-// its third word waits before its result until release (atGate waits for it to get there).
+// its third word waits before its result until release (atGate waits for it to get there). In place of a cost a line
+// may say "none" (the result reports none), "auth" (the runtime starts and is refused) or "nostart" (it dies first).
+// send runs one turn and returns its error; argsLog holds the runtime's argument lines and systemFile the system
+// prompt of its latest exec.
 type leadSpendRig struct {
+	send       func(id string) error
+	spendCap   func(t *testing.T) chatSpendCap
+	argsLog    string
+	systemFile string
+
 	turn    func(id string) (meter, conversation float64)
 	meter   func() (float64, tasks.SessionState)
 	atGate  func()
@@ -45,11 +53,22 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
 		t.Fatal(err)
 	}
 	gate := filepath.Join(t.TempDir(), "gate")
-	bin, _ := writeCoderMonomind(t, `  set -- $(head -n 1 '`+queue+`')
+	systemFile := filepath.Join(t.TempDir(), "system")
+	bin, argsLog := writeCoderMonomind(t, `  prev=""
+  for a in "$@"; do [ "$prev" = "--system-file" ] && cp "$a" '`+systemFile+`'; prev="$a"; done
+  set -- $(head -n 1 '`+queue+`')
   tail -n +2 '`+queue+`' > '`+queue+`.next'; mv '`+queue+`.next' '`+queue+`'
   warn=""
   if [ "$2" = warn ]; then warn=',"peak_context_tokens":250000,"context_warning":true'; fi
+  cost=',"cost_usd":'"$1"
+  [ "$1" = none ] && cost=""
+  [ "$1" = nostart ] && exit 3
   echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":1,"access":"full"}'
+  if [ "$1" = auth ]; then
+    echo '{"v":1,"type":"error","code":"auth","message":"not signed in","fatal":true}'
+    echo '{"v":1,"type":"done","exit_code":1}'
+    exit 1
+  fi
   echo '{"v":1,"type":"session","session_id":"th_lead"}'
   if [ "$3" = hold ]; then
     : > '`+gate+`.reached'
@@ -57,7 +76,7 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
     while [ ! -f '`+gate+`.release' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done
     rm -f '`+gate+`.release'
   fi
-  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok","cost_usd":'"$1$warn"'}'
+  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok"'"$cost$warn"'}'
   echo '{"v":1,"type":"done","exit_code":0}'`)
 	withCoderCaps(t, append(monomind.CoderCapabilities, monomind.CapAgentExecFullAccessTools, monomind.CapAgentExecAccessRead)...)
 	withCoderScan(t, orgScan(true))
@@ -87,7 +106,16 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
 			t.Fatal(err)
 		}
 	}
-	rig := leadSpendRig{store: store, session: se.ID}
+	rig := leadSpendRig{store: store, session: se.ID, argsLog: argsLog, systemFile: systemFile}
+	rig.spendCap = func(t *testing.T) chatSpendCap {
+		t.Helper()
+		return spendCapOf(t, dbPath, conv.ID)
+	}
+	rig.send = func(id string) error {
+		t.Helper()
+		_, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", id, "--", "work")
+		return err
+	}
 	rig.meter = func() (float64, tasks.SessionState) {
 		t.Helper()
 		got, err := store.GetSession(ctx, "default", se.ID, human)
@@ -98,8 +126,8 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
 	}
 	rig.turn = func(id string) (float64, float64) {
 		t.Helper()
-		if out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", id, "--", "work"); err != nil {
-			t.Fatalf("turn %s: %v\n%s", id, err, out)
+		if err := rig.send(id); err != nil {
+			t.Fatalf("turn %s: %v", id, err)
 		}
 		spent, err := coderspend.Spent(db.DB, "default", conv.ID)
 		if err != nil {

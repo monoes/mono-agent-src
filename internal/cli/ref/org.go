@@ -140,6 +140,14 @@ MESSAGES AND LIFECYCLE
                                     idempotent ("already": true when resolved
                                     before); refused (exit 3) while the org is
                                     not running, and nothing is sent
+  org pending                       every question, approval and gate the
+                                    folder's orgs wait on you for
+  org approve|deny <org> <role> <action> [--request <id>]
+                                    with --request (a requestId of
+                                    org approvals) only that request, refused
+                                    when it is gone or monomind cannot resolve
+                                    by id; without it every pending request of
+                                    the role and action. approve: you only
   org queued <org>                  messages waiting for the org's next start
                                     (read-only view of monomind's inbox.jsonl)
   org stop|pause|resume <org>

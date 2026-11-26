@@ -1578,6 +1578,8 @@
       "spendTaskUsedUp": "Nothing is left to spend on this task: a message does not run.",
       "spendSession": "Up to {{cap}} for the next message: what is left of this chat's {{total}} session budget.",
       "spendSessionUsedUp": "This chat's {{total}} session budget is used up: a message does not run.",
+      "spendWrapUp": "The mission's budget is used up: {{cap}} of the lead's {{total}} wrap-up allowance is left. No worker starts.",
+      "spendWrapUpUsedUp": "The mission's budget and its wrap-up allowance are used up: a message does not run until you raise the budget.",
       "spendMessage": "Up to {{cap}} per message (coder budget).",
       "spendNone": "No spend cap bounds this chat's messages.",
       "spendUnknown": "The spend cap could not be read.",
@@ -2345,7 +2347,11 @@
     "commandFolder": "Role folder: {{path}}",
     "commandCut": "Only the start of this command is known: the engine keeps its first 200 characters.",
     "commandRedacted": "monomind hid part of this command ([REDACTED]). The hidden text may include further commands.",
-    "commandMore": "There is more below: scroll the box to read the whole command."
+    "commandMore": "There is more below: scroll the box to read the whole command.",
+    "inputLabel": "Arguments of the call",
+    "inputMore": "There is more below: scroll the box to read all the arguments.",
+    "inputCut": "Only the start of some arguments is known: the engine keeps the first 200 characters of each.",
+    "inputRedacted": "monomind hid part of these arguments ([REDACTED]). The hidden text may change what the call does."
   },
   "comms": {
     "status": {

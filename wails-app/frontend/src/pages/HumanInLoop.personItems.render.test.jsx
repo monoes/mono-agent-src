@@ -14,7 +14,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
   SendDraftPersonMessage: vi.fn(), RejectDraftPersonMessage: vi.fn(),
 }))
 vi.mock('../services/api.js', () => ({
-  api: { getPendingPeopleApprovals: vi.fn(), listOrgDesigns: vi.fn(), getOrgQuestions: vi.fn(), getOrgApprovals: vi.fn(), getOrgGates: vi.fn() },
+  api: { getPendingPeopleApprovals: vi.fn(), listOrgPending: vi.fn() },
   notify: vi.fn(),
 }))
 vi.mock('../lib/usePageVisible.js', () => ({ usePageVisibleRef: () => ({ current: true }), useVisibleCatchUp: () => {} }))
@@ -27,7 +27,7 @@ beforeEach(() => {
   WailsApp.GetHILItems.mockResolvedValue([])
   WailsApp.GetDraftPersonMessages.mockResolvedValue([])
   api.getPendingPeopleApprovals.mockResolvedValue([])
-  api.listOrgDesigns.mockResolvedValue({ items: [] })
+  api.listOrgPending.mockResolvedValue({ items: [] })
 })
 afterEach(cleanup)
 
