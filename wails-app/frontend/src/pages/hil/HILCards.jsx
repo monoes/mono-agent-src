@@ -1,10 +1,17 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import t from '../../lib/i18nOr.js'
 import { CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Mail } from 'lucide-react'
 import { CommsLinks } from '../../components/CommsLinks.jsx'
 import { BrowserSubmitDetails, isBrowserSubmit } from '../../components/hil/BrowserSubmitDetails.jsx'
 import { BrowserSiteDetails, isBrowserSite } from '../../components/hil/BrowserSiteDetails.jsx'
 import { AutoDecideSkipped } from '../../components/hil/AutoDecideSkipped.jsx'
 import { formatDate, ReadonlyField, EditableField } from './hilShared.jsx'
+
+// The suggestion's values are the CLI's; only the displayed word is translated. An unknown
+// value shows as it came.
+const CHOICE_KEYS = { approve: 'ui7Hil.choice_approve', reject: 'ui7Hil.choice_reject', needs_human: 'ui7Hil.choice_needs_human' }
+const RISK_KEYS = { low: 'ui7Hil.risk_low', medium: 'ui7Hil.risk_medium', high: 'ui7Hil.risk_high' }
 
 // ── 1. Workflow Pause Card ────────────────────────────────────
 // TypeSafe Jev suggestions (plan WS5). The CLI stores them: workflow items
@@ -43,26 +50,28 @@ function suggestionSource(model) {
 }
 
 export function SuggestionChip({ choice, p, detail, model }) {
+  useTranslation() // renders again on a language change
   if (!choice) return null
   const color = SUGGESTION_COLORS[choice] || '#94a3b8'
   const pct = typeof p === 'number' ? `${Math.round(p * 100)}%` : ''
-  const label = choice.replace(/_/g, ' ')
+  const label = Object.hasOwn(CHOICE_KEYS, choice) ? t(CHOICE_KEYS[choice]) : choice.replace(/_/g, ' ')
   return (
     <span
       data-testid="jev-suggestion"
-      title={`${suggestionSource(model)} suggests: ${label}${pct ? ` (${pct} confident)` : ''}${detail ? ` · ${detail}` : ''}. A suggestion only; you decide.`}
+      title={t('ui7Hil.suggest_title', { source: suggestionSource(model), label, confidence: pct ? ` ${t('ui7Hil.confidence', { pct })}` : '', detail: detail ? ` · ${detail}` : '' })}
       style={{
         padding: '2px 8px', borderRadius: 10, flexShrink: 0,
         background: `${color}1f`, color, border: `1px solid ${color}55`,
         fontSize: 11, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
       }}
     >
-      Suggested: {label}{pct && ` ${pct}`}{detail && ` · ${detail}`}
+      {t('ui7Hil.suggested')} {label}{pct && ` ${pct}`}{detail && ` · ${detail}`}
     </span>
   )
 }
 
 export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
+  useTranslation() // renders again on a language change
   const [expanded, setExpanded] = useState(true)
   const [editedValues, setEditedValues] = useState({ ...item.editable_data })
   const [loading, setLoading] = useState(null) // 'approve' | 'reject'
@@ -94,6 +103,8 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
     }
   }
 
+  const risk = suggestionOf(item)?.risk
+
   return (
     <div style={{
       background: 'linear-gradient(160deg,#0d1a28 0%,#091220 100%)',
@@ -124,19 +135,19 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
             )}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-            {formatDate(item.created_at)} · exec: {item.execution_id?.slice(0, 8) ?? '—'}…
+            {formatDate(item.created_at)} {t('ui7Hil.exec')} {item.execution_id?.slice(0, 8) ?? '—'}…
           </div>
         </div>
         <span style={{
           padding: '2px 8px', borderRadius: 10,
           background: 'rgba(0,180,216,0.12)', color: '#00b4d8',
           fontSize: 11, fontFamily: 'var(--font-mono)', flexShrink: 0,
-        }}>{isBrowserSubmit(item) || isBrowserSite(item) ? 'browser' : 'workflow'}</span>
+        }}>{t(isBrowserSubmit(item) || isBrowserSite(item) ? 'ui7Hil.badge_browser' : 'ui7Hil.badge_workflow')}</span>
         {suggestionOf(item) && (
           <SuggestionChip
             choice={suggestionOf(item).choice}
             p={suggestionOf(item).p}
-            detail={suggestionOf(item).risk ? `risk ${suggestionOf(item).risk}` : ''}
+            detail={risk ? t('ui7Hil.risk', { level: Object.hasOwn(RISK_KEYS, risk) ? t(RISK_KEYS[risk]) : risk }) : ''}
             model={suggestionOf(item).model}
           />
         )}
@@ -155,7 +166,7 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
           {isBrowserSubmit(item) ? <BrowserSubmitDetails item={item} /> : isBrowserSite(item) ? <BrowserSiteDetails item={item} /> : readonlyKeys.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                Context Info
+                {t('ui7Hil.context_info')}
               </div>
               {readonlyKeys.map(k => (
                 <ReadonlyField key={k} label={k.replace(/_/g, ' ')} value={item.readonly_data?.[k]} />
@@ -166,7 +177,7 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
           {editableKeys.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, color: '#00b4d8', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid rgba(0,180,216,0.1)' }}>
-                Review &amp; Edit
+                {t('ui7Hil.review_edit')}
               </div>
               {editableKeys.map(k => (
                 <EditableField
@@ -194,7 +205,7 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
               }}
             >
               <XCircle size={14} />
-              {loading === 'reject' ? 'Rejecting…' : isBrowserSite(item) ? 'Not now' : 'Reject'}
+              {t(loading === 'reject' ? 'ui7Hil.rejecting' : isBrowserSite(item) ? 'ui7Hil.not_now' : 'ui7Hil.reject')}
             </button>
             <button
               onClick={handleApprove}
@@ -210,7 +221,7 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
               }}
             >
               <CheckCircle size={14} />
-              {loading === 'approve' ? 'Approving…' : isBrowserSite(item) ? 'Allow' : 'Approve & Continue'}
+              {t(loading === 'approve' ? 'ui7Hil.approving' : isBrowserSite(item) ? 'ui7Hil.allow' : 'ui7Hil.approve_continue')}
             </button>
           </div>
         </div>
@@ -222,6 +233,7 @@ export function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
 
 // ── 2. Draft Outbound Message Card ────────────────────────────
 export function DraftMessageCard({ item, onSend, onReject, onProfile, onNavigate }) {
+  useTranslation() // renders again on a language change
   const [expanded, setExpanded] = useState(true)
   const [loading, setLoading] = useState(null) // 'send' | 'reject'
 
@@ -255,9 +267,9 @@ export function DraftMessageCard({ item, onSend, onReject, onProfile, onNavigate
         <Mail size={14} color="#f59e0b" style={{ flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
-            {item.subject || '(no subject)'}
+            {item.subject || t('ui7Hil.no_subject')}
             <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
-              — to {item.person_full_name || item.person_platform_username}
+              {t('ui7Hil.to_recipient', { name: item.person_full_name || item.person_platform_username || '' })}
             </span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
@@ -268,7 +280,7 @@ export function DraftMessageCard({ item, onSend, onReject, onProfile, onNavigate
           padding: '2px 8px', borderRadius: 10,
           background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
           fontSize: 11, fontFamily: 'var(--font-mono)', flexShrink: 0,
-        }}>draft</span>
+        }}>{t('ui7Hil.badge_draft')}</span>
         {expanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
       </div>
 
@@ -302,7 +314,7 @@ export function DraftMessageCard({ item, onSend, onReject, onProfile, onNavigate
               }}
             >
               <XCircle size={14} />
-              {loading === 'reject' ? 'Discarding…' : 'Discard'}
+              {t(loading === 'reject' ? 'ui7Hil.discarding' : 'ui7Hil.discard')}
             </button>
             <button
               onClick={handleSend}
@@ -318,7 +330,7 @@ export function DraftMessageCard({ item, onSend, onReject, onProfile, onNavigate
               }}
             >
               <CheckCircle size={14} />
-              {loading === 'send' ? 'Sending…' : 'Send'}
+              {t(loading === 'send' ? 'ui7Hil.sending' : 'ui7Hil.send')}
             </button>
           </div>
         </div>

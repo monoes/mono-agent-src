@@ -2,6 +2,7 @@ import { Copy } from 'lucide-react'
 import { copyToClipboard } from './toolCardUtils.js'
 import { diffLines } from './unifiedDiff.js'
 import { maskSecretShapes } from './credentials.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Shared building blocks of the native tool cards (NativeToolCard.jsx,
 // nativeToolDescribe.jsx): tags, labelled sections, the result block and
@@ -32,7 +33,7 @@ export function Section({ label, copyText, children }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
         <span style={sectionLabel}>{label}</span>
         {copyText != null && (
-          <button type="button" onClick={() => copyToClipboard(copyText)} title={`Copy ${label.toLowerCase()}`} aria-label={`Copy ${label.toLowerCase()}`}
+          <button type="button" onClick={() => copyToClipboard(copyText)} title={i18nOr('ui7Chat.copy_named', { what: label.toLowerCase() })} aria-label={i18nOr('ui7Chat.copy_named', { what: label.toLowerCase() })}
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
             <Copy size={9} />
           </button>
@@ -45,10 +46,10 @@ export function Section({ label, copyText, children }) {
 
 // ResultSection is a call's output, with token-shaped secrets in it masked
 // (credentials.js), in the copy too.
-export function ResultSection({ call, label = 'Output' }) {
+export function ResultSection({ call, label = i18nOr('ui7Chat.output') }) {
   if (call.status !== 'completed') return null
   const result = maskSecretShapes(call.result ?? '')
-  const text = result === '' ? '(no output)' : result
+  const text = result === '' ? i18nOr('ui7Chat.no_output') : result
   return (
     <Section label={label} copyText={result}>
       <pre style={{ ...preStyle, color: call.ok === false ? '#fca5a5' : preStyle.color }}>{text}</pre>

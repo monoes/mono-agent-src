@@ -1,4 +1,5 @@
 import { computeStatusLabel } from './TurnStatus.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // composeLiveAnnouncement builds the one text fired into the panel's
 // persistent aria-live region when a turn finalizes. TurnStatus's own
@@ -23,10 +24,9 @@ import { computeStatusLabel } from './TurnStatus.jsx'
 // this finalize-time summary too.
 export function composeLiveAnnouncement(turnState, alreadyAnnouncedCount = 0) {
   const { label } = computeStatusLabel(turnState, Date.now())
-  const parts = [`Response ${label.toLowerCase()}.`]
+  const parts = [i18nOr('ui7Chat.announce_response', { status: label.toLowerCase() })]
   const failedCount = Object.values(turnState.calls || {}).filter(c => c.status === 'completed' && c.ok === false).length
-  if (failedCount === 1) parts.push('1 tool call failed.')
-  else if (failedCount > 1) parts.push(`${failedCount} tool calls failed.`)
+  if (failedCount > 0) parts.push(i18nOr('ui7Chat.announce_tools_failed', { count: failedCount }))
   for (const notice of (turnState.notices || []).slice(alreadyAnnouncedCount)) parts.push(notice.message)
   return parts.join(' ')
 }

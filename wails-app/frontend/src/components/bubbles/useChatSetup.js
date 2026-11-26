@@ -3,6 +3,7 @@ import { api } from '../../services/api.js'
 import { cachedAgentScan, isMonomindNotFound } from '../../lib/agentRuntimes.js'
 import { chosenAccess, isCoderAccess } from '../../lib/chatAccess.js'
 import { coderReady, coderRuntimes } from '../chat/useCoderMode.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // useChatSetup is a new chat's choices before its first message: the access
 // level, the runtime, the model and the effort. What is offered follows the
@@ -43,7 +44,7 @@ export function useChatSetup(active, setup, onChange) {
       if (!live) return
       if (!res || res.error) {
         const msg = res?.error || ''
-        setScan({ done: true, agents: [], missing: isMonomindNotFound(msg), error: isMonomindNotFound(msg) ? '' : (msg || 'the agent runtime scan failed') })
+        setScan({ done: true, agents: [], missing: isMonomindNotFound(msg), error: isMonomindNotFound(msg) ? '' : (msg || i18nOr('ui7Chat.scan_failed')) })
         return
       }
       setScan({ done: true, error: '', missing: false, agents: (res.agents || []).filter(a => a.installed) })

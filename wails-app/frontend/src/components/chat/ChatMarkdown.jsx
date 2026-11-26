@@ -14,6 +14,7 @@ import { parseAppLink, appLinkUrlTransform, remarkChatAppMentions } from './chat
 import { chatBlockFor } from './blocks/ChatBlock.jsx'
 import { htmlViewForPre } from './htmlView.jsx'
 import { ChatHosts } from './ChatHosts.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -124,9 +125,9 @@ function makeComponents(noPaths) {
     img: ({ src, alt }) => (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 6px', border: '1px dashed rgba(148,163,184,0.4)', borderRadius: 4, color: '#94a3b8', fontSize: 10, verticalAlign: 'middle' }}>
         <ImageOff size={11} />
-        {alt || 'image'}
+        {alt || i18nOr('ui7Chat.image_alt')}
         {isAllowedURL(src) && (
-          <a href={src} title={`Open in browser: ${src}`} onClick={(e) => { e.preventDefault(); if (!isUserGesture(e)) return; openApproved(src) }} style={{ color: '#00b4d8' }}>open</a>
+          <a href={src} title={i18nOr('ui7Chat.open_in_browser', { url: src })} onClick={(e) => { e.preventDefault(); if (!isUserGesture(e)) return; openApproved(src) }} style={{ color: '#00b4d8' }}>{i18nOr('ui7Chat.open_link')}</a>
         )}
       </span>
     ),
@@ -174,6 +175,7 @@ function PlainText({ content }) {
 }
 
 export function ChatMarkdown({ content, noPaths = false, onNavigate = null }) {
+  useTranslation() // renders again on a language change
   const budget = useRef({ left: MAX_LOOKUPS_PER_MESSAGE })
   if (!content) return null
   if (markdownTooDeep(content)) return <PlainText content={content} />

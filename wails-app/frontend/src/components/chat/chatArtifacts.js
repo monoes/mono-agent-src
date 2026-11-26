@@ -23,8 +23,10 @@
 // Literal tool names and result shapes below are taken directly from
 // internal/ai/chat/monoagent_tools.go (createWorkflow/createOrg/
 // saveDocument) — see that file if either ever changes shape.
+import i18nOr from '../../lib/i18nOr.js'
 
 const ALLOWED_TOOL_NAMES = new Set(['create_workflow', 'create_org', 'save_document', 'save_image'])
+const TYPE_KEYS = { workflow: 'ui7Chat.artifact_workflow', org: 'ui7Chat.artifact_org', document: 'ui7Chat.artifact_document', image: 'ui7Chat.artifact_image' }
 
 function nonEmptyString(v) {
   return typeof v === 'string' && v.trim().length > 0
@@ -128,7 +130,7 @@ export async function resolveArtifact(candidate, api) {
 // Open/Copy-ID action. A generic "revalidate before acting" operation with
 // no panel-specific dependency: `api` and `notify` are passed in explicitly
 // (same reasoning as resolveArtifact's own explicit `api` parameter above —
-// this file imports nothing, so it stays testable with small hand-built
+// this file imports only the translator, so it stays testable with small hand-built
 // fakes instead of mocking services/api.js), and `onOpen` is whatever the
 // caller wants to do with a freshly-confirmed artifact.
 //
@@ -150,7 +152,7 @@ export async function openArtifact(call, artifact, { api, notify, onOpen }) {
     // candidate is a fresh re-derivation from `call` and happens to agree
     // with `artifact.type` today, but `artifact` is the thing the user
     // actually saw and clicked.
-    notify('chat', `Couldn't confirm this ${artifact.type} still exists — not opening it.`)
+    notify('chat', i18nOr('ui7Chat.artifact_gone', { type: Object.hasOwn(TYPE_KEYS, artifact.type) ? i18nOr(TYPE_KEYS[artifact.type]) : artifact.type }))
     return
   }
   onOpen?.(fresh)

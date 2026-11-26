@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import t from '../lib/i18nOr.js'
 import { CheckCircle, RefreshCw, AlertTriangle, UserCheck, X } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { api, notify } from '../services/api.js'
@@ -23,6 +25,7 @@ export { suggestionOf, sortBySuggestion, SuggestionChip }
 
 // ── Main HumanInLoop component ────────────────────────────────
 export default function HumanInLoop({ embedded = false, isOpen = true, onClose, onPendingCountChange, onProfile, onNavigate }) {
+  useTranslation() // renders again on a language change
   const [items, setItems] = useState([])
   const [drafts, setDrafts] = useState([])
   const [leads, setLeads] = useState([])
@@ -59,7 +62,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       // `org pending` has done the reading; a card only renders its entry.
       const orgs = orgsRes.status === 'fulfilled' ? orgsRes.value : null
       const newOrgItems = (orgs?.items || []).map(it => ({ ...it, id: it.ref, orgName: it.org }))
-      const orgErrors = orgs?.error || (orgs?.errors || []).map(e => `Org ${e.org}: ${e.error}`).join('; ')
+      const orgErrors = orgs?.error || (orgs?.errors || []).map(e => t('ui7Hil.org_error', { org: e.org, error: e.error })).join('; ')
       if (orgErrors) setError(orgErrors)
 
       setItems(sortBySuggestion(newHil))
@@ -70,7 +73,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       baseTotal.current = newHil.length + newDrafts.length + newLeads.length + newOrgItems.length
       onPendingCountChange?.(baseTotal.current + personCount.current)
     } catch (e) {
-      setError(e?.message ?? 'Failed to load')
+      setError(e?.message ?? t('ui7Hil.failed_load'))
     } finally {
       loadInFlight.current = false
       if (!background) setLoading(false)
@@ -96,9 +99,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       await ApproveHIL(id, editedJSON)
       emitCommsChanged()
       setItems(prev => prev.filter(i => i.id !== id))
-      notify('workflow', 'Workflow resumed')
+      notify('workflow', t('ui7Hil.workflow_resumed'))
     } catch (e) {
-      setError(e?.message ?? 'Failed to approve item')
+      setError(e?.message ?? t('ui7Hil.failed_approve_item'))
     }
   }
 
@@ -107,9 +110,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       await RejectHIL(id)
       emitCommsChanged()
       setItems(prev => prev.filter(i => i.id !== id))
-      notify('workflow', 'Workflow branch rejected')
+      notify('workflow', t('ui7Hil.branch_rejected'))
     } catch (e) {
-      setError(e?.message ?? 'Failed to reject item')
+      setError(e?.message ?? t('ui7Hil.failed_reject_item'))
     }
   }
 
@@ -119,9 +122,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       await SendDraftPersonMessage(id)
       emitCommsChanged()
       setDrafts(prev => prev.filter(d => d.id !== id))
-      notify('message', 'Draft message sent')
+      notify('message', t('ui7Hil.draft_sent'))
     } catch (e) {
-      setError(e?.message ?? 'Failed to send draft')
+      setError(e?.message ?? t('ui7Hil.failed_send_draft'))
     }
   }
 
@@ -130,9 +133,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       await RejectDraftPersonMessage(id)
       emitCommsChanged()
       setDrafts(prev => prev.filter(d => d.id !== id))
-      notify('message', 'Draft message discarded')
+      notify('message', t('ui7Hil.draft_discarded'))
     } catch (e) {
-      setError(e?.message ?? 'Failed to discard draft')
+      setError(e?.message ?? t('ui7Hil.failed_discard_draft'))
     }
   }
 
@@ -142,9 +145,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       await api.approvePendingPerson(id, editedIntro, sendNow)
       emitCommsChanged()
       setLeads(prev => prev.filter(l => l.id !== id))
-      notify('outreach', sendNow ? 'Approved and queued for dispatch' : 'Approved candidate')
+      notify('outreach', t(sendNow ? 'ui7Hil.lead_queued' : 'ui7Hil.lead_approved'))
     } catch (e) {
-      setError(e?.message ?? 'Failed to approve lead')
+      setError(e?.message ?? t('ui7Hil.failed_approve_lead'))
     }
   }
 
@@ -153,9 +156,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       await api.rejectPendingPerson(id)
       emitCommsChanged()
       setLeads(prev => prev.filter(l => l.id !== id))
-      notify('outreach', 'Candidate rejected')
+      notify('outreach', t('ui7Hil.lead_rejected'))
     } catch (e) {
-      setError(e?.message ?? 'Failed to reject lead')
+      setError(e?.message ?? t('ui7Hil.failed_reject_lead'))
     }
   }
 
@@ -175,20 +178,20 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
   }
 
   const handleAnswerQuestion = (orgName, questionId, text) => resolveOrg(orgName, questionId,
-    () => api.answerOrgQuestion(orgName, questionId, text), 'Question answered', 'Failed to answer question')
+    () => api.answerOrgQuestion(orgName, questionId, text), t('ui7Hil.question_answered'), t('ui7Hil.failed_answer'))
 
   // An approval is resolved by its request id: that call and no other.
   const handleApproveAction = ({ orgName, id, role, action, request_id: requestID }) => resolveOrg(orgName, id,
-    () => api.approveOrgAction(orgName, role, action, requestID), `Approved ${action}`, 'Failed to approve action')
+    () => api.approveOrgAction(orgName, role, action, requestID), t('ui7Hil.action_approved', { action }), t('ui7Hil.failed_approve_action'))
 
   const handleDenyAction = ({ orgName, id, role, action, request_id: requestID }) => resolveOrg(orgName, id,
-    () => api.denyOrgAction(orgName, role, action, requestID), `Denied ${action}`, 'Failed to deny action')
+    () => api.denyOrgAction(orgName, role, action, requestID), t('ui7Hil.action_denied', { action }), t('ui7Hil.failed_deny_action'))
 
   const handleApproveGate = (orgName, gateId) => resolveOrg(orgName, gateId,
-    () => api.gateApproveOrgAction(orgName, gateId), 'Gate approved', 'Failed to approve gate')
+    () => api.gateApproveOrgAction(orgName, gateId), t('ui7Hil.gate_approved'), t('ui7Hil.failed_approve_gate'))
 
   const handleRejectGate = (orgName, gateId) => resolveOrg(orgName, gateId,
-    () => api.gateRejectOrgAction(orgName, gateId), 'Gate rejected', 'Failed to reject gate')
+    () => api.gateRejectOrgAction(orgName, gateId), t('ui7Hil.gate_rejected'), t('ui7Hil.failed_reject_gate'))
 
   if (embedded && !isOpen) return null
 
@@ -223,9 +226,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       {!embedded && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', margin: 0 }}>Human in Loop</h1>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', margin: 0 }}>{t('ui7Hil.title')}</h1>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>
-              Central queue for all pending human reviews, lead outreach approvals, workflow pauses, and agent decisions.
+              {t('ui7Hil.intro')}
             </p>
           </div>
           <button
@@ -242,7 +245,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
             }}
           >
             <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-            Refresh
+            {t('ui7Hil.refresh')}
           </button>
         </div>
       )}
@@ -264,7 +267,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
               cursor: 'pointer',
             }}
           >
-            All ({totalCount})
+            {t('ui7Hil.filter_all', { n: totalCount })}
           </button>
           {leads.length > 0 && (
             <button
@@ -278,7 +281,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
                 cursor: 'pointer',
               }}
             >
-              Leads ({leads.length})
+              {t('ui7Hil.filter_leads', { n: leads.length })}
             </button>
           )}
           {items.length > 0 && (
@@ -293,7 +296,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
                 cursor: 'pointer',
               }}
             >
-              Workflows ({items.length})
+              {t('ui7Hil.filter_workflows', { n: items.length })}
             </button>
           )}
           {drafts.length > 0 && (
@@ -308,7 +311,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
                 cursor: 'pointer',
               }}
             >
-              Messages ({drafts.length})
+              {t('ui7Hil.filter_messages', { n: drafts.length })}
             </button>
           )}
           {orgItems.length > 0 && (
@@ -323,7 +326,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
                 cursor: 'pointer',
               }}
             >
-              Orgs ({orgItems.length})
+              {t('ui7Hil.filter_orgs', { n: orgItems.length })}
             </button>
           )}
         </div>
@@ -342,9 +345,9 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
           color: 'var(--text-muted)',
         }}>
           <CheckCircle size={32} style={{ marginBottom: 12, opacity: 0.3 }} />
-          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>All caught up!</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>{t('ui7Hil.caught_up')}</div>
           <div style={{ fontSize: 13 }}>
-            No pending reviews across lead campaigns, workflow pauses, outbound drafts, or agent organizations.
+            {t('ui7Hil.nothing_pending')}
           </div>
         </div>
       )}
@@ -409,7 +412,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
       <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(0,180,216,0.12)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <UserCheck size={14} style={{ color: '#00b4d8' }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: '#e2e8f0', flex: 1, letterSpacing: 1 }}>
-          HUMAN IN LOOP
+          {t('ui7Hil.title_caps')}
         </span>
         {totalCount > 0 && (
           <span style={{
@@ -420,11 +423,11 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
             {totalCount}
           </span>
         )}
-        <button onClick={() => load()} disabled={loading} title="Refresh" style={{ background: 'transparent', border: 'none', cursor: loading ? 'wait' : 'pointer', color: 'var(--text-muted)', padding: 3, display: 'flex' }}>
+        <button onClick={() => load()} disabled={loading} title={t('ui7Hil.refresh')} style={{ background: 'transparent', border: 'none', cursor: loading ? 'wait' : 'pointer', color: 'var(--text-muted)', padding: 3, display: 'flex' }}>
           <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
         </button>
         {onClose && (
-          <button onClick={onClose} title="Close panel" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 3, display: 'flex' }}>
+          <button onClick={onClose} title={t('ui7Hil.close_panel')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 3, display: 'flex' }}>
             <X size={15} />
           </button>
         )}

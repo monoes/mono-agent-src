@@ -2,6 +2,7 @@
 // picks are read into memory until the turn is sent (then saved to the
 // chat spool and passed as `chat --attach`), and the image paths a tool
 // result names are shown from the chat's folder.
+import i18nOr from '../../lib/i18nOr.js'
 
 export const MAX_ATTACHMENTS = 10
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
@@ -37,7 +38,7 @@ export function readAttachment(file) {
         base64: dataUrl.slice(dataUrl.indexOf(',') + 1),
       })
     }
-    reader.onerror = () => reject(reader.error || new Error('could not be read'))
+    reader.onerror = () => reject(reader.error || new Error(i18nOr('ui7Chat.file_unread')))
     reader.readAsDataURL(file)
   })
 }
@@ -49,11 +50,11 @@ export async function takeFiles(count, files) {
   const added = []
   const skipped = []
   for (const f of Array.from(files || [])) {
-    const name = f.name || 'pasted file'
+    const name = f.name || i18nOr('ui7Chat.pasted_file')
     if (count + added.length >= MAX_ATTACHMENTS) {
-      skipped.push(`${name}: at most ${MAX_ATTACHMENTS} files per message`)
+      skipped.push(i18nOr('ui7Chat.file_too_many', { name, max: MAX_ATTACHMENTS }))
     } else if (f.size > MAX_ATTACHMENT_BYTES) {
-      skipped.push(`${name}: over 20 MB`)
+      skipped.push(i18nOr('ui7Chat.file_too_big', { name }))
     } else {
       try {
         // eslint-disable-next-line no-await-in-loop

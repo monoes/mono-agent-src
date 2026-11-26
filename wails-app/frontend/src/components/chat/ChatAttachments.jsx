@@ -4,6 +4,8 @@ import { FileText, X } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { isImage, formatBytes, imagePathsInResult, baseName } from './chatAttachments.js'
 import { useEscapeClose } from '../../lib/escapeStack.js'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../lib/i18nOr.js'
 
 // The images and files of a coder chat (C4): the composer's attachment
 // chips, the thumbnails under a sent message, and the images a tool result
@@ -34,6 +36,7 @@ function loadWorkspaceImage(conversationId, path) {
 }
 
 export function ImageLightbox({ src, alt, onClose }) {
+  useTranslation() // renders again on a language change
   useEscapeClose(onClose)
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={alt} data-testid="image-lightbox" onClick={onClose} style={{
@@ -41,7 +44,7 @@ export function ImageLightbox({ src, alt, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out',
     }}>
       <img src={src} alt={alt} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 6, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }} />
-      <button type="button" aria-label="Close image" onClick={onClose} style={{
+      <button type="button" aria-label={i18nOr('ui7Chat.close_image')} onClick={onClose} style={{
         position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.2)',
         borderRadius: 6, color: '#e2e8f0', cursor: 'pointer', padding: 4, display: 'flex',
       }}>
@@ -59,10 +62,11 @@ const thumbButton = {
 
 // Thumb is one clickable image that opens large.
 function Thumb({ src, alt, maxHeight, maxWidth = 220, testId }) {
+  useTranslation() // renders again on a language change
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" data-testid={testId} title={alt} aria-label={`Open ${alt}`} onClick={() => setOpen(true)} style={thumbButton}>
+      <button type="button" data-testid={testId} title={alt} aria-label={i18nOr('ui7Chat.open_named', { name: alt })} onClick={() => setOpen(true)} style={thumbButton}>
         <img src={src} alt={alt} style={{ display: 'block', maxHeight, maxWidth, objectFit: 'contain' }} />
       </button>
       {open && <ImageLightbox src={src} alt={alt} onClose={() => setOpen(false)} />}
@@ -138,6 +142,7 @@ function FileChip({ name, size, children }) {
 // AttachmentChips are the composer's attachments before sending: image
 // thumbnails and file chips, each with a remove button.
 export function AttachmentChips({ attachments, onRemove }) {
+  useTranslation() // renders again on a language change
   if (!attachments?.length) return null
   const card = {
     position: 'relative', display: 'inline-flex', flexDirection: 'column', gap: 4, padding: 5,
@@ -148,7 +153,7 @@ export function AttachmentChips({ attachments, onRemove }) {
     <div data-testid="attachment-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
       {attachments.map(a => {
         const remove = (
-          <button type="button" aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`} onClick={() => onRemove(a.id)} style={{
+          <button type="button" aria-label={i18nOr('ui7Chat.remove_named', { name: a.name })} title={i18nOr('ui7Chat.remove_named', { name: a.name })} onClick={() => onRemove(a.id)} style={{
             position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%',
             background: '#0b1220', border: '1px solid rgba(0,180,216,0.4)', color: '#e2e8f0', cursor: 'pointer',
             padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

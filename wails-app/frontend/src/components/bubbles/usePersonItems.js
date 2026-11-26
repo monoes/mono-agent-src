@@ -3,6 +3,7 @@ import { personItemsApi } from '../../services/personItems.js'
 import { usePageVisibleRef, useVisibleCatchUp } from '../../lib/usePageVisible.js'
 import { planAlert, trimSeen } from '../../lib/personItems.js'
 import { getNotifySound, playChime } from '../../lib/personChime.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 export const PERSON_POLL_MS = 5000
 const SEEN_KEY = 'monoagent:personItemsSeen'
@@ -105,17 +106,17 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
 
   const expand = useCallback(async item => {
     const shown = shownRef.current.get(item?.id)
-    if (!shown) return { error: 'unknown item' }
-    if (item.sessionId !== shown.sessionId) return { error: 'the item belongs to another session', code: 'session_mismatch' }
+    if (!shown) return { error: i18nOr('ui7Chat.item_unknown') }
+    if (item.sessionId !== shown.sessionId) return { error: i18nOr('ui7Chat.item_other_session'), code: 'session_mismatch' }
     const res = await personItemsApi.show(shown.sessionId)
     const full = res?.item
-    if (res?.error || !full || full.sessionId !== shown.sessionId || isCut(full)) return { error: res?.error || 'the full text could not be loaded', code: res?.code }
+    if (res?.error || !full || full.sessionId !== shown.sessionId || isCut(full)) return { error: res?.error || i18nOr('ui7Chat.item_not_loaded'), code: res?.code }
     const base = shownRef.current.get(shown.id) // a poll may have replaced the entry meanwhile; its guard is the frozen one
-    if (!base || base.changed || !sameGuard(base, shown)) return { error: 'the plan changed since it was shown', code: 'plan_changed' }
+    if (!base || base.changed || !sameGuard(base, shown)) return { error: i18nOr('ui7Chat.item_plan_changed'), code: 'plan_changed' }
     if (!sameGuard(base, full)) {
       shownRef.current = new Map(shownRef.current).set(base.id, { ...base, changed: true, latest: { ...base, ...full } })
       setItems([...shownRef.current.values()])
-      return { error: 'the plan changed since it was shown', code: 'plan_changed' }
+      return { error: i18nOr('ui7Chat.item_plan_changed'), code: 'plan_changed' }
     }
     shownRef.current = new Map(shownRef.current).set(base.id, { ...base, tasks: full.tasks, expanded: true })
     setItems([...shownRef.current.values()])
@@ -125,14 +126,14 @@ export function usePersonItems({ enabled = true, alerts = null, play = playChime
   const answer = useCallback(async (verb, item, text = '') => {
     const shown = shownRef.current.get(item?.id) ?? item
     const id = shown?.sessionId
-    if (item?.sessionId !== id) return { error: 'the item belongs to another session', code: 'session_mismatch' }
-    if (verb === 'approve' && shown?.changed) return { error: 'the plan changed since it was shown', code: 'plan_changed' }
-    if (verb === 'approve' && isCut(shown)) return { error: 'part of the plan has not been shown in full', code: 'truncated' }
+    if (item?.sessionId !== id) return { error: i18nOr('ui7Chat.item_other_session'), code: 'session_mismatch' }
+    if (verb === 'approve' && shown?.changed) return { error: i18nOr('ui7Chat.item_plan_changed'), code: 'plan_changed' }
+    if (verb === 'approve' && isCut(shown)) return { error: i18nOr('ui7Chat.item_not_shown'), code: 'truncated' }
     const res = verb === 'approve' ? await personItemsApi.approve(id, shown?.rev ?? 0, shown?.digest ?? '')
       : verb === 'deny' ? await personItemsApi.deny(id, text)
         : verb === 'ask' ? await personItemsApi.ask(id, text)
           : verb === 'answerAsk' ? await personItemsApi.answerAsk(item?.askId, text)
-            : { error: 'unknown answer' }
+            : { error: i18nOr('ui7Chat.item_unknown_answer') }
     if (!res?.error || res.code === 'plan_changed') refresh()
     return res
   }, [refresh])

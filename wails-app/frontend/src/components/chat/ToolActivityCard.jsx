@@ -6,6 +6,7 @@ import { NativeToolCard } from './NativeToolCard.jsx'
 import { maskArgs, maskSecretShapes } from './credentials.js'
 import { vaultRelatedCall } from './toolLinks.js'
 import { ToolEntityLink } from './ToolEntityLink.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 function formatArgs(args) {
   if (args === null || args === undefined) return null
@@ -21,7 +22,7 @@ function formatArgs(args) {
 // rather than rendering nothing, which would look identical to "not shown".
 function formatResult(call) {
   if (call.status !== 'completed') return null
-  if (call.result === '') return '(empty result)'
+  if (call.result === '') return i18nOr('ui7Chat.empty_result')
   return maskSecretShapes(call.result)
 }
 
@@ -78,21 +79,21 @@ function GenericToolCard({ call, turnId = '', isLive = true, onNavigate, entityL
   let statusIcon, statusText
   if (orphaned) {
     statusIcon = <X size={11} color="var(--text-muted)" />
-    statusText = 'Interrupted'
+    statusText = i18nOr('ui7Chat.tool_interrupted')
   } else if (call.status === 'started') {
     statusIcon = <Loader size={11} className="chat-spin" style={{ color: '#00b4d8' }} />
-    statusText = 'Running'
+    statusText = i18nOr('ui7Chat.tool_running')
   } else if (failed) {
     statusIcon = <X size={11} color="#ef4444" />
-    statusText = 'Failed'
+    statusText = i18nOr('ui7Chat.tool_failed')
   } else if (call.ok === true) {
     statusIcon = <Check size={11} color="#10b981" />
-    statusText = 'Done'
+    statusText = i18nOr('ui7Chat.tool_done')
   } else {
     // ok === null: some adapters never report explicit success/failure —
     // truthfully "Completed", not a fabricated pass/fail.
     statusIcon = <Check size={11} color="#94a3b8" />
-    statusText = 'Completed'
+    statusText = i18nOr('ui7Chat.tool_completed')
   }
 
   return (
@@ -141,8 +142,8 @@ function GenericToolCard({ call, turnId = '', isLive = true, onNavigate, entityL
           {argsText != null && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase' }}>Args</span>
-                <button type="button" onClick={() => copyToClipboard(argsText)} title="Copy arguments" aria-label="Copy arguments" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase' }}>{i18nOr('ui7Chat.args')}</span>
+                <button type="button" onClick={() => copyToClipboard(argsText)} title={i18nOr('ui7Chat.copy_args')} aria-label={i18nOr('ui7Chat.copy_args')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
                   <Copy size={9} />
                 </button>
               </div>
@@ -158,8 +159,8 @@ function GenericToolCard({ call, turnId = '', isLive = true, onNavigate, entityL
           {resultText != null && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase' }}>Result</span>
-                <button type="button" onClick={() => copyToClipboard(maskSecretShapes(call.result))} title="Copy result" aria-label="Copy result" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase' }}>{i18nOr('ui7Chat.result')}</span>
+                <button type="button" onClick={() => copyToClipboard(maskSecretShapes(call.result))} title={i18nOr('ui7Chat.copy_result')} aria-label={i18nOr('ui7Chat.copy_result')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
                   <Copy size={9} />
                 </button>
               </div>
