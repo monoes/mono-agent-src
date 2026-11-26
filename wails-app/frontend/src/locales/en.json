@@ -3848,7 +3848,8 @@
     "turnRate": "The AI provider is rate limiting. Wait a minute, or switch to another model, then send again.",
     "turnMissing": "The AI agent program was not found. Check AI agents for its install state, then send again.",
     "turnBudget": "The turn hit its spending limit. Raise the limit or ask for less, then send again.",
-    "turnTimeout": "The turn ran out of time. Ask for a smaller step, then send again."
+    "turnTimeout": "The turn ran out of time. Ask for a smaller step, then send again.",
+    "controlRoomUnreadable": "unreadable control room document"
   },
   "ui6PagesPeople": {
     "group_sales_title": "Sales Pipeline",

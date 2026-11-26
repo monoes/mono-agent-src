@@ -12,6 +12,7 @@ import FormFieldsEditor from './FormFieldsEditor.jsx'
 import { checkSubConnection } from './aiSubNodes.js'
 import { parseTriggerInput } from './triggerInput.js'
 import { failureHint } from '../lib/turnFailure.js'
+import { viewOf } from './ControlRoom/controlRoomModel.js'
 
 vi.mock('../wailsjs/go/main/App', async (importOriginal) => ({
   ...await importOriginal(),
@@ -86,5 +87,6 @@ describe('step settings in Spanish', () => {
   it("says what to do about a failed turn in the app's language", () => {
     expect(failureHint('auth')).toMatch(/inicio de sesión/)
     expect(failureHint('no-such-code')).toBe('')
+    expect(viewOf(null).message).toMatch(/sala de control/)
   })
 })

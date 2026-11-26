@@ -3848,7 +3848,8 @@
     "turnRate": "El proveedor de IA está limitando la frecuencia. Espera un minuto o cambia a otro modelo y vuelve a enviar.",
     "turnMissing": "No se encontró el programa del agente de IA. Comprueba su estado de instalación en Agentes de IA y vuelve a enviar.",
     "turnBudget": "El turno alcanzó su límite de gasto. Sube el límite o pide menos y vuelve a enviar.",
-    "turnTimeout": "El turno se quedó sin tiempo. Pide un paso más pequeño y vuelve a enviar."
+    "turnTimeout": "El turno se quedó sin tiempo. Pide un paso más pequeño y vuelve a enviar.",
+    "controlRoomUnreadable": "documento de la sala de control ilegible"
   },
   "ui6PagesPeople": {
     "group_sales_title": "Embudo de ventas",
