@@ -2,12 +2,15 @@
 // `login <automation>` / `login confirm <automation>` flow (LoginSocial /
 // ConfirmSocialLogin + conn:* events) and the session test/delete bindings.
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 import { LogIn, LogOut, CheckCircle, RefreshCw } from 'lucide-react'
 import { api, onConnectionProgress, onConnectionDone, onConnectionOpened } from '../../services/api.js'
 import { confirm } from '../../components/ConfirmDialog.jsx'
 import { KV, ErrorBox, OkBox, Busy, Dot, body, mono, panel, fmtDate } from './ui.jsx'
 
 export default function SessionTab({ automation, manifest, onChanged }) {
+  const { t } = useTranslation()
   const id = automation.id
   const s = automation.session || {}
   const [rows, setRows] = useState([])
@@ -28,12 +31,12 @@ export default function SessionTab({ automation, manifest, onChanged }) {
     const offD = onConnectionDone(async d => {
       if (d?.platform !== id) return
       if (d.success) {
-        setPhase('idle'); setMsg({ ok: true, text: d.accountID ? `Logged in as ${d.accountID}` : 'Logged in' })
+        setPhase('idle'); setMsg({ ok: true, text: d.accountID ? i18n.t('ui6ConnAuto.logged_in_as', { name: d.accountID }) : i18n.t('ui6ConnAuto.logged_in_title') })
         await Promise.all([loadRows(), onChanged?.()])
       } else {
         // A failed confirm (not logged in yet) keeps the confirm button.
         setPhase(p => (p === 'saving' ? 'awaiting' : 'idle'))
-        setMsg({ ok: false, text: !d.error || /^exit status/.test(d.error) ? 'Login failed — see the details below.' : d.error })
+        setMsg({ ok: false, text: !d.error || /^exit status/.test(d.error) ? i18n.t('ui6ConnAuto.login_failed') : d.error })
       }
     })
     return () => { offP(); offO(); offD() }
@@ -51,10 +54,10 @@ export default function SessionTab({ automation, manifest, onChanged }) {
   }
   const test = async (row) => {
     const r = await api.testSession(row.id)
-    setMsg(r === 'ok' ? { ok: true, text: `Session for ${row.username} is valid` } : { ok: false, text: String(r || 'error').replace(/^error:?\s*/, '') })
+    setMsg(r === 'ok' ? { ok: true, text: t('ui6ConnAuto.session_valid', { name: row.username }) } : { ok: false, text: String(r || 'error').replace(/^error:?\s*/, '') })
   }
   const logout = async (row) => {
-    if (!(await confirm(`Log out ${row.username} from ${automation.name || id}? The stored cookies are deleted.`))) return
+    if (!(await confirm(t('ui6ConnAuto.logout_confirm', { user: row.username, site: automation.name || id })))) return
     try { await api.deleteSession(row.id) } catch (e) { setMsg({ ok: false, text: e?.message || String(e) }); return }
     await Promise.all([loadRows(), onChanged?.()])
   }
@@ -65,37 +68,41 @@ export default function SessionTab({ automation, manifest, onChanged }) {
       <div style={{ ...panel, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Dot on={s.loggedIn} warn={!s.loggedIn && s.status === 'expired'} />
         <span style={{ ...mono, fontSize: 12, color: s.loggedIn ? 'var(--green-neon)' : 'var(--text-secondary)' }}>
-          {s.loggedIn ? `Logged in${s.username ? ` as ${s.username}` : ''}` : s.status === 'expired' ? `Session${s.username ? ` for ${s.username}` : ''} expired` : 'Not logged in'}
+          {s.loggedIn
+            ? (s.username ? t('ui6ConnAuto.logged_in_as', { name: s.username }) : t('ui6ConnAuto.logged_in_title'))
+            : s.status === 'expired'
+              ? (s.username ? t('ui6ConnAuto.session_expired_for', { name: s.username }) : t('ui6ConnAuto.session_expired_title'))
+              : t('ui6ConnAuto.not_logged_in')}
         </span>
-        {s.expiresAt && <span style={{ ...mono, fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>expires {fmtDate(s.expiresAt)}</span>}
+        {s.expiresAt && <span style={{ ...mono, fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>{t('ui6ConnAuto.expires_on', { date: fmtDate(s.expiresAt) })}</span>}
       </div>
 
       {rows.map(r => (
         <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <KV rows={[['Account', r.username || '—'], ['Status', r.active ? 'active' : 'expired'], ['Added', fmtDate(r.added_at)], ['Expires', fmtDate(r.expiry)]]} />
+          <KV rows={[[t('ui6Conn.account'), r.username || '—'], [t('ui6Conn.status'), r.active ? t('ui6Conn.conn_status_value_active') : t('ui6Conn.conn_status_value_expired')], [t('ui6ConnAuto.added'), fmtDate(r.added_at)], [t('ui6ConnAuto.expires'), fmtDate(r.expiry)]]} />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => test(r)} style={{ gap: 5 }}><CheckCircle size={11} /> Test</button>
-            <button className="btn btn-danger btn-sm" onClick={() => logout(r)} style={{ gap: 5 }}><LogOut size={11} /> Log out</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => test(r)} style={{ gap: 5 }}><CheckCircle size={11} /> {t('ui6Conn.test')}</button>
+            <button className="btn btn-danger btn-sm" onClick={() => logout(r)} style={{ gap: 5 }}><LogOut size={11} /> {t('ui6ConnAuto.log_out')}</button>
           </div>
         </div>
       ))}
 
       <div style={{ ...body, fontSize: 11 }}>
         {phase === 'awaiting'
-          ? `Log in to ${automation.name || id} in the browser tab that opened (including any "verify you're human" step), then confirm here.`
-          : `A tab opens in your browser${loginUrl ? ` at ${loginUrl}` : ''}. Log in by hand, then come back and confirm.`}
+          ? t('ui6ConnAuto.login_awaiting', { site: automation.name || id })
+          : loginUrl ? t('ui6ConnAuto.login_intro_at', { url: loginUrl }) : t('ui6ConnAuto.login_intro')}
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {phase === 'awaiting' ? (
-          <button className="btn btn-primary btn-sm" onClick={confirmLogin} style={{ gap: 5 }}><CheckCircle size={11} /> I've logged in — Save session</button>
+          <button className="btn btn-primary btn-sm" onClick={confirmLogin} style={{ gap: 5 }}><CheckCircle size={11} /> {t('ui6ConnAuto.confirm_login')}</button>
         ) : (
           <button className="btn btn-primary btn-sm" onClick={start} disabled={phase !== 'idle'} style={{ gap: 5 }}>
-            {rows.length ? <RefreshCw size={11} /> : <LogIn size={11} />} {rows.length ? 'Log in again' : 'Log in'}
+            {rows.length ? <RefreshCw size={11} /> : <LogIn size={11} />} {rows.length ? t('ui6ConnAuto.log_in_again') : t('ui6ConnAuto.log_in')}
           </button>
         )}
       </div>
-      {phase === 'opening' && <Busy text="Opening browser…" />}
-      {phase === 'saving' && <Busy text="Saving session…" />}
+      {phase === 'opening' && <Busy text={t('ui6ConnAuto.opening_browser')} />}
+      {phase === 'saving' && <Busy text={t('ui6ConnAuto.saving_session')} />}
       {msg && (msg.ok ? <OkBox>{msg.text}</OkBox> : <ErrorBox>{msg.text}</ErrorBox>)}
       {steps.length > 0 && (
         <div style={{ ...panel, maxHeight: 140, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>

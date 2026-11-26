@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react'
 import BrowserPermissionsSection from './BrowserPermissionsSection.jsx'
 import { api } from '../../services/api.js'
+import '../../i18n.js'
 // The `monoagentcli browser permissions --json` document (plan C8), with the
 // labels of browserctl.Catalog and KindLabel.
 import fixture from './__fixtures__/browser-permissions.json'

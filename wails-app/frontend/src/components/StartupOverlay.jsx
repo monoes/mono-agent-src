@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../services/api.js'
 
 const QUIPS = [
-  'Waking up the agents…',
-  'Teaching the robots to knock before entering…',
-  'Counting your profiles. Twice.',
-  'Untangling the workflows…',
-  'Convincing the database to get out of bed…',
-  'Polishing the vault. Not peeking inside.',
-  'Herding the browser tabs…',
-  'Asking the nodes to line up nicely…',
+  'ui6Set.quip_agents',
+  'ui6Set.quip_knock',
+  'ui6Set.quip_profiles',
+  'ui6Set.quip_workflows',
+  'ui6Set.quip_database',
+  'ui6Set.quip_vault',
+  'ui6Set.quip_tabs',
+  'ui6Set.quip_nodes',
 ]
 
 const POLL_MS = 200
@@ -19,6 +20,7 @@ const QUIP_MS = 1800
 // Blocks the window until the backend has finished startup (migrations,
 // profile selection); profile-scoped reads fail before that.
 export default function StartupOverlay() {
+  const { t } = useTranslation()
   const [ready, setReady] = useState(false)
   const [quip, setQuip] = useState(() => Math.floor(Math.random() * QUIPS.length))
 
@@ -47,7 +49,7 @@ export default function StartupOverlay() {
       <div className="startup-overlay__box">
         <div className="startup-overlay__title">Mono Agent</div>
         <div className="startup-overlay__bar"><div className="startup-overlay__fill" /></div>
-        <div className="startup-overlay__quip">{QUIPS[quip]}</div>
+        <div className="startup-overlay__quip">{t(QUIPS[quip])}</div>
       </div>
     </div>
   )

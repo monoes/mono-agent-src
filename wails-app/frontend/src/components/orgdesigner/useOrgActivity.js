@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, onOrgEvent } from '../../services/api.js'
 import { initialState, applyEvent } from './orgActivity.js'
+import i18n from '../../i18n.js'
 
 function logItems(res) {
   if (!res || res.error) return []
@@ -54,7 +55,7 @@ export default function useOrgActivity({ orgName, nodes, enabled, source = 'live
 
     api.getOrgLogs(orgName, isLive ? '' : source).then(res => {
       if (cancelled) return
-      if (!res || res.error) setError(res?.error || (isLive ? '' : 'Could not load that run.'))
+      if (!res || res.error) setError(res?.error || (isLive ? '' : i18n.t('ui6OrgsDesigner.load_run_failed')))
       for (const ev of logItems(res)) s = applyEvent(s, ev)
       for (const ev of buffered) s = applyEvent(s, ev)
       seeded = true

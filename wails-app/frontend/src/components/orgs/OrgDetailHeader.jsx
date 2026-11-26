@@ -20,7 +20,7 @@ export default function OrgDetailHeader({
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', flexShrink: 0 }}>
                 <Building2 size={12} style={{ color: 'var(--text-muted)' }} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, color: 'var(--text)' }}>{selected}</span>
-                {isHolding && <Chip>holding</Chip>}
+                {isHolding && <Chip>{t('ui6Orgs.holding')}</Chip>}
                 <PublishOrgButton orgName={selected} />
                 <OpenAsBubbleButton orgName={selected} />
                 {/* flex-basis 0 keeps the bar beside the name and lets it wrap
@@ -121,11 +121,11 @@ export default function OrgDetailHeader({
                     value={runTaskText}
                     onChange={e => setRunTaskText(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleRunOrg(); if (e.key === 'Escape') { setRunPromptOpen(false); setRunTaskText('') } }}
-                    placeholder="First message for the org (optional) — Enter to run"
+                    placeholder={t('ui6Orgs.run_message_placeholder')}
                     style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '6px 8px', outline: 'none' }}
                   />
                   <button className="btn btn-primary btn-sm" onClick={handleRunOrg}>
-                    <Play size={11} /> Run
+                    <Play size={11} /> {t('orgs.tabBar.run')}
                   </button>
                 </div>
               )}
@@ -142,22 +142,22 @@ export default function OrgDetailHeader({
                       background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.2)', borderRadius: 'var(--radius)',
                     }}>
                       <span className="live-dot" />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--teal, #00f5d4)', fontWeight: 600, letterSpacing: 0.5 }}>Org is running</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--teal, #00f5d4)', fontWeight: 600, letterSpacing: 0.5 }}>{t('ui6Orgs.org_running')}</span>
                     </div>
                   )}
                   {runsList.length > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Run</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{t('ui6Orgs.run_noun')}</span>
                       <select
                         value={selectedRun || ''}
                         onChange={e => setSelectedRun(e.target.value || null)}
                         className="filter-select"
                         style={{ flex: 1, maxWidth: 360 }}
                       >
-                        {runsList.some(r => r.live) && <option value="live">Live (current run)</option>}
+                        {runsList.some(r => r.live) && <option value="live">{t('ui6Orgs.run_live_option')}</option>}
                         {runsList.filter(r => !r.live).map(r => {
                           const outcome = r.summary?.outcome?.status
-                          return <option key={r.run} value={r.run}>{r.run}{outcome ? ` — ${outcome}` : ''}</option>
+                          return <option key={r.run} value={r.run}>{r.run}{outcome ? ` — ${t(`ui6Orgs.outcome_${outcome}`, { defaultValue: outcome })}` : ''}</option>
                         })}
                       </select>
                     </div>

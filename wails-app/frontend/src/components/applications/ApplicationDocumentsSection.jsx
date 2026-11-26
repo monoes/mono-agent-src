@@ -1,18 +1,23 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { File, Eye, CheckCircle, UploadCloud, Sparkles } from 'lucide-react'
 import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle, fmtBytes } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
 
 function DocumentKindBadge({ kind }) {
+  useTranslation()
   const norm = (kind || '').toLowerCase()
-  let label = 'Document'
+  let label = t('ui6PagesApps.doc_document')
   let color = '#94a3b8'
 
   if (norm === 'cv') {
-    label = 'CV'
+    label = t('ui6PagesApps.doc_cv')
     color = '#00b4d8'
   } else if (norm === 'cover_letter') {
-    label = 'Cover Letter'
+    label = t('ui6PagesApps.doc_cover')
     color = '#10b981'
+  } else if (norm === 'other') {
+    label = t('ui6PagesApps.doc_other')
   } else if (norm) {
     label = norm.replace(/_/g, ' ')
   }
@@ -35,6 +40,7 @@ function DocumentKindBadge({ kind }) {
 }
 
 export default function ApplicationDocumentsSection({ documents = [], onPreviewDoc }) {
+  useTranslation()
   const docs = Array.isArray(documents) ? documents : []
 
   return (
@@ -42,10 +48,10 @@ export default function ApplicationDocumentsSection({ documents = [], onPreviewD
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <h3 id="section-documents-title" style={sectionTitleStyle}>
           <File size={14} style={{ color: '#00b4d8' }} />
-          Documents ({docs.length})
+          {t('ui6PagesApps.documents_n', { n: docs.length })}
         </h3>
         <span style={{ fontSize: 11, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono)' }}>
-          Generated & profile uploads
+          {t('ui6PagesApps.documents_sub')}
         </span>
       </div>
 
@@ -61,7 +67,7 @@ export default function ApplicationDocumentsSection({ documents = [], onPreviewD
             textAlign: 'center',
           }}
         >
-          No documents attached or generated for this application.
+          {t('ui6PagesApps.documents_none')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -96,13 +102,13 @@ export default function ApplicationDocumentsSection({ documents = [], onPreviewD
                           wordBreak: 'break-all',
                         }}
                       >
-                        {doc.filename || 'Untitled document'}
+                        {doc.filename || t('ui6PagesApps.untitled_doc')}
                       </span>
                       <DocumentKindBadge kind={doc.kind} />
                       {isAttached && (
                         <span
                           role="status"
-                          aria-label="Attached to application"
+                          aria-label={t('ui6PagesApps.attached_label')}
                           style={{
                             background: 'rgba(16,185,129,0.15)',
                             border: '1px solid rgba(16,185,129,0.35)',
@@ -116,7 +122,7 @@ export default function ApplicationDocumentsSection({ documents = [], onPreviewD
                             gap: 3,
                           }}
                         >
-                          <CheckCircle size={10} /> Attached
+                          <CheckCircle size={10} /> {t('ui6PagesApps.attached')}
                         </span>
                       )}
                     </div>
@@ -132,11 +138,11 @@ export default function ApplicationDocumentsSection({ documents = [], onPreviewD
                     >
                       <span>{fmtBytes(doc.sizeBytes)}</span>
                       <span>·</span>
-                      <span style={{ textTransform: 'uppercase' }}>{doc.format || 'file'}</span>
+                      <span style={{ textTransform: 'uppercase' }}>{doc.format || t('ui6PagesApps.file')}</span>
                       <span>·</span>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         {isGenerated ? <Sparkles size={10} style={{ color: '#00b4d8' }} /> : <UploadCloud size={10} />}
-                        {isGenerated ? 'Generated' : 'Upload'}
+                        {isGenerated ? t('ui6PagesApps.generated') : t('ui6PagesApps.upload')}
                       </span>
                     </div>
                   </div>
@@ -146,9 +152,9 @@ export default function ApplicationDocumentsSection({ documents = [], onPreviewD
                   type="button"
                   onClick={() => onPreviewDoc?.(doc)}
                   style={subtleBtnStyle}
-                  aria-label={`Preview ${doc.filename || 'document'}`}
+                  aria-label={t('ui6PagesApps.preview_named', { name: doc.filename || t('ui6PagesApps.document_word') })}
                 >
-                  <Eye size={12} /> Preview
+                  <Eye size={12} /> {t('ui6PagesApps.preview')}
                 </button>
               </div>
             )

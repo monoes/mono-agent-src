@@ -6,6 +6,8 @@
 // LEGACY FALLBACK for API nodes whose schemas don't set credential_platform
 // yet. Browser automation nodes never need an entry here: their platform is
 // the automation id, read from the installed automation list.
+import i18nOr from '../lib/i18nOr.js'
+
 export const CREDENTIAL_PLATFORMS = {
   'service.github': 'github',
   'service.notion': 'notion',
@@ -249,7 +251,7 @@ export function collectionText(value) {
 export function jsonTextError(text) {
   const s = String(text ?? '').trim()
   if (!s || s.includes('{{')) return ''
-  try { JSON.parse(s); return '' } catch (e) { return 'Not valid JSON: ' + e.message }
+  try { JSON.parse(s); return '' } catch (e) { return i18nOr('ui6Node.notJson', { error: e.message }) }
 }
 
 // commitCollection turns edited collection text into the value to save.
@@ -261,9 +263,9 @@ export function commitCollection(text, asObject) {
   if (!s) return { value: asObject ? {} : '', error: '' }
   if (s.includes('{{')) return { value: String(text), error: '' }
   let parsed
-  try { parsed = JSON.parse(s) } catch (e) { return { value: undefined, error: 'Not valid JSON: ' + e.message } }
+  try { parsed = JSON.parse(s) } catch (e) { return { value: undefined, error: i18nOr('ui6Node.notJson', { error: e.message }) } }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { value: undefined, error: 'Must be a JSON object, e.g. { "key": "value" }' }
+    return { value: undefined, error: i18nOr('ui6Node.mustBeObject') }
   }
   return { value: asObject ? parsed : String(text), error: '' }
 }

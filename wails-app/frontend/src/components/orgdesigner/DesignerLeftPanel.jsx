@@ -2,18 +2,20 @@ import { ChevronLeft, Search } from 'lucide-react'
 import AutomationsDrawer from './AutomationsDrawer.jsx'
 import RolePalette from './RolePalette.jsx'
 import { panelFoldBtnStyle, panelStripStyle } from './designerHelpers.js'
+import { useTranslation } from 'react-i18next'
 
 // The folding left panel: Roles palette / Automations drawer.
 export default function DesignerLeftPanel({
   paletteOpen, setPaletteOpen, leftTab, setLeftTab, orgName, automationData,
   handleAutomationDragStart, onOpenWorkflow, onCreateWorkflow, handlePaletteDragStart, quickAddRole,
 }) {
+  const { t } = useTranslation()
   return (
         paletteOpen ? (
           <div style={{ width: 240, flexShrink: 0, minHeight: 0, borderRight: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-              <div role="tablist" aria-label="Left panel" style={{ display: 'flex', flex: 1 }}>
-                {[['roles', 'Roles'], ['automations', 'Automations']].map(([id, label]) => (
+              <div role="tablist" aria-label={t('ui6OrgsCanvas.left_panel')} style={{ display: 'flex', flex: 1 }}>
+                {[['roles', t('ui6OrgsCanvas.tab_roles')], ['automations', t('ui6OrgsCanvas.tab_automations')]].map(([id, label]) => (
                   <button
                     key={id}
                     role="tab"
@@ -25,7 +27,7 @@ export default function DesignerLeftPanel({
                   </button>
                 ))}
               </div>
-              <button onClick={() => setPaletteOpen(false)} title="Collapse panel" aria-label="Collapse panel" style={{ ...panelFoldBtnStyle, borderBottom: 'none' }}>
+              <button onClick={() => setPaletteOpen(false)} title={t('ui6OrgsCanvas.collapse_panel')} aria-label={t('ui6OrgsCanvas.collapse_panel')} style={{ ...panelFoldBtnStyle, borderBottom: 'none' }}>
                 <ChevronLeft size={11} />
               </button>
             </div>
@@ -50,7 +52,7 @@ export default function DesignerLeftPanel({
         ) : (
           <button
             onClick={() => setPaletteOpen(true)}
-            title="Search / add roles and automations"
+            title={t('ui6OrgsCanvas.search_add')}
             style={panelStripStyle('right')}
           >
             <Search size={13} />

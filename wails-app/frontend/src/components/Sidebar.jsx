@@ -14,6 +14,7 @@ import AccountMenu from './account/AccountMenu.jsx'
 import NewProfileModal from './NewProfileModal.jsx'
 import { iconUrl } from './orgdesigner/roleIcons.js'
 import { tasksApi, onTasksChanged } from '../services/tasks.js'
+import i18nOr from '../lib/i18nOr.js'
 
 const GetProfiles          = WailsApp.GetProfiles          ?? (async () => [])
 const SwitchProfile        = WailsApp.SwitchProfile        ?? (async () => {})
@@ -143,10 +144,10 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
       if (!ok) return
       setMovingProfileID(id)
       await MoveProfileFolder(id, path)
-      notify('profile move', t('sidebar.moveFolderDone', { path }))
+      notify(t('ui6Set.op_profile_move'), t('sidebar.moveFolderDone', { path }))
       await loadProfiles()
     } catch (e) {
-      notify('profile move', e?.message || t('sidebar.moveFolderFailed'))
+      notify(t('ui6Set.op_profile_move'), e?.message || t('sidebar.moveFolderFailed'))
     } finally {
       setMovingProfileID(null)
     }
@@ -160,7 +161,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
     }
   }
 
-  const activeProfileName = profiles.find(p => p.id === activeProfileID)?.name ?? 'New profile'
+  const activeProfileName = profiles.find(p => p.id === activeProfileID)?.name ?? i18nOr('newProfileModal.title')
 
   // Tasks: what waits for a person (Inbox plus Review), from the board pulse.
   const [taskWaiting, setTaskWaiting] = useState(0)
@@ -324,7 +325,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected, co
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)' }}
                 onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
               >
-                <Plus size={11} /> New profile
+                <Plus size={11} /> {i18nOr('newProfileModal.title')}
               </button>
             </div>
           </div>,

@@ -11,8 +11,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link2 } from 'lucide-react'
 import { sectionEdgePath, SECTION_HEADER } from './sectionsGraph.js'
 import { budgetLine, budgetBadge, budgetTitle } from './budgetModel.js'
+import { useTranslation } from 'react-i18next'
 
 export function SectionBoxes({ rects, sections, selectedName, readOnly, onSelect, onStartMove, onStartEdge, hoverEdgeTarget, budgets = {}, staleRates = '' }) {
+  const { t } = useTranslation()
   return rects.map(r => {
     const s = sections.find(x => x.name === r.name)
     const selected = selectedName === r.name
@@ -40,14 +42,14 @@ export function SectionBoxes({ rects, sections, selectedName, readOnly, onSelect
           }}
         >
           <strong style={{ letterSpacing: 0.4 }}>{r.name}</strong>
-          {s && !live && <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>lead: {s.leadId || '—'}</span>}
+          {s && !live && <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{t('ui6OrgsCanvas.lead_line', { id: s.leadId || '—' })}</span>}
           {live
             ? (
               <span data-testid={`section-budget-${r.name}`} title={`${budgetTitle(live)}${staleRates ? ` · ${staleRates}` : ''}`}
                 style={{ display: 'flex', gap: 4, minWidth: 0, color: badge?.color || 'var(--text-muted)' }}>
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{budgetLine(live).replace(' / ', '/')}</span>
                 {badge && <strong data-testid={`section-budget-badge-${r.name}`} style={{ flexShrink: 0 }}>· {badge.label}</strong>}
-                {staleRates && <em data-testid={`section-stale-rates-${r.name}`} aria-label="stale rates" title="stale rates" style={{ flexShrink: 0, opacity: 0.8 }}>≈</em>}
+                {staleRates && <em data-testid={`section-stale-rates-${r.name}`} aria-label={t('ui6OrgsCanvas.stale_rates')} title={t('ui6OrgsCanvas.stale_rates')} style={{ flexShrink: 0, opacity: 0.8 }}>≈</em>}
               </span>
             )
             : s?.budgetUsd != null && <span style={{ color: 'var(--text-muted)' }}>${s.budgetUsd}</span>}
@@ -56,8 +58,8 @@ export function SectionBoxes({ rects, sections, selectedName, readOnly, onSelect
             <button
               type="button"
               data-testid={`section-edge-handle-${r.name}`}
-              title="Drag to another section to hand over a document"
-              aria-label={`Draw a document edge from ${r.name}`}
+              title={t('ui6OrgsCanvas.edge_handle_title')}
+              aria-label={t('ui6OrgsCanvas.edge_handle_label', { name: r.name })}
               onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); onStartEdge?.(r.name, e) }}
               style={{ pointerEvents: 'auto', cursor: 'crosshair', background: 'transparent', border: `1px solid ${r.color}`, color: r.color, borderRadius: 6, padding: '1px 5px', display: 'flex' }}
             >
@@ -71,6 +73,7 @@ export function SectionBoxes({ rects, sections, selectedName, readOnly, onSelect
 }
 
 export function SectionEdges({ rects, edges, pending, readOnly, onRemove }) {
+  const { t } = useTranslation()
   const byName = new Map(rects.map(r => [r.name, r]))
   const seen = new Map()
   return (
@@ -96,7 +99,7 @@ export function SectionEdges({ rects, edges, pending, readOnly, onRemove }) {
               <text x={9} y={14} fontSize={10.5} fontFamily="var(--font-mono)" fill="#e2e8f0">{e.type}</text>
               {!readOnly && (
                 <g data-testid="doc-edge-remove" onMouseDown={(ev) => { ev.stopPropagation(); onRemove?.(e) }} style={{ cursor: 'pointer' }}>
-                  <title>Remove this document edge</title>
+                  <title>{t('ui6OrgsCanvas.edge_remove_title')}</title>
                   <text x={w + 2} y={14} fontSize={12} fill="#f87171">×</text>
                 </g>
               )}

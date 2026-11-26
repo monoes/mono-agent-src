@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Bot } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useSendToCoder } from './bubbles/CoderBubbleContext.jsx'
 import { aitaskApi } from './SendToCoderApi.js'
+import t from '../lib/i18nOr.js'
 
 // The note wraps and, in a wrapping flex row, takes its own line under the buttons.
 const noteStyle = {
@@ -19,7 +21,8 @@ const noteStyle = {
 // doneLabel is what the task header says once it completes. oneshotNote=false
 // drops the "still runs the regular way" line where there is no other way;
 // onSent runs once the task's bubble has opened.
-export default function SendToCoderButton({ kind = 'generic', goal, context = [], applicationId = '', label = 'Send to coder', origin, start, doneLabel, oneshotNote = true, onSent, className = 'btn btn-secondary btn-sm', style }) {
+export default function SendToCoderButton({ kind = 'generic', goal, context = [], applicationId = '', label, origin, start, doneLabel, oneshotNote = true, onSent, className = 'btn btn-secondary btn-sm', style }) {
+  useTranslation()
   const { openDraft, navigate } = useSendToCoder()
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null) // { text, error?, settings? }
@@ -31,12 +34,12 @@ export default function SendToCoderButton({ kind = 'generic', goal, context = []
     try {
       const state = await aitaskApi.status()
       if (!state?.enabled) {
-        setNote({ text: state?.reason || 'Coder mode is off.', settings: true })
+        setNote({ text: state?.reason || t('ui6PagesApps.coder_off'), settings: true })
         return
       }
       const task = start ? await start() : await aitaskApi.submit(kind, typeof goal === 'function' ? goal() : goal, typeof context === 'function' ? context() : context, applicationId)
       if (task?.fallback === 'oneshot') {
-        setNote({ text: task.reason || 'Coder mode is off.', settings: true })
+        setNote({ text: task.reason || t('ui6PagesApps.coder_off'), settings: true })
         return
       }
       openDraft?.({
@@ -44,7 +47,7 @@ export default function SendToCoderButton({ kind = 'generic', goal, context = []
         // kind lets the pane know a confined application-apply chat the moment it opens.
         task: { taskId: task.taskId, kind: task.kind || kind, goal: task.goal || goal, status: task.status, origin, doneLabel },
       })
-      if (!openDraft) setNote({ text: 'Sent. The chat could not open here; find it in Coder history.' })
+      if (!openDraft) setNote({ text: t('ui6PagesApps.sent_no_chat') })
       onSent?.(task)
     } catch (err) {
       setNote({ text: String(err?.message || err), error: true })
@@ -56,15 +59,15 @@ export default function SendToCoderButton({ kind = 'generic', goal, context = []
   return (
     <span style={{ display: 'contents' }}>
       <button type="button" className={className} style={{ gap: 5, ...style }} onClick={send} disabled={busy} aria-busy={busy}>
-        <Bot size={12} aria-hidden="true" /> {busy ? 'Sending…' : label}
+        <Bot size={12} aria-hidden="true" /> {busy ? t('ui6PagesApps.sending') : label ?? t('ui6PagesApps.send_to_coder')}
       </button>
       {note && (
         <span role={note.error ? 'alert' : 'status'} style={{ ...noteStyle, color: note.error ? 'var(--red)' : noteStyle.color }}>
           {note.text}
           {note.settings && (
             <>
-              {' '}{oneshotNote && 'This action still runs the regular way. '}
-              {navigate && <a href="#settings" style={{ color: 'var(--cyan, #00b4d8)' }} onClick={e => { e.preventDefault(); navigate('settings') }}>Open Settings</a>}
+              {' '}{oneshotNote && `${t('ui6PagesApps.oneshot')} `}
+              {navigate && <a href="#settings" style={{ color: 'var(--cyan, #00b4d8)' }} onClick={e => { e.preventDefault(); navigate('settings') }}>{t('ui6PagesApps.open_settings')}</a>}
             </>
           )}
         </span>

@@ -3,6 +3,7 @@ import { descendantsOf, buildTree } from './orgGraph.js'
 import { confirm } from '../ConfirmDialog.jsx'
 import i18n from '../../i18n.js'
 import { useEscapeClose } from '../../lib/escapeStack.js'
+import { useTranslation } from 'react-i18next'
 
 /**
  * DeleteRoleModal — subordinate-handling UI for deleting a role, matching
@@ -23,6 +24,7 @@ import { useEscapeClose } from '../../lib/escapeStack.js'
  * @param {() => void} onClose Always called once the flow concludes (confirm or cancel).
  */
 export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClose }) {
+  const { t } = useTranslation()
   useEscapeClose(onClose, !!open)
   const descendants = useMemo(() => (node ? descendantsOf(allNodes, node.id) : []), [node, allNodes])
   const hasDescendants = descendants.length > 0
@@ -100,11 +102,11 @@ export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClo
 
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div role="dialog" aria-modal="true" aria-label={`Delete role ${node.title || node.id}`} className="modal" style={{ width: 460 }}>
-        <div className="modal-title">Delete "{node.title || node.id}"</div>
+      <div role="dialog" aria-modal="true" aria-label={t('ui6OrgsCanvas.delete_role_named', { name: node.title || node.id })} className="modal" style={{ width: 460 }}>
+        <div className="modal-title">{t('ui6OrgsCanvas.delete_title', { name: node.title || node.id })}</div>
 
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          This role has {descendants.length} subordinate{descendants.length === 1 ? '' : 's'}. Choose what happens to them:
+          {t('ui6OrgsCanvas.subordinates', { count: descendants.length })}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
@@ -112,13 +114,13 @@ export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClo
           <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', opacity: promoteDisabled ? 0.55 : 1, cursor: promoteDisabled ? 'not-allowed' : 'pointer' }}>
             <input type="radio" name="del-strategy" disabled={promoteDisabled} checked={strategyEffective === 'promote'} onChange={() => setStrategy('promote')} style={{ marginTop: 3 }} />
             <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>Promote subordinates</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>{t('ui6OrgsCanvas.promote')}</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>
                 {promoteDisabled
-                  ? 'Root role with multiple direct reports cannot be deleted this way — reassign its children individually first, or use Delete entire branch.'
+                  ? t('ui6OrgsCanvas.promote_blocked')
                   : isRoot
-                    ? `${directChildren.length} role(s) will become root roles`
-                    : `${directChildren.length} role(s) will report to ${grandparent?.title || grandparent?.id || 'the parent role'} instead`}
+                    ? t('ui6OrgsCanvas.become_roots', { total: directChildren.length })
+                    : t('ui6OrgsCanvas.report_to', { total: directChildren.length, parent: grandparent?.title || grandparent?.id || t('ui6OrgsCanvas.parent_role') })}
               </div>
             </div>
           </label>
@@ -127,7 +129,7 @@ export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClo
           <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
             <input type="radio" name="del-strategy" checked={strategyEffective === 'reassign'} onChange={() => setStrategy('reassign')} style={{ marginTop: 3 }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>Reassign to...</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>{t('ui6OrgsCanvas.reassign')}</div>
               {strategyEffective === 'reassign' && (
                 <select
                   className="form-select"
@@ -135,7 +137,7 @@ export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClo
                   onChange={e => setReassignToId(e.target.value)}
                   style={{ marginTop: 6 }}
                 >
-                  <option value="">Choose a role…</option>
+                  <option value="">{t('ui6OrgsCanvas.choose_role')}</option>
                   {reassignCandidates.map(n => <option key={n.id} value={n.id}>{n.title || n.id}</option>)}
                 </select>
               )}
@@ -146,9 +148,9 @@ export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClo
           <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
             <input type="radio" name="del-strategy" checked={strategyEffective === 'cascade'} onChange={() => setStrategy('cascade')} style={{ marginTop: 3 }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#ef4444' }}>Delete entire branch</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#ef4444' }}>{t('ui6OrgsCanvas.delete_branch')}</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 6 }}>
-                Removes {descendants.length + 1} role(s), listed below. Type the id "{node.id}" to confirm.
+                {t('ui6OrgsCanvas.removes_roles', { total: descendants.length + 1, id: node.id })}
               </div>
               {strategyEffective === 'cascade' && (
                 <input
@@ -168,9 +170,9 @@ export default function DeleteRoleModal({ open, node, allNodes, onConfirm, onClo
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t('ui6OrgsCanvas.cancel')}</button>
           <button className="btn btn-danger" onClick={handleConfirm} disabled={!canConfirm}>
-            Confirm
+            {t('ui6OrgsCanvas.confirm')}
           </button>
         </div>
       </div>

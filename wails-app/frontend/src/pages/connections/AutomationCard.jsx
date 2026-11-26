@@ -1,6 +1,8 @@
 // One browser automation package as a card (spec §7.1), plus the
 // "Create automation" card that explains how new packages are made.
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 import { Plus, Circle, FileCode, AlertTriangle, ArrowUpCircle, PenLine, Trash2 } from 'lucide-react'
 import { Chip, Dot, SOURCE_LABELS, mono, muted, body } from './ui.jsx'
 
@@ -21,12 +23,13 @@ const cardStyle = (active, hov, dashed = false) => ({
 // loginText reads the CLI's session block; status (active | expired |
 // logged_out) is used when the CLI sends it, else only loggedIn.
 export function loginText(s) {
-  if (s?.loggedIn) return s.username ? `logged in · ${s.username}` : 'logged in'
-  if (s?.status === 'expired') return 'session expired'
-  return 'logged out'
+  if (s?.loggedIn) return s.username ? i18n.t('ui6ConnAuto.logged_in_user', { name: s.username }) : i18n.t('ui6ConnAuto.logged_in')
+  if (s?.status === 'expired') return i18n.t('ui6ConnAuto.session_expired')
+  return i18n.t('ui6ConnAuto.logged_out')
 }
 
 export default function AutomationCard({ automation: a, onOpen }) {
+  const { t } = useTranslation()
   const [hov, setHov] = useState(false)
   const s = a.session || {}
   const removed = !!a.removed
@@ -38,7 +41,7 @@ export default function AutomationCard({ automation: a, onOpen }) {
       onClick={onOpen}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      aria-label={removed ? `${a.name || a.id}, uninstalled` : `${a.name || a.id}, ${loginText(s)}, ${a.actions} actions`}
+      aria-label={removed ? t('ui6ConnAuto.card_uninstalled', { name: a.name || a.id }) : t('ui6ConnAuto.card_label', { name: a.name || a.id, login: loginText(s), count: a.actions || 0 })}
       style={{ ...cardStyle(s.loggedIn && !unavailable && !removed, hov, removed), opacity: removed ? 0.5 : unavailable || disabled ? 0.75 : 1 }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -52,34 +55,35 @@ export default function AutomationCard({ automation: a, onOpen }) {
           {loginText(s)}
         </span>
       </div>
-      <span style={{ ...muted, fontSize: 10 }}>{a.actions} action{a.actions === 1 ? '' : 's'}</span>
+      <span style={{ ...muted, fontSize: 10 }}>{t('ui6ConnAuto.actions_count', { count: a.actions || 0 })}</span>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         <Chip color={a.source === 'imported' ? 'var(--purple-light)' : a.source === 'local' ? 'var(--teal)' : 'var(--cyan)'}>
           {SOURCE_LABELS[a.source] || a.source} {a.version}
         </Chip>
-        {removed && <Chip title="Uninstalled built-in — open it to restore"><Trash2 size={8} /> uninstalled</Chip>}
-        {unavailable && <Chip color="var(--red)" title={a.unavailableReason}><AlertTriangle size={8} /> unavailable</Chip>}
-        {disabled && <Chip><Circle size={7} /> disabled</Chip>}
-        {a.modified && <Chip color="var(--yellow)" title="Differs from the copy shipped with this version"><PenLine size={8} /> modified</Chip>}
-        {a.containsScripts && <Chip color="var(--orange)" title="Runs its own JavaScript in the page"><FileCode size={8} /> contains scripts</Chip>}
-        {a.pendingUpdate && <Chip color="var(--green-neon)" title={`Version ${a.pendingUpdate} is held back because you modified this automation`}><ArrowUpCircle size={8} /> pending update</Chip>}
+        {removed && <Chip title={t('ui6ConnAuto.uninstalled_title')}><Trash2 size={8} /> {t('ui6ConnAuto.uninstalled')}</Chip>}
+        {unavailable && <Chip color="var(--red)" title={a.unavailableReason}><AlertTriangle size={8} /> {t('ui6ConnAuto.unavailable')}</Chip>}
+        {disabled && <Chip><Circle size={7} /> {t('ui6ConnAuto.disabled')}</Chip>}
+        {a.modified && <Chip color="var(--yellow)" title={t('ui6ConnAuto.modified_title')}><PenLine size={8} /> {t('ui6ConnAuto.modified')}</Chip>}
+        {a.containsScripts && <Chip color="var(--orange)" title={t('ui6ConnAuto.scripts_title')}><FileCode size={8} /> {t('ui6ConnAuto.contains_scripts')}</Chip>}
+        {a.pendingUpdate && <Chip color="var(--green-neon)" title={t('ui6ConnAuto.pending_title', { version: a.pendingUpdate })}><ArrowUpCircle size={8} /> {t('ui6ConnAuto.pending_update')}</Chip>}
       </div>
     </button>
   )
 }
 
 export function CreateAutomationCard({ onRecord, onImport }) {
+  const { t } = useTranslation()
   return (
     <div style={{ ...cardStyle(false, false, true), cursor: 'default', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...mono, fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
-        <Plus size={13} /> Create automation
+        <Plus size={13} /> {t('ui6ConnAuto.create_title')}
       </div>
       <div style={{ ...body, fontSize: 11 }}>
-        Record yourself doing a task in the browser and the AI turns it into an action, or import a package someone shared.
+        {t('ui6ConnAuto.create_body')}
       </div>
       <div style={{ display: 'flex', gap: 6, marginTop: 'auto' }}>
-        <button className="btn btn-secondary btn-sm" onClick={onRecord}>Record new</button>
-        <button className="btn btn-ghost btn-sm" onClick={onImport}>Import</button>
+        <button className="btn btn-secondary btn-sm" onClick={onRecord}>{t('ui6Conn.record_new')}</button>
+        <button className="btn btn-ghost btn-sm" onClick={onImport}>{t('ui6ConnAuto.import')}</button>
       </div>
     </div>
   )

@@ -30,7 +30,7 @@ export default function OrgTabBody({
                     <FullAccessSummary orgName={selected} status={data.overview} onChanged={() => loadTab(selected, 'overview')} />
                     {!selectedRun ? (
                       <>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No completed runs yet.</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Orgs.no_completed_runs')}</div>
                         {/* Only a known "never run": the estimate starts `org run` up to its estimate. */}
                         {data.overview?.status === 'never run' && <OrgEstimatePanel key={selected} orgName={selected} />}
                       </>
@@ -42,14 +42,14 @@ export default function OrgTabBody({
                         />
                         <SectionBudgetPanel orgName={selected} live />
                         <details>
-                          <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Raw status</summary>
+                          <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{t('ui6Orgs.raw_status')}</summary>
                           <Card><KVBlock obj={data.overview} /></Card>
                         </details>
                         <div>
                           <OrgToolActivity events={events} isLive runKey="live" />
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Live events</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t('ui6Orgs.live_events')}</div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-                            {events.length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>Waiting for events…</div>}
+                            {events.length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{t('ui6Orgs.waiting_events')}</div>}
                             {events.filter(e => !isToolActivity(e)).map((e, i) => (
                               <div key={e.id ?? `${e.ts ?? ''}-${i}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px', overflowWrap: 'anywhere' }}>
                                 <span style={{ color: 'var(--cyan)' }}>{e.type}</span>{e.from ? ` ${e.from}→${e.to || '?'}` : ''}{e.subject ? `: ${e.subject}` : ''}{e.msg ? ` ${e.msg}` : ''}
@@ -71,14 +71,14 @@ export default function OrgTabBody({
                           />
                           <SectionBudgetPanel orgName={selected} run={selectedRun} />
                           <details>
-                            <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Raw report</summary>
+                            <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{t('ui6Orgs.raw_report')}</summary>
                             <Card><KVBlock obj={runDetail.report} /></Card>
                           </details>
                           <div>
                             <OrgToolActivity events={itemsOf(runDetail.logs)} runKey={selectedRun} />
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Events</div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t('ui6Orgs.events')}</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-                              {itemsOf(runDetail.logs).length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>No events recorded.</div>}
+                              {itemsOf(runDetail.logs).length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{t('ui6Orgs.no_events')}</div>}
                               {itemsOf(runDetail.logs).filter(e => !isToolActivity(e)).map((e, i) => (
                                 <div key={e.id ?? `${e.ts ?? ''}-${i}`} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px', overflowWrap: 'anywhere' }}>
                                   <span style={{ color: 'var(--cyan)' }}>{e.type}</span>{e.from ? ` ${e.from}→${e.to || '?'}` : ''}{e.subject ? `: ${e.subject}` : ''}{e.msg ? ` ${e.msg}` : ''}
@@ -125,7 +125,7 @@ export default function OrgTabBody({
 
                 {!tabLoading && tab === 'logs' && (
                   itemsOf(data.logs).length === 0
-                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No log entries.</div>
+                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Orgs.no_log_entries')}</div>
                     : <>
                       <OrgToolActivity events={itemsOf(data.logs)} isLive={selectedRun === 'live'} runKey={`logs-${selectedRun}`} />
                       {itemsOf(data.logs).filter(e => !isToolActivity(e)).map((e, i) => (
@@ -139,7 +139,7 @@ export default function OrgTabBody({
                 {!tabLoading && tab === 'costs' && (
                   <>
                     {itemsOf(data.costs).length === 0
-                      ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No cost data.</div>
+                      ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Orgs.no_cost_data')}</div>
                       : itemsOf(data.costs).map((c, i) => (
                         <Card key={i}><KVBlock obj={c} /></Card>
                       ))}
@@ -149,7 +149,7 @@ export default function OrgTabBody({
 
                 {!tabLoading && tab === 'flow' && (
                   itemsOf(data.flow?.edges).length === 0
-                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No flow data.</div>
+                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Orgs.no_flow_data')}</div>
                     : itemsOf(data.flow?.edges).map((e, i) => (
                       <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '6px 10px' }}>
                         {e.from} → {e.to}{e.subject ? `: ${e.subject}` : ''}
@@ -159,7 +159,7 @@ export default function OrgTabBody({
 
                 {!tabLoading && tab === 'trace' && (
                   itemsOf(data.trace).length === 0
-                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No decision trace recorded.</div>
+                    ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Orgs.no_trace')}</div>
                     : itemsOf(data.trace).map((d, i) => (
                       <Card key={i}><KVBlock obj={d} /></Card>
                     ))

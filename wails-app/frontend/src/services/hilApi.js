@@ -4,6 +4,7 @@
 import { api } from './api.js'
 import { normalizeAsks, safeUrl } from '../lib/askModel.js'
 import { emitCommsChanged } from '../lib/commsStatus.js'
+import i18nOr from '../lib/i18nOr.js'
 
 // listAsks returns the profile's pending asks (workflow HIL and send items),
 // normalized (lib/askModel.js). A failed read is an empty list, not an
@@ -22,7 +23,7 @@ export async function listAsks() {
 // data holds the edited fields of a workflow HIL item. Resolves
 // {ok:true,state} or {error}.
 export async function resolve(id, { approve, editText, data, kind, alwaysAllow } = {}) {
-  if (!id) return { error: 'no id' }
+  if (!id) return { error: i18nOr('ui6PagesMisc.no_id') }
   try {
     // A send item is resolved by the operator through `hil resolve`, which
     // performs exactly the previewed payload (with the edit applied) once.
@@ -42,7 +43,7 @@ export async function resolve(id, { approve, editText, data, kind, alwaysAllow }
 export async function attachment(id, n) {
   try {
     const dataUrl = await api.hilSendAttachmentData(id, n)
-    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return { error: 'unavailable' }
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return { error: i18nOr('ui6PagesMisc.unavailable') }
     return { dataUrl, mime: dataUrl.slice(5, dataUrl.indexOf(';')) }
   } catch (err) {
     return { error: String(err?.message || err) }

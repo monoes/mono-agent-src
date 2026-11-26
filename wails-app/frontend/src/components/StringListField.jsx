@@ -1,3 +1,6 @@
+import { useTranslation } from 'react-i18next'
+import '../i18n.js'
+
 // Generic add/remove string-list editor. Extracted from
 // orgdesigner/RoleInspector.jsx's original inline Responsibilities editor so
 // the same interaction (uncontrolled inputs committing on blur, a "×"
@@ -16,7 +19,8 @@
 // row's key forces every row to remount — and reapply its defaultValue —
 // whenever the caller's identity changes, while edits within the same
 // caller (add/remove/blur-commit) keep the same key and edit in place.
-export default function StringListField({ label, values, onChange, placeholder, addLabel = '+ Add', resetKey }) {
+export default function StringListField({ label, values, onChange, placeholder, addLabel, resetKey }) {
+  const { t } = useTranslation()
   const items = values || []
 
   const commit = (next) => onChange(next)
@@ -40,7 +44,7 @@ export default function StringListField({ label, values, onChange, placeholder, 
             <button
               className="btn btn-sm btn-ghost"
               onClick={() => commit(items.filter((_, idx) => idx !== i))}
-              title="Remove"
+              title={t('ui6Node.remove')}
             >
               &times;
             </button>
@@ -56,7 +60,7 @@ export default function StringListField({ label, values, onChange, placeholder, 
           onClick={() => commit([...items, ''])}
           style={{ alignSelf: 'flex-start' }}
         >
-          {addLabel}
+          {addLabel ?? t('ui6Node.addPlus')}
         </button>
       </div>
     </section>

@@ -6,6 +6,7 @@ import { Chip } from './ui.jsx'
 import { sectionLabel, mutedText } from './ui.jsx'
 import useOrgBudget from '../orgdesigner/useOrgBudget.js'
 import { BUDGET_COLORS, budgetLine, budgetBadge, budgetTitle, usd } from '../orgdesigner/budgetModel.js'
+import { useTranslation } from 'react-i18next'
 
 function Bar({ b }) {
   const f = b.fraction == null ? 0 : Math.min(1, b.fraction)
@@ -34,13 +35,14 @@ function Row({ title, b, children }) {
 }
 
 export function SectionBudgetView({ report, estimate }) {
+  const { t } = useTranslation()
   if (!report || report.error || !report.sections?.length) return null
   const allocated = report.sections.some(s => s.allocation_usd != null) || report.total.allocation_usd != null
   if (!allocated) return null
   const totalBadge = budgetBadge(report.total)
   return (
     <div data-testid="section-budget-panel" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={sectionLabel}>Section budgets</div>
+      <div style={sectionLabel}>{t('ui6Orgs.section_budgets')}</div>
       {report.sections.map(s => (
         <Row key={s.name} title={s.name} b={s}>
           {s.roles?.some(r => r.cap_usd != null) && (
@@ -54,22 +56,22 @@ export function SectionBudgetView({ report, estimate }) {
           )}
           {s.soft_closed && (
             <div data-testid="soft-closure" style={mutedText}>
-              soft-closed at {new Date(s.closed_at).toLocaleTimeString()}
-              {s.closed_roles?.length ? ` · closed: ${s.closed_roles.join(', ')}` : ''}
-              {s.held_tasks?.length ? ` · ${s.held_tasks.length} task(s) held` : ''}
+              {t('ui6Orgs.soft_closed_at', { time: new Date(s.closed_at).toLocaleTimeString() })}
+              {s.closed_roles?.length ? t('ui6Orgs.closed_roles', { roles: s.closed_roles.join(', ') }) : ''}
+              {s.held_tasks?.length ? t('ui6Orgs.tasks_held', { total: s.held_tasks.length }) : ''}
             </div>
           )}
         </Row>
       ))}
-      {report.reserve?.allocation_usd != null && <Row title="root reserve" b={report.reserve} />}
+      {report.reserve?.allocation_usd != null && <Row title={t('ui6Orgs.root_reserve')} b={report.reserve} />}
       {estimate?.stale_rates && (
         <div data-testid="stale-rates" title={estimate.text} style={{ ...mutedText, color: '#eab308' }}>{estimate.stale_rates}</div>
       )}
       <div data-testid="budget-total" style={{ ...mutedText, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <span>org total {budgetLine(report.total)}</span>
-        <span>{report.total_tokens} tokens</span>
+        <span>{t('ui6Orgs.org_total', { line: budgetLine(report.total) })}</span>
+        <span>{t('ui6Orgs.total_tokens', { total: report.total_tokens })}</span>
         {totalBadge && <Chip color={totalBadge.color}>{totalBadge.label}</Chip>}
-        {!report.cost_complete && <Chip color="#eab308" title="At least one usage event carried no cost; monomind never reads that as $0">cost incomplete: lower bound</Chip>}
+        {!report.cost_complete && <Chip color="#eab308" title={t('ui6Orgs.cost_incomplete_title')}>{t('ui6Orgs.cost_incomplete')}</Chip>}
       </div>
     </div>
   )

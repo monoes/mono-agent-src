@@ -5,8 +5,11 @@ import * as WailsApp from '../wailsjs/go/main/App'
 import ImageEditorFullscreen from './ImageEditorFullscreen'
 import { isVaultImage, vaultFileKind, vaultKind } from '../lib/vaultItems.js'
 import { useEscapeClose } from '../lib/escapeStack.js'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../lib/i18nOr.js'
 
 export default function ImageDetailModal({ image, onClose, onDelete, onRename, onSaved }) {
+  useTranslation() // render again on a language change
   const overlayRef = useRef(null)
   const timers = useMountedTimers()
   const [dataUrl, setDataUrl] = useState(null)
@@ -115,7 +118,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Image detail" style={{
+      <div role="dialog" aria-modal="true" aria-label={i18nOr('ui6PagesImages.detail')} style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         padding: 20, width: 420, maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: 14,
@@ -143,7 +146,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
               src={image.url || `/vault-image/${image.id}`}
               controls
               preload="metadata"
-              aria-label={`video ${image.label || image.filename}`}
+              aria-label={i18nOr('ui6PagesImages.video_named', { name: image.label || image.filename })}
               style={{ maxWidth: '100%', maxHeight: 280, display: 'block' }}
             />
           ) : kind === 'audio' ? (
@@ -152,13 +155,13 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
               src={image.url || `/vault-image/${image.id}`}
               controls
               preload="metadata"
-              aria-label={`audio ${image.label || image.filename}`}
+              aria-label={i18nOr('ui6PagesImages.audio_named', { name: image.label || image.filename })}
               style={{ width: '100%', margin: 20 }}
             />
           ) : !isImage ? (
             <div
               role="img"
-              aria-label={`file ${image.label || image.filename}`}
+              aria-label={i18nOr('ui6PagesImages.file_named', { name: image.label || image.filename })}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#64748b', padding: 20 }}
             >
               <FileText size={28} />
@@ -168,7 +171,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
           ) : imgError ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#334155', padding: 20 }}>
               <span style={{ fontSize: 28 }}>🖼</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>Image unavailable</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>{i18nOr('ui6PagesImages.unavailable')}</span>
             </div>
           ) : dataUrl ? (
             <img
@@ -178,7 +181,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
               onError={() => setImgError(true)}
             />
           ) : (
-            <div style={{ color: '#334155', fontFamily: 'var(--font-mono)', fontSize: 10, padding: 20 }}>Loading…</div>
+            <div style={{ color: '#334155', fontFamily: 'var(--font-mono)', fontSize: 10, padding: 20 }}>{i18nOr('ui6PagesImages.loading')}</div>
           )}
         </div>
 
@@ -198,7 +201,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
               value={renameValue}
               onChange={e => setRenameValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setRenaming(false) }}
-              placeholder="Label…"
+              placeholder={i18nOr('ui6PagesImages.label_placeholder')}
               style={{
                 flex: 1, background: '#060b11', border: '1px solid rgba(0,180,216,0.4)',
                 borderRadius: 5, padding: '6px 8px', color: '#e2e8f0',
@@ -212,7 +215,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 borderRadius: 5, padding: '6px 10px', color: '#00b4d8', cursor: 'pointer',
                 fontFamily: 'var(--font-mono)', fontSize: 11,
               }}
-            >Save</button>
+            >{i18nOr('ui6PagesImages.save')}</button>
             <button
               onClick={() => setRenaming(false)}
               style={{
@@ -220,7 +223,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 borderRadius: 5, padding: '6px 10px', color: '#475569', cursor: 'pointer',
                 fontFamily: 'var(--font-mono)', fontSize: 11,
               }}
-            >Cancel</button>
+            >{i18nOr('ui6PagesImages.cancel')}</button>
           </div>
         )}
 
@@ -238,7 +241,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
               }}
             >
-              <Wand2 size={13} /> Adjust Image
+              <Wand2 size={13} /> {i18nOr('ui6PagesImages.adjust')}
             </button>}
 
             {/* Save to disk */}
@@ -252,7 +255,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
               }}
             >
-              <Download size={13} /> {isImage ? 'Save Image' : 'Save File'}
+              <Download size={13} /> {isImage ? i18nOr('ui6PagesImages.save_image') : i18nOr('ui6PagesImages.save_file')}
             </button>
 
             <div style={{ display: 'flex', gap: 8 }}>
@@ -268,7 +271,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 transition: 'all 0.15s',
               }}
             >
-              {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy @{image.id}</>}
+              {copied ? <><Check size={12} /> {i18nOr('ui6PagesImages.copied')}</> : <><Copy size={12} /> {i18nOr('ui6PagesImages.copy_ref', { id: image.id })}</>}
             </button>
 
             <button
@@ -280,7 +283,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 fontFamily: 'var(--font-mono)', fontSize: 11,
               }}
             >
-              <Edit3 size={12} /> Rename
+              <Edit3 size={12} /> {i18nOr('ui6PagesImages.rename')}
             </button>
 
             <button
@@ -294,7 +297,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
                 fontFamily: 'var(--font-mono)', fontSize: 11, transition: 'all 0.15s',
               }}
             >
-              {confirmDelete ? <><AlertTriangle size={12} /> Confirm</> : <><Trash2 size={12} /> Delete</>}
+              {confirmDelete ? <><AlertTriangle size={12} /> {i18nOr('ui6PagesImages.confirm')}</> : <><Trash2 size={12} /> {i18nOr('ui6PagesImages.delete')}</>}
             </button>
           </div>
           </div>

@@ -3,8 +3,10 @@
 // open, so the user can fix the name without losing context.
 
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
-export default function NamePrompt({ title, hint, initial = '', submitLabel = 'Create', error = '', onSubmit, onCancel }) {
+export default function NamePrompt({ title, hint, initial = '', submitLabel, error = '', onSubmit, onCancel }) {
+  const { t } = useTranslation()
   const [value, setValue] = useState(initial)
   const [busy, setBusy] = useState(false)
   const submit = async (e) => {
@@ -28,8 +30,8 @@ export default function NamePrompt({ title, hint, initial = '', submitLabel = 'C
         />
         {error && <div role="alert" data-testid="name-prompt-error" style={{ fontSize: 11, color: 'var(--red)' }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" onClick={onCancel} style={btn}>Cancel</button>
-          <button type="submit" disabled={busy || !value.trim()} style={{ ...btn, borderColor: 'var(--teal, #00f5d4)', color: 'var(--teal, #00f5d4)' }}>{submitLabel}</button>
+          <button type="button" onClick={onCancel} style={btn}>{t('ui6OrgsCanvas.cancel')}</button>
+          <button type="submit" disabled={busy || !value.trim()} style={{ ...btn, borderColor: 'var(--teal, #00f5d4)', color: 'var(--teal, #00f5d4)' }}>{submitLabel ?? t('ui6OrgsCanvas.create')}</button>
         </div>
       </form>
     </div>

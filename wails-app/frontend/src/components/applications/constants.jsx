@@ -1,22 +1,31 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
+import t from '../../lib/i18nOr.js'
 
 export const STATUS_COLORS = {
-  pending: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', label: 'pending' },
-  applied: { bg: 'rgba(16,185,129,0.12)', color: '#10b981', label: 'applied' },
-  rejected: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'rejected' },
-  cancelled: { bg: 'rgba(100,116,139,0.12)', color: '#64748b', label: 'cancelled' },
-  awaiting_submit: { bg: 'rgba(0,180,216,0.15)', color: '#00b4d8', label: 'awaiting submit' },
-  needs_you: { bg: 'rgba(244,63,94,0.15)', color: '#f43f5e', label: 'needs you' },
+  pending: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', get label() { return t('ui6PagesApps.status_pending') } },
+  applied: { bg: 'rgba(16,185,129,0.12)', color: '#10b981', get label() { return t('ui6PagesApps.status_applied') } },
+  rejected: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', get label() { return t('ui6PagesApps.status_rejected') } },
+  cancelled: { bg: 'rgba(100,116,139,0.12)', color: '#64748b', get label() { return t('ui6PagesApps.status_cancelled') } },
+  awaiting_submit: { bg: 'rgba(0,180,216,0.15)', color: '#00b4d8', get label() { return t('ui6PagesApps.status_awaiting_submit') } },
+  needs_you: { bg: 'rgba(244,63,94,0.15)', color: '#f43f5e', get label() { return t('ui6PagesApps.status_needs_you') } },
+}
+
+// statusWord is the shown word for a status value; one this app does not know
+// is shown as it is, underscores replaced.
+export function statusWord(keys, value) {
+  return Object.hasOwn(keys, value) ? t(keys[value]) : String(value).replace(/_/g, ' ')
 }
 
 export function StatusBadge({ status, style = {} }) {
+  useTranslation()
   const norm = (status || '').toLowerCase().trim()
-  const s = STATUS_COLORS[norm] || { bg: '#1a2332', color: '#64748b', label: status || 'unknown' }
+  const s = STATUS_COLORS[norm] || { bg: '#1a2332', color: '#64748b', label: status || t('ui6PagesApps.status_unknown') }
   const displayLabel = s.label || norm.replace(/_/g, ' ')
   return (
     <span
       role="status"
-      aria-label={`Status: ${displayLabel}`}
+      aria-label={t('ui6PagesApps.status_badge', { status: displayLabel })}
       style={{
         background: s.bg,
         border: `1px solid ${s.color}33`,

@@ -5,6 +5,7 @@ import { isVaultImage, vaultFileKind, vaultKind } from '../lib/vaultItems.js'
 import ImageDetailModal from '../components/ImageDetailModal'
 import RefreshButton from '../components/RefreshButton.jsx'
 import { limiter } from '../lib/limiter.js'
+import i18nOr from '../lib/i18nOr.js'
 
 // Each thumbnail is one `monoagentcli media data` call, so they load when
 // scrolled into view and at most 4 at a time — a vault of hundreds of images
@@ -49,7 +50,9 @@ function FileThumb({ item }) {
   return (
     <div
       role="img"
-      aria-label={`${kind || t('mediaVaultBody.fileKind')} ${item.label || item.filename}`}
+      aria-label={kind === 'audio' ? i18nOr('ui6PagesImages.audio_named', { name: item.label || item.filename })
+        : kind === 'video' ? i18nOr('ui6PagesImages.video_named', { name: item.label || item.filename })
+          : `${kind || t('mediaVaultBody.fileKind')} ${item.label || item.filename}`}
       title={item.label || item.filename}
       style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column',

@@ -8,6 +8,7 @@ import { missingText, monomindNeedsFix, monomindUnusable, coderReady, coderRunti
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import CoderDefaultAccess from './CoderDefaultAccess.jsx'
 import CoderPeercredBinding from './CoderPeercredBinding.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Coder mode (#203): a chat mode in which a coding agent (claude, codex,
 // opencode, …) runs with full access inside one folder. Off by default; turning it on asks for an explicit
@@ -30,7 +31,7 @@ const input = {
 }
 const fieldRow = { display: 'flex', flexDirection: 'column', gap: 4 }
 
-const errMsg = (e) => String(e?.message || e || 'unknown error')
+const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
 
 export const CODER_RISK_TITLE = 'Turn on Coder mode?'
 
@@ -119,44 +120,42 @@ export default function CoderModeSection() {
     <div id="settings-coder-mode" data-testid="coder-mode-section" style={card}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: disabled ? 'default' : 'pointer' }}>
         <input
-          type="checkbox" checked={enabled} disabled={disabled} aria-label="Coder mode"
+          type="checkbox" checked={enabled} disabled={disabled} aria-label={t('ui6SetCoder.name')}
           onChange={e => toggle(e.target.checked)}
           style={{ marginTop: 2, accentColor: '#00b4d8', flexShrink: 0 }}
         />
         <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: mono, fontSize: 11, color: 'var(--text-secondary)' }}>
-            <Code2 size={12} color="#00b4d8" /> Coder mode
-            {busy === 'enable' && <span style={{ color: 'var(--text-muted)' }}>· turning on…</span>}
-            {busy === 'disable' && <span style={{ color: 'var(--text-muted)' }}>· turning off…</span>}
+            <Code2 size={12} color="#00b4d8" /> {t('ui6SetCoder.name')}
+            {busy === 'enable' && <span style={{ color: 'var(--text-muted)' }}>{t('ui6SetCoder.turning_on')}</span>}
+            {busy === 'disable' && <span style={{ color: 'var(--text-muted)' }}>{t('ui6SetCoder.turning_off')}</span>}
           </span>
           <span style={hint}>
-            Lets a chat run as a coding agent with access to your computer inside one folder, the coder root by default.
-            When it is on and a runtime is ready, new chats start as coder chats (see the default access below).
-            Off unless you turn it on.
+            {t('ui6SetCoder.about')}
           </span>
         </span>
       </label>
 
-      {loadErr && <div role="alert" style={errText}>Coder mode is unavailable: {loadErr}</div>}
+      {loadErr && <div role="alert" style={errText}>{t('ui6SetCoder.unavailable', { error: loadErr })}</div>}
       {status && ready && (
         <div data-testid="coder-ready" style={{ fontFamily: mono, fontSize: 10.5, color: 'var(--green-neon)' }}>
-          Ready{status.monomindVersion ? ` · monomind ${status.monomindVersion}` : ''}
+          {t('ui6SetCoder.ready')}{status.monomindVersion ? ` · monomind ${status.monomindVersion}` : ''}
           {perRuntime ? ` · ${perRuntime.filter(r => r.ready).map(r => runtimeLabel(r.id)).join(', ')}` : status.runtime ? ` · ${status.runtime}` : ''}
         </div>
       )}
       {perRuntime && perRuntime.length > 0 && (
-        <ul data-testid="coder-runtimes" aria-label="Coding runtimes" style={{ margin: 0, paddingLeft: 16, fontFamily: mono, fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        <ul data-testid="coder-runtimes" aria-label={t('ui6SetCoder.runtimes')} style={{ margin: 0, paddingLeft: 16, fontFamily: mono, fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6 }}>
           {perRuntime.map(r => (
             <li key={r.id} style={{ color: r.ready ? 'var(--text-secondary)' : undefined }}>
               {runtimeLabel(r.id)} · {runtimeReadiness(r)}
-              {r.ready && r.toolActivity && r.toolActivity !== 'full' ? ` · tool calls: ${r.toolActivity}` : ''}
+              {r.ready && r.toolActivity && r.toolActivity !== 'full' ? ` · ${t('ui6SetCoder.tool_calls', { activity: r.toolActivity })}` : ''}
             </li>
           ))}
         </ul>
       )}
       {status && !ready && (
         <div data-testid="coder-needs-update" style={warnText}>
-          Coder mode {missingText(status)}. You can turn it on now; Coder chats start once {monomindUnusable(status) ? 'monomind works' : status.missingCapabilities?.length || !perRuntime ? 'monomind is updated' : 'a runtime is ready'}.
+          {t('ui6SetCoder.needs', { missing: missingText(status), when: t(monomindUnusable(status) ? 'ui6SetCoder.when_works' : status.missingCapabilities?.length || !perRuntime ? 'ui6SetCoder.when_updated' : 'ui6SetCoder.when_ready') })}
           {monomindNeedsFix(status) && <> <FixMonomindButton onDone={load} /></>}
         </div>
       )}
@@ -168,42 +167,44 @@ export default function CoderModeSection() {
       {status && (
         <form onSubmit={e => { e.preventDefault(); save() }} style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: enabled ? 1 : 0.6 }}>
           <div style={fieldRow}>
-            <span style={label}>Coder root</span>
+            <span style={label}>{t('ui6SetCoder.root')}</span>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input aria-label="Coder root" value={form.workspaceRoot} onChange={set('workspaceRoot')} disabled={!!busy}
+              <input aria-label={t('ui6SetCoder.root')} value={form.workspaceRoot} onChange={set('workspaceRoot')} disabled={!!busy}
                 placeholder="~/monoagent-coder" spellCheck={false} style={{ ...input, flex: 1 }} />
               <button type="button" className="btn btn-secondary btn-sm" onClick={browse} disabled={!!busy}
                 style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <FolderOpen size={12} /> Browse…
+                <FolderOpen size={12} /> {t('ui6SetCoder.browse')}
               </button>
             </div>
-            <span style={hint}>Coder chats work in this folder unless you choose another.</span>
+            <span style={hint}>{t('ui6SetCoder.root_hint')}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ ...fieldRow, flex: '1 1 120px' }}>
-              <span style={label}>Max turns</span>
-              <input aria-label="Max turns" inputMode="numeric" value={form.maxTurns} onChange={set('maxTurns')} disabled={!!busy} style={input} />
+              <span style={label}>{t('ui6SetCoder.max_turns')}</span>
+              <input aria-label={t('ui6SetCoder.max_turns')} inputMode="numeric" value={form.maxTurns} onChange={set('maxTurns')} disabled={!!busy} style={input} />
             </div>
             <div style={{ ...fieldRow, flex: '1 1 120px' }}>
-              <span style={label}>Timeout</span>
-              <input aria-label="Timeout" value={form.timeout} onChange={set('timeout')} disabled={!!busy} placeholder="60m" style={input} />
+              <span style={label}>{t('ui6SetCoder.timeout')}</span>
+              <input aria-label={t('ui6SetCoder.timeout')} value={form.timeout} onChange={set('timeout')} disabled={!!busy} placeholder="60m" style={input} />
             </div>
             {showBudget && (
               <div style={{ ...fieldRow, flex: '1 1 120px' }}>
-                <span style={label}>Budget per turn (USD)</span>
-                <input aria-label="Budget per turn" inputMode="decimal" value={form.budgetUsd} onChange={set('budgetUsd')} disabled={!!busy} placeholder="none" style={input} />
+                <span style={label}>{t('ui6SetCoder.budget_usd')}</span>
+                <input aria-label={t('ui6SetCoder.budget')} inputMode="decimal" value={form.budgetUsd} onChange={set('budgetUsd')} disabled={!!busy} placeholder={t('ui6SetCoder.none')} style={input} />
               </div>
             )}
           </div>
           {perRuntime && (
             <span data-testid="coder-limits-hint" style={hint}>
-              The timeout applies to every runtime. Max turns applies on {limitNames('maxTurns').join(', ') || 'no ready runtime'}
-              {showBudget ? `; the budget on ${limitNames('reportsCost').join(', ')}` : '; no ready runtime reports cost, so there is no budget'}.
+              {t('ui6SetCoder.limits', {
+                turns: limitNames('maxTurns').join(', ') || t('ui6SetCoder.no_runtime'),
+                budget: showBudget ? t('ui6SetCoder.limits_budget', { names: limitNames('reportsCost').join(', ') }) : t('ui6SetCoder.limits_no_budget'),
+              })}
             </span>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button type="submit" className="btn btn-primary btn-sm" disabled={!!busy}>
-              {busy === 'save' ? 'Saving…' : 'Save'}
+              {busy === 'save' ? t('ui6SetCoder.saving') : t('ui6SetCoder.save')}
             </button>
             {note && <span style={{ fontFamily: mono, fontSize: 10.5, color: 'var(--green-neon)' }}>{note}</span>}
           </div>

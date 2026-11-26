@@ -7,27 +7,35 @@ import { AlertTriangle, ArrowRight, FileText } from 'lucide-react'
 import { Chip, mono, mutedText, sectionLabel } from '../orgs/ui.jsx'
 import useOrgDocuments from './useOrgDocuments.js'
 import { statusMeta, versionLabel } from './orgDocuments.js'
+import { useTranslation } from 'react-i18next'
 
 const box = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '10px 12px' }
 
 export function CapBadge({ doc }) {
+  const { t: tr } = useTranslation()
   const t = (doc.threads || []).find(x => x.exhausted)
   if (!t) return null
   return (
     <span
       role="status"
-      title={`${t.consumer} rejected ${t.rounds} versions, its cap of ${t.cap} rework rounds. ${t.frozen ? 'The thread is frozen until the root decides it or raises the cap.' : 'The root decided it.'}`}
+      title={tr(t.frozen ? 'ui6OrgsCanvas.cap_title_frozen' : 'ui6OrgsCanvas.cap_title_decided', { consumer: t.consumer, rounds: t.rounds, cap: t.cap })}
       style={{ ...mono, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#fff', background: 'var(--red, #ef4444)', borderRadius: 8, padding: '0 8px', lineHeight: '16px' }}
     >
-      <AlertTriangle size={10} aria-hidden="true" /> Rework cap hit{t.frozen ? ' · frozen' : ''}
+      <AlertTriangle size={10} aria-hidden="true" /> {tr(t.frozen ? 'ui6OrgsCanvas.cap_hit_frozen' : 'ui6OrgsCanvas.cap_hit_badge')}
     </span>
   )
 }
 
+const decisionKey = (d) => {
+  if (d.decision === 'accept') return d.override ? 'ui6OrgsCanvas.decision_accepted_override' : 'ui6OrgsCanvas.decision_accepted'
+  return d.override ? 'ui6OrgsCanvas.decision_rejected_override' : 'ui6OrgsCanvas.decision_rejected'
+}
+
 function Lineage({ doc }) {
+  const { t } = useTranslation()
   const vs = doc.versions || []
   return (
-    <ol aria-label={`Versions of ${doc.id}`} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <ol aria-label={t('ui6OrgsCanvas.versions_of', { id: doc.id })} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
       {vs.map(v => {
         const m = statusMeta(v.status)
         const decisions = Object.entries(v.decisions || {})
@@ -35,14 +43,14 @@ function Lineage({ doc }) {
           <li key={v.version} style={{ ...mono, fontSize: 10.5, color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline' }}>
             <b style={{ color: 'var(--text)' }}>v{v.version}</b>
             <span style={{ color: m.color }}>{versionLabel(v)}</span>
-            {v.supersedes ? <span style={mutedText}>replaces v{v.supersedes}</span> : null}
-            {(v.waiting_on || []).length > 0 && <span style={mutedText}>waiting on {v.waiting_on.join(', ')}</span>}
+            {v.supersedes ? <span style={mutedText}>{t('ui6OrgsCanvas.replaces_version', { version: v.supersedes })}</span> : null}
+            {(v.waiting_on || []).length > 0 && <span style={mutedText}>{t('ui6OrgsCanvas.waiting_on', { names: v.waiting_on.join(', ') })}</span>}
             {decisions.map(([consumer, d]) => (
               <span key={consumer} style={mutedText}>
-                {consumer}: {d.decision === 'accept' ? 'accepted' : 'rejected'}{d.override ? ' (root override)' : ''} by {d.by}{d.reason ? ` — ${d.reason}` : ''}{d.relayed_at ? ' · relayed to producer' : ''}
+                {t(decisionKey(d), { consumer, by: d.by })}{d.reason ? ` — ${d.reason}` : ''}{d.relayed_at ? t('ui6OrgsCanvas.relayed') : ''}
               </span>
             ))}
-            {v.note && <span style={mutedText}>note: {v.note}</span>}
+            {v.note && <span style={mutedText}>{t('ui6OrgsCanvas.note', { note: v.note })}</span>}
           </li>
         )
       })}
@@ -51,6 +59,7 @@ function Lineage({ doc }) {
 }
 
 function DocCard({ doc }) {
+  const { t } = useTranslation()
   const m = statusMeta(doc.status)
   const hasRounds = (doc.threads || []).length > 0
   return (
@@ -60,42 +69,44 @@ function DocCard({ doc }) {
         <span style={{ ...mono, fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>{doc.id}</span>
         <Chip>{doc.type}</Chip>
         <Chip color={m.color}>{m.label}</Chip>
-        {hasRounds && <Chip color={doc.cap_hit ? 'var(--red, #ef4444)' : '#eab308'} title="Rejections by the consuming section, of its max_rework_rounds">round {doc.round} of {doc.cap}</Chip>}
+        {hasRounds && <Chip color={doc.cap_hit ? 'var(--red, #ef4444)' : '#eab308'} title={t('ui6OrgsCanvas.rejections_title')}>{t('ui6OrgsCanvas.round_of', { round: doc.round, cap: doc.cap })}</Chip>}
         <CapBadge doc={doc} />
       </div>
       <div style={{ ...mutedText, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-        <span>{doc.producer}</span><ArrowRight size={10} aria-label="to" />
-        <span>{(doc.consumers || []).join(', ') || 'no consumer'}</span>
+        <span>{doc.producer}</span><ArrowRight size={10} aria-label={t('ui6OrgsCanvas.to')} />
+        <span>{(doc.consumers || []).join(', ') || t('ui6OrgsCanvas.no_consumer')}</span>
         <span>· v{doc.head}</span>
       </div>
       <Lineage doc={doc} />
       {(doc.deliverables || []).length > 0 && (
-        <div style={{ ...mutedText }}>Deliverables: {doc.deliverables.map(f => <code key={f} style={{ marginRight: 6 }}>{f}</code>)}</div>
+        <div style={{ ...mutedText }}>{t('ui6OrgsCanvas.deliverables')} {doc.deliverables.map(f => <code key={f} style={{ marginRight: 6 }}>{f}</code>)}</div>
       )}
     </li>
   )
 }
 
 function SummaryBar({ s, view }) {
+  const { t } = useTranslation()
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-      <span style={sectionLabel}>Documents</span>
-      <Chip>{s.documents || 0} total</Chip>
-      {s.pending > 0 && <Chip color={statusMeta('pending').color}>{s.pending} published</Chip>}
-      {s.accepted > 0 && <Chip color={statusMeta('accepted').color}>{s.accepted} accepted</Chip>}
-      {s.rejected > 0 && <Chip color={statusMeta('rejected').color}>{s.rejected} rejected</Chip>}
-      {s.reworking > 0 && <Chip color="#eab308">{s.reworking} in rework</Chip>}
-      {s.cap_hit > 0 && <Chip color="var(--red, #ef4444)">{s.cap_hit} cap hit</Chip>}
+      <span style={sectionLabel}>{t('ui6OrgsCanvas.documents')}</span>
+      <Chip>{t('ui6OrgsCanvas.docs_total', { total: s.documents || 0 })}</Chip>
+      {s.pending > 0 && <Chip color={statusMeta('pending').color}>{t('ui6OrgsCanvas.docs_published', { total: s.pending })}</Chip>}
+      {s.accepted > 0 && <Chip color={statusMeta('accepted').color}>{t('ui6OrgsCanvas.docs_accepted', { total: s.accepted })}</Chip>}
+      {s.rejected > 0 && <Chip color={statusMeta('rejected').color}>{t('ui6OrgsCanvas.docs_rejected', { total: s.rejected })}</Chip>}
+      {s.reworking > 0 && <Chip color="#eab308">{t('ui6OrgsCanvas.docs_rework', { total: s.reworking })}</Chip>}
+      {s.cap_hit > 0 && <Chip color="var(--red, #ef4444)">{t('ui6OrgsCanvas.docs_cap_hit', { total: s.cap_hit })}</Chip>}
       {view.run && <span style={{ ...mutedText, marginLeft: 'auto' }}>{view.run}</span>}
     </div>
   )
 }
 
 export default function DocumentsPanel({ orgName, run = '', live = false }) {
+  const { t } = useTranslation()
   const { view, loading, error } = useOrgDocuments({ orgName, run, live })
   if (!view) {
     if (error) return <div role="alert" style={{ ...mutedText, color: 'var(--red, #ef4444)' }}>{error}</div>
-    return <div style={mutedText}>{loading ? 'Loading documents…' : 'No documents.'}</div>
+    return <div style={mutedText}>{loading ? t('ui6OrgsCanvas.loading_documents') : t('ui6OrgsCanvas.no_documents')}</div>
   }
   const byId = Object.fromEntries(view.docs.map(d => [d.id, d]))
   const groups = view.sections.filter(g => (g.types || []).length > 0)
@@ -104,17 +115,17 @@ export default function DocumentsPanel({ orgName, run = '', live = false }) {
       <SummaryBar s={view.summary} view={view} />
       {view.integrity && (
         <div role="alert" style={{ ...mono, fontSize: 10.5, color: '#eab308' }}>
-          The document log failed its integrity check: {view.integrity}
+          {t('ui6OrgsCanvas.integrity_failed', { reason: view.integrity })}
         </div>
       )}
       {view.docs.length === 0 && (
-        <div style={mutedText}>This run has published no documents. Documents appear here when a section publishes one.</div>
+        <div style={mutedText}>{t('ui6OrgsCanvas.run_no_documents')}</div>
       )}
       {groups.map(g => (
-        <section key={g.section} aria-label={`Section ${g.section}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <section key={g.section} aria-label={t('ui6OrgsCanvas.section_named', { name: g.section })} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={sectionLabel}>{g.section}</span>
-            <span style={mutedText}>produces</span>
+            <span style={mutedText}>{t('ui6OrgsCanvas.produces')}</span>
           </div>
           {g.types.map(tg => (
             <div key={tg.type} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

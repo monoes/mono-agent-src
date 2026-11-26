@@ -133,6 +133,7 @@ import { SectionBoxes, useSectionDrags } from './SectionLayer.jsx'
 import { messageEdgePath, liveEdgesFor } from './canvasLive.js'
 import useCanvasControls from './useCanvasControls.js'
 import CanvasEdgeLayer from './CanvasEdgeLayer.jsx'
+import { useTranslation } from 'react-i18next'
 
 export { messageEdgePath, liveEdgesFor }
 
@@ -179,6 +180,7 @@ export default function OrgCanvas({
   roleCaps = {}, // role id -> org budget role entry (live view only)
   staleRates = '', // monomind's own "stale rates" line, verbatim
 }) {
+  const { t } = useTranslation()
   const wrapperRef = useRef(null)
   const dragRef = useRef(null) // { type: 'canvas'|'node'|'edge', ... }
   const nodesRef = useRef(nodes)
@@ -382,7 +384,7 @@ export default function OrgCanvas({
             pointerEvents: 'none',
           }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
-              Drag a role from the left to start your org
+              {t('ui6OrgsDesigner.canvas_empty')}
             </div>
           </div>
         ) : (
@@ -431,10 +433,10 @@ export default function OrgCanvas({
                   style={{ position: 'absolute', left: node.x, top: node.y }}
                 >
                   {leadIds.has(node.id) && (
-                    <span data-testid={`lead-badge-${node.id}`} title="Section lead" style={{
+                    <span data-testid={`lead-badge-${node.id}`} title={t('ui6OrgsDesigner.section_lead')} style={{
                       position: 'absolute', top: -9, right: 8, zIndex: 3, fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: 0.6,
                       padding: '1px 6px', borderRadius: 8, background: 'var(--yellow, #eab308)', color: '#1a1a1a', pointerEvents: 'none',
-                    }}>LEAD</span>
+                    }}>{t('ui6OrgsDesigner.lead_badge')}</span>
                   )}
                   {roleBadge(roleCaps[node.id]) && (
                     <span data-testid={`role-cap-${node.id}`} title={roleBadge(roleCaps[node.id]).title} style={{

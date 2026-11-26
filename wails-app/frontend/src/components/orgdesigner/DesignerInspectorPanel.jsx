@@ -5,6 +5,7 @@ import { documentEdges } from './sectionsGraph.js'
 import { sectionsOrgEnabled } from './sectionsRuntimes.js'
 import { bySection } from './budgetModel.js'
 import { panelFoldBtnStyle, panelStripStyle } from './designerHelpers.js'
+import { useTranslation } from 'react-i18next'
 
 // The folding right panel: section inspector or role inspector.
 export default function DesignerInspectorPanel({
@@ -12,11 +13,12 @@ export default function DesignerInspectorPanel({
   handleSetReportsTo, handlePromoteToRoot, setIconPickerFor, setDeleteTarget, orgName, automationData,
   engineOffline, onOpenWorkflow, setGrantDialog, fullAccessByRole, orgMeta, rolesAccess, cliValidation,
 }) {
+  const { t } = useTranslation()
   return (
         inspectorOpen ? (
           <div style={{ width: 300, flexShrink: 0, minHeight: 0, borderLeft: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <button onClick={() => setInspectorOpen(false)} title="Collapse role editor" style={panelFoldBtnStyle}>
-              Collapse <ChevronRight size={11} />
+            <button onClick={() => setInspectorOpen(false)} title={t('ui6OrgsCanvas.collapse_editor')} style={panelFoldBtnStyle}>
+              {t('ui6OrgsCanvas.collapse')} <ChevronRight size={11} />
             </button>
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
               {sec.selected ? (
@@ -67,7 +69,7 @@ export default function DesignerInspectorPanel({
         ) : (
           <button
             onClick={() => setInspectorOpen(true)}
-            title="Role editor"
+            title={t('ui6OrgsCanvas.role_editor')}
             style={panelStripStyle('left')}
           >
             <SlidersHorizontal size={13} />

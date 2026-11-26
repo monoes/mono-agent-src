@@ -1,9 +1,12 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FileText, ExternalLink, Calendar, ChevronDown, ChevronUp } from 'lucide-react'
 import * as WailsApp from '../../wailsjs/go/main/App'
 import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
 
 export default function ApplicationPostingSection({ posting }) {
+  useTranslation()
   const [expanded, setExpanded] = useState(false)
 
   const url = posting?.url
@@ -29,13 +32,13 @@ export default function ApplicationPostingSection({ posting }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <h3 id="section-posting-title" style={sectionTitleStyle}>
           <FileText size={14} style={{ color: '#00b4d8' }} />
-          Posting
+          {t('ui6PagesApps.posting')}
         </h3>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
           {capturedAt && (
             <span style={{ color: 'var(--text-muted, #64748b)' }}>
-              Captured: {capturedAt.slice(0, 16).replace('T', ' ')}
+              {t('ui6PagesApps.captured', { date: capturedAt.slice(0, 16).replace('T', ' ') })}
             </span>
           )}
 
@@ -50,11 +53,11 @@ export default function ApplicationPostingSection({ posting }) {
                 gap: 4,
                 textDecoration: 'none',
               }}
-              title="Open posting link"
-              aria-label="Open original job posting"
+              title={t('ui6PagesApps.open_posting_link')}
+              aria-label={t('ui6PagesApps.open_posting')}
             >
               <ExternalLink size={11} />
-              <span>Posting Link</span>
+              <span>{t('ui6PagesApps.posting_link')}</span>
             </a>
           )}
         </div>
@@ -72,7 +75,7 @@ export default function ApplicationPostingSection({ posting }) {
             textAlign: 'center',
           }}
         >
-          No captured posting text available.
+          {t('ui6PagesApps.no_posting')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -113,15 +116,15 @@ export default function ApplicationPostingSection({ posting }) {
                 gap: 4,
                 padding: '2px 0',
               }}
-              aria-label={expanded ? 'Collapse posting text' : 'Expand full posting text'}
+              aria-label={expanded ? t('ui6PagesApps.collapse_posting') : t('ui6PagesApps.expand_posting')}
             >
               {expanded ? (
                 <>
-                  <ChevronUp size={12} /> Show less
+                  <ChevronUp size={12} /> {t('ui6PagesApps.show_less')}
                 </>
               ) : (
                 <>
-                  <ChevronDown size={12} /> Show full text
+                  <ChevronDown size={12} /> {t('ui6PagesApps.show_full')}
                 </>
               )}
             </button>

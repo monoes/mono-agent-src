@@ -9,6 +9,7 @@ import { SectionBoxes } from '../orgdesigner/SectionLayer.jsx'
 import { bySection } from '../orgdesigner/budgetModel.js'
 import recorded from '../orgdesigner/__fixtures__/org-budget-recorded.json'
 import { api, onOrgEvent } from '../../services/api.js'
+import '../../i18n.js'
 
 vi.mock('../../services/api.js', () => ({
   api: { getOrgBudget: vi.fn(), getOrgEstimate: vi.fn() },

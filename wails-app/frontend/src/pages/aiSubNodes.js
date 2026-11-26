@@ -9,17 +9,19 @@
 // cycle check and auto-layout's ordering leave them out.
 
 // AI_KINDS names each kind's palette group, in palette order.
+import i18nOr from '../lib/i18nOr.js'
+
 export const AI_KINDS = {
-  ai_languageModel: 'AI · Models',
-  ai_memory:        'AI · Memory',
-  ai_tool:          'AI · Tools',
-  ai_outputParser:  'AI · Output parsers',
-  ai_embedding:     'AI · Embeddings',
-  ai_vectorStore:   'AI · Vector stores',
-  ai_document:      'AI · Document loaders',
-  ai_textSplitter:  'AI · Text splitters',
-  ai_retriever:     'AI · Retrievers',
-  ai_reranker:      'AI · Rerankers',
+  get ai_languageModel() { return i18nOr('ui6Node.kindModels') },
+  get ai_memory() { return i18nOr('ui6Node.kindMemory') },
+  get ai_tool() { return i18nOr('ui6Node.kindTools') },
+  get ai_outputParser() { return i18nOr('ui6Node.kindParsers') },
+  get ai_embedding() { return i18nOr('ui6Node.kindEmbeddings') },
+  get ai_vectorStore() { return i18nOr('ui6Node.kindVectors') },
+  get ai_document() { return i18nOr('ui6Node.kindDocuments') },
+  get ai_textSplitter() { return i18nOr('ui6Node.kindSplitters') },
+  get ai_retriever() { return i18nOr('ui6Node.kindRetrievers') },
+  get ai_reranker() { return i18nOr('ui6Node.kindRerankers') },
 }
 
 export const isAiHandle = h => typeof h === 'string' && h.startsWith('ai_')
@@ -61,19 +63,19 @@ export const attachedCount = (edges, targetId, handle) =>
 // sub-input `handle`: { ok: true } or { ok: false, reason, message }.
 export function checkSubConnection(source, target, handle, edges) {
   const fail = (reason, message) => ({ ok: false, reason, message })
-  if (!source || !target) return fail('missing', 'Connection rejected: node not found.')
-  if (source.id === target.id) return fail('self', 'Connection rejected: a node cannot feed itself.')
+  if (!source || !target) return fail('missing', i18nOr('ui6Node.rejectMissing'))
+  if (source.id === target.id) return fail('self', i18nOr('ui6Node.rejectSelf'))
   const input = (target.subInputs || []).find(s => s.handle === handle)
-  if (!input) return fail('kind', `Connection rejected: ${target.label || target.id} takes no ${handle} connection.`)
+  if (!input) return fail('kind', i18nOr('ui6Node.rejectKind', { target: target.label || target.id, handle }))
   if (source.subOutput !== handle) {
     const want = input.label
-    return fail('kind', `Connection rejected: ${source.label || source.id} is not a ${want}; only a ${want} node connects to ${target.label || target.id}'s ${want} input.`)
+    return fail('kind', i18nOr('ui6Node.rejectWrong', { source: source.label || source.id, want, target: target.label || target.id }))
   }
   if ((edges || []).some(e => e.source === source.id && e.target === target.id && e.targetPortId === handle)) {
-    return fail('duplicate', 'Already connected.')
+    return fail('duplicate', i18nOr('ui6Node.alreadyConnected'))
   }
   if (input.max && attachedCount(edges, target.id, handle) >= input.max) {
-    return fail('max', `Connection rejected: ${target.label || target.id} takes at most ${input.max} ${input.label}${input.max === 1 ? '' : ' connections'}. Remove the one connected first.`)
+    return fail('max', i18nOr('ui6Node.rejectMax', { count: input.max, target: target.label || target.id, label: input.label }))
   }
   return { ok: true }
 }

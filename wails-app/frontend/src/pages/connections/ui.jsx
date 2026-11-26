@@ -2,7 +2,10 @@
 // and API connections). Inline-style language matches the rest of the app:
 // mono labels, CSS vars, small bordered chips.
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from 'i18next'
 import { Loader } from 'lucide-react'
+import i18nOr from '../../lib/i18nOr.js'
 
 export const mono = { fontFamily: 'var(--font-mono)' }
 export const label = { fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.2 }
@@ -11,7 +14,16 @@ export const body = { fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(
 export const panel = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '10px 14px' }
 export const spin = { animation: 'spin .7s linear infinite' }
 
-export const SOURCE_LABELS = { builtin: 'built-in', imported: 'imported', local: 'local', monoes: 'monoes.me' }
+// Display names of values the CLI sends; the values themselves stay untouched.
+export const SOURCE_LABELS = {
+  get builtin() { return i18nOr('ui6Conn.source_builtin') },
+  get imported() { return i18nOr('ui6Conn.source_imported') },
+  get local() { return i18nOr('ui6Conn.source_local') },
+  get recorded() { return i18nOr('ui6Conn.source_recorded') },
+  monoes: 'monoes.me',
+}
+export const trustName = (v) => v && i18nOr(`ui6Conn.trust_value_${v}`, { defaultValue: v })
+export const tierName = (v) => v && i18nOr(`ui6Conn.tier_value_${v}`, { defaultValue: v })
 
 // Colours for an action's declared side effects (spec §4.3).
 export const EFFECT_COLORS = {
@@ -79,8 +91,10 @@ export function Chip({ children, color = 'var(--text-muted)', title, style }) {
 }
 
 export function EffectChip({ effect }) {
+  const { t } = useTranslation()
   const e = effect || 'none'
-  return <Chip color={EFFECT_COLORS[e] || 'var(--text-muted)'} title={`Side effects: ${e}`}>{e}</Chip>
+  const text = t(`ui6Conn.effect_value_${e}`, { defaultValue: e })
+  return <Chip color={EFFECT_COLORS[e] || 'var(--text-muted)'} title={t('ui6Conn.side_effects', { effect: text })}>{text}</Chip>
 }
 
 export function Dot({ on, warn }) {
@@ -106,10 +120,11 @@ export function OkBox({ children }) {
   )
 }
 
-export function Busy({ text = 'Working…' }) {
+export function Busy({ text }) {
+  const { t } = useTranslation()
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...muted }}>
-      <Loader size={11} style={spin} /> {text}
+      <Loader size={11} style={spin} /> {text ?? t('ui6Conn.working')}
     </div>
   )
 }
@@ -138,15 +153,18 @@ export function KV({ rows }) {
   )
 }
 
+// Dates follow the app language; English keeps the US format it always had.
+export const dateLocale = () => (i18n.language?.startsWith('es') ? 'es' : 'en-US')
+
 export function fmtDate(s) {
   if (!s || s.startsWith('0001-')) return '—'
-  try { return new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+  try { return new Date(s).toLocaleString(dateLocale(), { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
   catch { return s.slice(0, 16) }
 }
 
 export function fmtShort(s) {
   if (!s || s.startsWith('0001-')) return '—'
-  try { return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }
+  try { return new Date(s).toLocaleDateString(dateLocale(), { month: 'short', day: 'numeric' }) }
   catch { return s.slice(0, 10) }
 }
 

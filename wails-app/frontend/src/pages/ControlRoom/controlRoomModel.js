@@ -1,6 +1,8 @@
 // Pure helpers of the control room: what a CLI document means, never what it may do. The contract is
 // internal/cli/doomsday/controlroom_types.go (schema_version 1).
 
+import i18nOr from '../../lib/i18nOr.js'
+
 export const MIN_POLL_MS = 3000          // never faster than this
 export const MAX_POLL_MS = 30000         // backoff ceiling
 export const IDLE_POLL_MS = 15000        // off / no run: nothing is moving
@@ -39,7 +41,7 @@ export const hasData = (chain) => chain === 'yes' || chain === 'unanchored'
 
 export function viewOf(doc) {
   if (!doc || doc.error || doc.schema_version !== 1) {
-    return { state: 'error', message: clip(doc?.error || 'unreadable control room document', 200), chain: 'unknown' }
+    return { state: 'error', message: clip(doc?.error || i18nOr('ui6Node.controlRoomUnreadable'), 200), chain: 'unknown' }
   }
   if (!doc.available && doc.reason === 'error') {
     const code = ERROR_CODES.includes(doc.error_code) ? doc.error_code : 'unknown'

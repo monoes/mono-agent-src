@@ -58,6 +58,8 @@ import useGhostDrag from './useGhostDrag.js'
 import DesignerLeftPanel from './DesignerLeftPanel.jsx'
 import DesignerInspectorPanel from './DesignerInspectorPanel.jsx'
 import DesignerOverlays from './DesignerOverlays.jsx'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 
 const EDGE_STYLE_KEY = 'od-edge-style'
 const PALETTE_PANEL_OPEN_KEY = 'od-palette-panel-open'
@@ -67,6 +69,7 @@ const FLASH_WINDOW_MS = 1500
 
 
 export default function OrgDesigner({ orgName, fullscreen = false, onToggleFullscreen, onOpenWorkflow, onCreateWorkflow }) {
+  const { t, i18n: { language } } = useTranslation()
   const [viewMode, setViewMode] = useState('design') // 'design' | 'live' | 'matrix'
   const [liveSource, setLiveSource] = useState('live') // 'live' or a past run id
   const [runs, setRuns] = useState([])
@@ -149,7 +152,7 @@ export default function OrgDesigner({ orgName, fullscreen = false, onToggleFulls
     orgName, orgMeta, nodes, nodesRef, selectedId, setSelectedId, setInspectorOpen,
     refreshFromServer, onNodesChange: handleNodesChange,
   })
-  const validation = useMemo(() => mergeValidation(withSectionErrors(validateStructure(nodes), nodes, sec.list), cliValidation), [nodes, cliValidation, sec.list])
+  const validation = useMemo(() => mergeValidation(withSectionErrors(validateStructure(nodes), nodes, sec.list), cliValidation), [nodes, cliValidation, sec.list, language])
 
   const { addRoleFromArchetype, resolveDefaultParent, quickAddRole, addCustomRole } = useAddRoles({ orgName, selectedId, setSelectedId, nodesRef, sec, refreshFromServer })
 
@@ -160,17 +163,17 @@ export default function OrgDesigner({ orgName, fullscreen = false, onToggleFulls
     if (droppedOnNodeId) {
       const role = nodesRef.current.find(n => n.id === droppedOnNodeId)
       if (!role) return
-      if (isAutomationNode(role)) { notify('grant automation', 'An automation role cannot hold grants. Drop onto an agent role.'); return }
+      if (isAutomationNode(role)) { notify(i18n.t('ui6OrgsDesigner.op_grant_automation'), i18n.t('ui6OrgsDesigner.endpoint_no_grants')); return }
       const grant = automationData.grants.find(g => g.role === role.id && g.alias === automation.alias) || null
       setGrantDialog({ role, automation, grant })
       return
     }
     const parentId = resolveDefaultParent(null)
-    if (!parentId) { notify('add automation role', 'Add a boss role first. An automation cannot be the root.'); return }
+    if (!parentId) { notify(i18n.t('ui6OrgsDesigner.op_add_automation_role'), i18n.t('ui6OrgsDesigner.boss_first')); return }
     const res = await api.addAutomationRole(orgName, {
       alias: automation.alias, reports_to: parentId, title: automation.workflow_name || automation.alias,
     })
-    if (!res || res.error) { notify('add automation role', res?.error || 'failed to add automation role'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_add_automation_role'), res?.error || i18n.t('ui6OrgsDesigner.add_automation_role_failed')); return }
     const roleId = res.role?.id
     if (roleId) {
       const saved = await api.saveOrgLayout(orgName, { [roleId]: { x: worldX, y: worldY, icon: '', color: '' } })
@@ -206,14 +209,14 @@ export default function OrgDesigner({ orgName, fullscreen = false, onToggleFulls
     endInteraction()
     if (!orgName || childId === parentId) return
     const res = await api.setOrgRoleReportsTo(orgName, childId, parentId || '')
-    if (!res || res.error) { notify('set reports to', res?.error || 'failed'); if (sec.on) sec.say(res?.error || 'failed'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_set_reports_to'), res?.error || i18n.t('ui6OrgsDesigner.failed')); if (sec.on) sec.say(res?.error || i18n.t('ui6OrgsDesigner.failed')); return }
     refreshFromServer(res)
   }, [orgName, refreshFromServer, endInteraction, sec.on, sec.say])
 
   const handleEdgeCycleRejected = useCallback((childId, parentId) => {
     setPendingEdgeRaw(null)
     endInteraction()
-    notify('reports to', `That would create a circular reporting loop.`)
+    notify(i18n.t('ui6OrgsDesigner.op_reports_to'), i18n.t('ui6OrgsDesigner.circular_reporting'))
   }, [endInteraction])
 
   const { handlePatch, handleSetSchedule, handleSetReportsTo, handlePromoteToRoot, handleDeleteConfirm, handleDenyBash, handleGrantSaved } = useRoleMutations({
@@ -276,8 +279,8 @@ export default function OrgDesigner({ orgName, fullscreen = false, onToggleFulls
     return (
       <div className="empty-state" style={{ flex: 1 }}>
         <div className="empty-state-icon"><GitBranch size={30} /></div>
-        <div className="empty-state-title">Select an org</div>
-        <div className="empty-state-desc">Pick an org from the list to design its role hierarchy.</div>
+        <div className="empty-state-title">{t('ui6OrgsDesigner.select_org')}</div>
+        <div className="empty-state-desc">{t('ui6OrgsDesigner.select_org_desc')}</div>
       </div>
     )
   }

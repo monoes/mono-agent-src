@@ -3,6 +3,8 @@
 // rules and the validated roster; this only reads its JSON and builds the
 // arguments of a save.
 
+import i18nOr from './i18nOr.js'
+
 export const RULES = ['any', 'order', 'cheapest']
 export const FALLBACKS = ['any', 'none']
 export const STATUSES = ['ok', 'stale', 'failed', 'unvalidated']
@@ -18,7 +20,7 @@ const pair = (p) => ({ runtime: String(p?.runtime ?? ''), model: String(p?.model
 // that is not that shape is an error, never a half-rendered pane.
 export function parsePurposes(doc) {
   if (!doc || typeof doc !== 'object' || !Array.isArray(doc.purposes)) {
-    throw new Error('unexpected reply from agent purposes list')
+    throw new Error(i18nOr('ui6Set.purposes_reply'))
   }
   const roster = (Array.isArray(doc.roster) ? doc.roster : []).filter(p => p && p.runtime && p.model).map(pair)
   const purposes = doc.purposes.filter(p => p && p.id).map(p => ({

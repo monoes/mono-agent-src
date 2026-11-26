@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock('../services/api.js', () => ({ api }))
 
+import '../i18n.js'
 import ConfirmHost from '../components/ConfirmDialog.jsx'
 import { onAutomationsChanged } from '../lib/appEvents.js'
 import WorkflowImportDialog, { copyOfExisting, copyReasonOf, splitBundle } from './WorkflowImportDialog.jsx'
