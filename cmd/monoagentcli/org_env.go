@@ -54,6 +54,7 @@ func orgDeps(cfg *globalConfig) org.Deps {
 		StdinIsTerminal:   stdinIsTerminal,
 		Serving:           servingCommand,
 		CapabilityProbe:   func(cmd *cobra.Command) (*monomind.CapabilitySet, error) { return capabilityProbe(cmd) },
+		RequireOperator:   cfg.requireOperator,
 	}
 }
 
