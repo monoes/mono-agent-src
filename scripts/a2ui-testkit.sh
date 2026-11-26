@@ -16,6 +16,7 @@
 #   scripts/a2ui-testkit.sh cli <args...>  run the test CLI (add --profile a2ui-test)
 #
 # A2UI_USE_MY_CLAUDE=1 lets the test app and bridge use your Claude login (~/.claude) so a real model can answer.
+# MONOMIND_BIN and WAILS point at a working monomind or wails when the ones on PATH do not run.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -65,6 +66,23 @@ seed_approval() {
 cmd=${1:-help}
 [ $# -gt 0 ] && shift
 
+# tool_path is PATH with the real go and node folders first: version-manager launchers look for their
+# settings under HOME, which the test world replaces.
+tool_path() {
+	local p=$PATH
+	command -v node >/dev/null && p="$(dirname "$(node -p process.execPath)"):$p"
+	command -v go >/dev/null && p="$(go env GOROOT)/bin:$p"
+	echo "$p"
+}
+# wails_bin is the wails CLI to run: $WAILS, else one that answers here.
+wails_bin() {
+	local w
+	for w in "${WAILS:-}" "$(command -v wails || true)" "$(go env GOPATH)/bin/wails"; do
+		[ -n "$w" ] && "$w" version >/dev/null 2>&1 && { echo "$w"; return; }
+	done
+	die "no working wails CLI; check 'wails version', then set WAILS=<path to the wails binary>"
+}
+
 case $cmd in
 setup)
 	need go
@@ -76,6 +94,11 @@ setup)
 	chmod 755 "$BIN"
 	[ -f "$DB" ] && [ -n "$(profile_id)" ] || cli profile create "$PROFILE" >/dev/null
 	echo "ready. test home: $TEST_HOME   profile: $PROFILE ($(profile_id))"
+	# A chat needs a working monomind before it can have a first message, and cards appear only after one.
+	if ! cli coder status --profile "$PROFILE" 2>/dev/null | grep -q '^ready: true'; then
+		echo "warning: monomind is not usable here, so chats will not run. Check 'monomind --version'; if it fails,"
+		echo "         export MONOMIND_BIN=<path to a working monomind> and run setup, app and bridge with it set."
+	fi
 	;;
 seed)
 	id=t-$(date +%H%M%S)
@@ -129,11 +152,11 @@ proof)
 	;;
 app)
 	own_terminal
-	need wails
+	w=$(wails_bin)
 	[ -x "$BIN" ] || die "run 'setup' first"
 	cd "$ROOT/wails-app"
 	[ -d frontend/node_modules ] || (cd frontend && npm ci)
-	testenv wails dev -tags "webkit2_41 devaccount"
+	testenv env PATH="$(tool_path)" "$w" dev -tags "webkit2_41 devaccount"
 	echo "wails may have rewritten generated files; 'git status' shows them, discard them if so."
 	;;
 bridge)
