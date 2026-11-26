@@ -304,6 +304,8 @@ export function GetChatMissionToggle(arg1:string):Promise<string>;
 
 export function GetChatModeOptions(arg1:string):Promise<string>;
 
+export function GetChatCardTurns(arg1:string):Promise<string>;
+
 export function GetChatTurns(arg1:string,arg2:string,arg3:number):Promise<string>;
 
 export function GetCoderSessionSettings(arg1:string):Promise<string>;

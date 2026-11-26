@@ -209,10 +209,12 @@ func (b *cliChatBackend) UISync(ctx context.Context, profile, conversation strin
 	return b.uiRun(ctx, nil, uiSyncArgv(profile, conversation))
 }
 
-// turnIDs lists the conversation's turns, newest first.
-func (b *cliChatBackend) turnIDs(ctx context.Context, profile, conversation string) ([]string, error) {
-	out, err := b.run(ctx, append(chatBase(profile), "chat", "history", "turns",
-		"--limit="+strconv.Itoa(chatTurnWindow), "--", conversation)...)
+// turnIDs lists the conversation's turns, newest first: its own, or with
+// --cards the ones that only carry cards.
+func (b *cliChatBackend) turnIDs(ctx context.Context, profile, conversation string, more ...string) ([]string, error) {
+	args := append(chatBase(profile), "chat", "history", "turns", "--limit="+strconv.Itoa(chatTurnWindow))
+	args = append(append(args, more...), "--", conversation)
+	out, err := b.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +237,7 @@ func (b *cliChatBackend) turnIDs(ctx context.Context, profile, conversation stri
 
 func (b *cliChatBackend) UIJournal(ctx context.Context, profile, conversation string, seen map[string]bool) (ChatUIJournalPage, error) {
 	page := ChatUIJournalPage{Turns: []ChatJournalTurn{}}
-	ids, err := b.turnIDs(ctx, profile, conversation)
+	ids, err := b.turnIDs(ctx, profile, conversation, "--cards")
 	if err != nil {
 		return page, err
 	}

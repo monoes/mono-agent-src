@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -20,6 +21,21 @@ const (
 	UIActionTurnPrefix  = systemTurnPrefix + "uiaction-"
 	UISurfaceTurnPrefix = systemTurnPrefix + "uisurface-"
 )
+
+// cardTurnSQL matches the rows of the card turns (Turn.IsCard).
+const cardTurnSQL = `(prompt = '' AND (id LIKE '` + UIActionTurnPrefix + `%' OR id LIKE '` + UISurfaceTurnPrefix + `%'))`
+
+// IsCard says t only carries cards: a button press, or surfaces written outside
+// a running turn. It is no turn of the chat: ListTurns leaves it out.
+func (t Turn) IsCard() bool {
+	return t.Prompt == "" && (strings.HasPrefix(t.ID, UIActionTurnPrefix) || strings.HasPrefix(t.ID, UISurfaceTurnPrefix))
+}
+
+// ListCardTurns is ListTurns of the card turns alone, for the readers that draw
+// the cards.
+func (s *AIStore) ListCardTurns(conversationID, profileID, cursor string, limit int) ([]Turn, string, error) {
+	return s.listTurns(conversationID, profileID, cursor, limit, cardTurnSQL)
+}
 
 // UIEvents returns every ui.surface and ui.action event of a conversation,
 // oldest first across its turns, for rebuilding the live surfaces

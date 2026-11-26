@@ -19,6 +19,20 @@ import { getAssistantTools, getAssistantAllowRuns } from '../../lib/assistantToo
 // conversation and returns it ({ id, cwd, model, access }). access is the
 // open conversation's level: a scoped turn gets monoagent's tools as the
 // Settings choose them, a coding one never does.
+const oldestFirst = res => (Array.isArray(res?.items) ? res.items : []).slice().reverse()
+
+// Card turns are listed apart (they are not turns of the chat): each goes back
+// before the first turn written after it, the chat's own order untouched.
+function withCardTurns(turns, cards) {
+  const out = []
+  let i = 0
+  for (const turn of turns) {
+    while (i < cards.length && cards[i].createdAt < turn.createdAt) out.push(cards[i++])
+    out.push(turn)
+  }
+  return out.concat(cards.slice(i))
+}
+
 export function useCoderConversation({ conversationId, create, access = 'full' }) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState([])
@@ -60,8 +74,10 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     let cancelled = false
     setLoading(true)
     setLoadError('')
-    Promise.resolve().then(() => api.getChatTurns(conversationId, '', 50)).then(async (res) => {
-      const turns = (Array.isArray(res?.items) ? res.items : []).slice().reverse() // oldest first
+    const cards = Promise.resolve().then(() => api.getChatCardTurns(conversationId))
+      .catch(e => { console.warn('a2ui: reading the cards failed', e); return null })
+    Promise.all([Promise.resolve().then(() => api.getChatTurns(conversationId, '', 50)), cards]).then(async ([res, cardRes]) => {
+      const turns = withCardTurns(oldestFirst(res), oldestFirst(cardRes))
       const built = []
       let running = ''
       for (const turn of turns) {
@@ -210,8 +226,7 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     const id = convRef.current
     if (!id) return
     try {
-      const res = await api.getChatTurns(id, '', 50)
-      const fresh = (Array.isArray(res?.items) ? res.items : []).slice().reverse()
+      const fresh = oldestFirst(await api.getChatCardTurns(id))
         .filter(turn => isJournalTurn(turn.id) && !shownRef.current.some(m => m.turnId === turn.id))
       const added = []
       for (const turn of fresh) {

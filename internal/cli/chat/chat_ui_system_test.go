@@ -337,14 +337,14 @@ func TestSyncHILWritesNothingBeforeTheConversationStarts(t *testing.T) {
 	if res := syncHIL(t, r); len(res.Surfaced) != 1 {
 		t.Fatalf("the card must appear once the chat has started: %+v", res)
 	}
-	turns, _, err := r.store.ListTurns(r.conv.ID, "default", "", 10)
-	if err != nil || len(turns) != 2 {
-		t.Fatalf("turns = %+v err=%v", turns, err)
+	turns, _, err := r.store.ListCardTurns(r.conv.ID, "default", "", 10)
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("card turns = %+v err=%v", turns, err)
+	}
+	if work, _, err := r.store.ListTurns(r.conv.ID, "default", "", 10); err != nil || len(work) != 1 || work[0].ID != "work-1" {
+		t.Fatalf("the chat's turns = %+v err=%v", work, err)
 	}
 	for _, turn := range turns {
-		if turn.ID == "work-1" {
-			continue
-		}
 		// Readers of the newest or first work turn skip system turns; the card turn must be one.
 		if !turn.IsSystem() || !strings.HasPrefix(turn.ID, ai.UISurfaceTurnPrefix) {
 			t.Fatalf("card turn %q is not a system turn", turn.ID)

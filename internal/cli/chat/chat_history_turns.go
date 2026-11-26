@@ -18,10 +18,13 @@ import (
 func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 	var cursor string
 	var limit int
+	var cards bool
 	cmd := &cobra.Command{
 		Use:   "turns <conversation-id>",
 		Short: "List a conversation's turns, newest first",
-		Args:  cobra.ExactArgs(1),
+		Long: "List a conversation's turns, newest first. The turns that only carry cards (a button press, approvals " +
+			"shown by `chat ui sync-hil`) are not turns of the chat and are left out; --cards lists those instead.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			n, err := chatLimit(limit, 50, 200)
 			if err != nil {
@@ -35,7 +38,11 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 			if _, err := store.GetConversation(args[0], profileID); err != nil {
 				return chatStoreErr(err)
 			}
-			turns, next, err := store.ListTurns(args[0], profileID, cursor, n)
+			list := store.ListTurns
+			if cards {
+				list = store.ListCardTurns
+			}
+			turns, next, err := list(args[0], profileID, cursor, n)
 			if err != nil {
 				return err
 			}
@@ -58,6 +65,7 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&cards, "cards", false, "List the card turns instead of the chat's own turns")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "next_cursor from the previous page")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Page size (default 50, max 200)")
 	return cmd

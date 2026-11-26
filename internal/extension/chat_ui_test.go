@@ -143,7 +143,8 @@ func TestCLIBackendUIReadsIndentedOutput(t *testing.T) {
 
 const journalCLI = `
 case "$*" in
-*history\ turns*) echo '{"items":[{"id":"system-uisurface-b"},{"id":"system-uiaction-a"},{"id":"ext-t-1"}]}';;
+*history\ turns*--cards*) echo '{"items":[{"id":"system-uisurface-b"},{"id":"system-uiaction-a"}]}';;
+*history\ turns*) echo '{"items":[{"id":"ext-t-1"}]}';;
 *system-uisurface-b*) echo '{"items":[{"seq":1,"type":"ui.surface","at":"2026-01-01T00:00:00.100Z","payload":{}}],"turn":{"status":"completed"}}';;
 *system-uiaction-a*) echo '{"items":[{"seq":1,"type":"ui.action","at":"2026-01-01T00:00:00.200Z","payload":{}}],"turn":{"status":"completed"}}';;
 *ext-t-1*) echo '{"items":[{"seq":3,"type":"notice","payload":{}}],"turn":{"status":"completed"}}';;

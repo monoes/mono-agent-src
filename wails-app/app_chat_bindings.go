@@ -214,6 +214,18 @@ type chatTurnPage struct {
 	NextCursor string          `json:"next_cursor"`
 }
 
+// maxCardTurns is the page of card turns a conversation view reads.
+const maxCardTurns = 200
+
+// GetChatCardTurns returns the turns that only carry cards (presses, synced
+// approvals), newest first. GetChatTurns leaves them out.
+func (a *App) GetChatCardTurns(conversationID string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.chatTurns(conversationID, "", maxCardTurns, "--cards")
+}
+
 // GetChatTurns returns one conversation's turns, most recent first. Each
 // item carries ownedByThisInstance: true for every turn except one that is
 // active AND owned by a different live instance — see isForeignActiveTurn.
@@ -221,10 +233,16 @@ func (a *App) GetChatTurns(conversationID, cursor string, limit int) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
+	return a.chatTurns(conversationID, cursor, limit)
+}
+
+// chatTurns runs `chat history turns` with any more flags.
+func (a *App) chatTurns(conversationID, cursor string, limit int, more ...string) string {
 	if a.chatSup == nil {
 		return `{"items":[]}`
 	}
 	args := []string{"chat", "history", "turns", conversationID, "--limit", strconv.Itoa(clampChatLimit(limit))}
+	args = append(args, more...)
 	if cursor != "" {
 		args = append(args, "--cursor", cursor)
 	}
