@@ -234,53 +234,32 @@ func TestEditableTextIsNeverCut(t *testing.T) {
 	}
 }
 
-func TestReadonlyTruncationAndElision(t *testing.T) {
-	it := sampleHIL()
-	it.ReadonlyData = map[string]any{"long": strings.Repeat("ü", 5000)}
-	msgs, err := HIL(it)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := surfaceOf(t, msgs, "hil-482")
-	got := s.Components["ro-0-v"]["text"].(string)
+// Read-only text of a card nobody can approve is cut on a rune boundary.
+func TestSettledCardTruncatesReadonlyText(t *testing.T) {
+	p := samplePayload()
+	p.State, p.Text = hilsend.StateSent, strings.Repeat("ü", 5000)
+	s := surfaceOf(t, mustSend(t, p), "send-7c1e")
+	got := s.Components["text"]["text"].(string)
 	if !strings.HasSuffix(got, Truncated) || len(got) > a2ui.DefaultLimits.MaxStringBytes || !validUTF8(got) {
 		t.Fatalf("bad truncation: %d bytes", len(got))
-	}
-	it.ReadonlyData = map[string]any{}
-	for i := 0; i < 40; i++ {
-		it.ReadonlyData[fmt.Sprintf("field%02d", i)] = i
-	}
-	msgs, err = HIL(it)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s = surfaceOf(t, msgs, "hil-482")
-	more, _ := s.Components["more"]["text"].(string)
-	if !strings.Contains(more, "more fields not shown") || len(s.Components) > a2ui.DefaultLimits.MaxComponents {
-		t.Fatalf("elision: %q, %d components", more, len(s.Components))
 	}
 }
 
 func validUTF8(s string) bool { return strings.ToValidUTF8(s, "") == s }
 
-// 20 rows of control characters escape to about six bytes each, which puts
-// the envelope over the 64 KiB message cap at full length; the builder must
-// shorten the read-only text rather than emit an oversize message.
+// Control characters escape to about six bytes each, which puts the envelope
+// over the 64 KiB message cap at full length; a settled card shortens its
+// read-only text rather than emit an oversize message.
 func TestOversizeEnvelopeShrinksReadonlyText(t *testing.T) {
-	it := sampleHIL()
-	it.ReadonlyData = map[string]any{}
-	for i := 0; i < 30; i++ {
-		it.ReadonlyData[fmt.Sprintf("k%02d", i)] = strings.Repeat("\x01", 4000)
-	}
-	msgs, err := HIL(it)
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := samplePayload()
+	big := strings.Repeat("\x01", 4000)
+	p.State, p.Error, p.Text, p.Subject = hilsend.StateFailed, big, big, big
+	msgs := mustSend(t, p)
 	if len(msgs[0]) > a2ui.DefaultLimits.MaxMessageBytes {
 		t.Fatalf("%d bytes", len(msgs[0]))
 	}
-	s := surfaceOf(t, msgs, "hil-482")
-	if !strings.HasSuffix(s.Components["ro-0-v"]["text"].(string), Truncated) {
+	s := surfaceOf(t, msgs, "send-7c1e")
+	if !strings.HasSuffix(s.Components["text"]["text"].(string), Truncated) {
 		t.Fatal("values were not shortened")
 	}
 }

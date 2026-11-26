@@ -25,21 +25,21 @@ func HILSurfaceID(id string) string { return "hil-" + id }
 
 // Layout budget of the HIL surface, from the catalog caps: 80 components and
 // 40 children per container. Fixed parts: root, body, title, sub, divider,
-// more, actions and two buttons with their labels (4) = 11 components, and
-// title, sub, divider, more, actions = 5 body children.
+// actions and two buttons with their labels (4) = 10 components, and title,
+// sub, divider, actions = 4 body children.
 const (
-	hilFixedComps    = 11
-	hilFixedChildren = 5
+	hilFixedComps    = 10
+	hilFixedChildren = 4
 )
 
 // HIL builds the approval surface of one pending workflow HIL item.
 //
-// Read-only fields become a caption plus a Text row each, in key order;
-// when they do not all fit the component budget the rest are replaced by one
-// "... and N more fields not shown" line, and each value over the text cap
-// is cut with Truncated. Editable fields become one TextField each, bound to
-// /edit/<key>; they are never cut (see ErrTooLarge). Only strings, numbers
-// and booleans are editable, and the key "id" is reserved for the item id.
+// Read-only fields become a caption plus a Text row each, in key order.
+// Editable fields become one TextField each, bound to /edit/<key>, a long
+// text one for a string so that it wraps. Only strings, numbers and booleans
+// are editable, and the key "id" is reserved for the item id. The card offers
+// Approve, so nothing is cut or left out: fields that do not all fit the
+// component budget, or text over the caps, give ErrTooLarge.
 func HIL(it HILItem) ([][]byte, error) {
 	if err := checkID("hil", it.ID); err != nil {
 		return nil, err
@@ -109,41 +109,32 @@ func displayText(v any) string {
 func buildHIL(it HILItem, keys []string, vals map[string]string, textCap int) ([][]byte, error) {
 	lim := a2ui.DefaultLimits
 	e := len(keys)
-	rows := min((lim.MaxComponents-hilFixedComps-e)/2, (lim.MaxChildren-hilFixedChildren-e)/2)
-	if rows < 0 {
-		rows = 0
+	rows := max(0, min((lim.MaxComponents-hilFixedComps-e)/2, (lim.MaxChildren-hilFixedChildren-e)/2))
+	if len(it.ReadonlyData) > rows {
+		return nil, fmt.Errorf("%w: %d read-only fields, at most %d fit on a card", ErrTooLarge, len(it.ReadonlyData), rows)
 	}
 	roKeys := make([]string, 0, len(it.ReadonlyData))
 	for k := range it.ReadonlyData {
 		roKeys = append(roKeys, k)
 	}
 	sort.Strings(roKeys)
-	hidden := 0
-	if len(roKeys) > rows {
-		hidden = len(roKeys) - rows
-		roKeys = roKeys[:rows]
-	}
 
 	b := newBuilder()
 	body := []string{"title", "sub", "div"}
-	b.text("title", elide(firstNonEmpty(it.NodeName, "Approval needed"), 200), "body")
-	b.text("sub", elide("Workflow: "+firstNonEmpty(it.WorkflowName, "(unnamed)"), 200), "caption")
+	b.text("title", b.fit(firstNonEmpty(it.NodeName, "Approval needed"), textCap), "body")
+	b.text("sub", b.fit("Workflow: "+firstNonEmpty(it.WorkflowName, "(unnamed)"), textCap), "caption")
 	b.add("div", "Divider", nil)
 	for i, k := range roKeys {
-		b.text(fmt.Sprintf("ro-%d-k", i), elide(k, 100), "caption")
-		b.text(fmt.Sprintf("ro-%d-v", i), elide(displayText(it.ReadonlyData[k]), textCap), "body")
+		b.text(fmt.Sprintf("ro-%d-k", i), b.fit(k, textCap), "caption")
+		b.text(fmt.Sprintf("ro-%d-v", i), b.fit(displayText(it.ReadonlyData[k]), textCap), "body")
 		body = append(body, fmt.Sprintf("ro-%d-k", i), fmt.Sprintf("ro-%d-v", i))
-	}
-	if hidden > 0 {
-		b.text("more", fmt.Sprintf("… and %d more fields not shown", hidden), "caption")
-		body = append(body, "more")
 	}
 	approveCtx := map[string]any{"id": it.ID}
 	edit := map[string]any{}
 	for i, k := range keys {
 		id := fmt.Sprintf("ef-%d", i)
 		path := "/edit/" + pointerKey(k)
-		b.add(id, "TextField", map[string]any{"label": elide(k, 100), "value": bind(path), "variant": fieldVariant(vals[k])})
+		b.add(id, "TextField", map[string]any{"label": b.fit(k, textCap), "value": bind(path), "variant": fieldVariant(it.EditableData[k])})
 		edit[k] = vals[k]
 		approveCtx[k] = bind(path)
 		body = append(body, id)
@@ -155,11 +146,14 @@ func buildHIL(it HILItem, keys []string, vals map[string]string, textCap int) ([
 	body = append(body, "actions")
 	b.column("body", body...)
 	b.add("root", "Card", map[string]any{"child": "body"})
+	if err := b.whole(); err != nil {
+		return nil, err
+	}
 	return b.create(HILSurfaceID(it.ID))
 }
 
-func fieldVariant(s string) string {
-	if len(s) > 120 {
+func fieldVariant(v any) string {
+	if _, ok := v.(string); ok {
 		return "longText"
 	}
 	return "shortText"

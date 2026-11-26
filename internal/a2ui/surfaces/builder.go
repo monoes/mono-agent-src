@@ -7,12 +7,14 @@
 // Surface.Check before returning, so a caller never gets a surface the
 // renderer would refuse: it gets an error instead.
 //
-// Over-long text is handled one of two ways. Read-only text is cut with
-// the marker Truncated (the cut is on a rune boundary, and the cap shrinks
-// step by step if the whole message would otherwise be over the size cap).
-// Text a person may edit and send back is never cut, since approving would
-// then send less than the person approved: it makes the builder return
-// ErrTooLarge and the caller falls back to its classic card.
+// A card that offers to approve an action shows everything the person
+// approves. When any of it (a value, a row, text the person may edit and send
+// back) would have to be cut or left out, the workflow and send approval
+// builders return ErrTooLarge and the person decides on the classic card.
+// Cards that cannot approve (settled or reject-only sends, notices) and the
+// mission and question cards cut over-long read-only text with the marker
+// Truncated (on a rune boundary, and the cap shrinks step by step if the
+// whole message would otherwise be over the size cap).
 package surfaces
 
 import (
@@ -83,9 +85,26 @@ func elide(s string, max int) string {
 type builder struct {
 	comps []map[string]any
 	data  map[string]any
+	cut   bool // fit had to cut something
 }
 
 func newBuilder() *builder { return &builder{data: map[string]any{}} }
+
+// fit is elide that remembers a cut, for whole.
+func (b *builder) fit(s string, max int) string {
+	if len(strings.ToValidUTF8(s, "\uFFFD")) > max {
+		b.cut = true
+	}
+	return elide(s, max)
+}
+
+// whole refuses a card that would offer to approve text it does not show.
+func (b *builder) whole() error {
+	if b.cut {
+		return fmt.Errorf("%w: it has text too long to show whole, and a card offers Approve only when it shows everything", ErrTooLarge)
+	}
+	return nil
+}
 
 func (b *builder) add(id, typ string, props map[string]any) {
 	c := map[string]any{"id": id, "component": typ}

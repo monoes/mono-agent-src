@@ -38,8 +38,10 @@ func stateTone(s hilsend.State) string {
 // editable text (and subject, when the node has one) and Approve/Reject
 // buttons; an item that is not pending, or one the person can only reject
 // (Unreviewable), gets no Approve button, and a settled one gets no buttons.
-// The text and subject are never cut: past the string cap Send returns
-// ErrTooLarge. Recipient, account and detail lines are cut with Truncated.
+// A card with Approve shows everything: when any line or row would be cut or
+// left out, Send returns ErrTooLarge. The editable text and subject of a
+// pending item are never cut either. On the other cards, recipient, account
+// and detail lines are cut with Truncated.
 func Send(p hilsend.Payload) ([][]byte, error) {
 	if err := checkID("send", p.ID); err != nil {
 		return nil, err
@@ -62,19 +64,30 @@ func buildSend(p hilsend.Payload, text, subject string, textCap int) ([][]byte, 
 	pending := p.State == hilsend.StatePending
 	canApprove := pending && p.Unreviewable == ""
 	b := newBuilder()
+	// A card nobody can approve keeps its lines short; one with Approve shows
+	// them whole, or is not built (b.whole below).
+	limit := func(short int) int {
+		if canApprove {
+			return textCap
+		}
+		return min(textCap, short)
+	}
 	body := []string{"head"}
 	tone := "info"
 	if riskyAction(p.Action) {
 		tone = "warning"
 	}
-	b.badge("action", elide(firstNonEmpty(p.Action, "send"), 40), tone)
-	b.text("who", elide("To: "+firstNonEmpty(p.Recipient.Name, p.Recipient.PersonName, "(unknown)"), 300), "body")
-	b.text("via", elide("Via: "+firstNonEmpty(p.Channel, p.Account.Platform)+accountSuffix(p.Account), 300), "caption")
-	head := []string{"action", "who"}
-	b.row("head", head...)
+	b.badge("action", b.fit(firstNonEmpty(p.Action, "send"), limit(40)), tone)
+	b.text("who", b.fit("To: "+firstNonEmpty(p.Recipient.Name, p.Recipient.PersonName, "(unknown)"), limit(300)), "body")
+	if u := p.Recipient.ProfileURL; u != "" && u != p.Recipient.Name {
+		b.text("profile", b.fit("Profile: "+u, limit(300)), "caption")
+		body = append(body, "profile")
+	}
+	b.text("via", b.fit("Via: "+firstNonEmpty(p.Channel, p.Account.Platform)+accountSuffix(p.Account), limit(300)), "caption")
+	b.row("head", "action", "who")
 	body = append(body, "via")
 	if l := p.PreparedBy.Label(); l != "" {
-		b.text("by", elide("Prepared by: "+l, 300), "caption")
+		b.text("by", b.fit("Prepared by: "+l, limit(300)), "caption")
 		body = append(body, "by")
 	}
 	if !pending {
@@ -97,17 +110,21 @@ func buildSend(p hilsend.Payload, text, subject string, textCap int) ([][]byte, 
 		ctx["subject"] = bind("/send/subject")
 		body = append(body, "subject")
 	} else if p.Subject != "" {
-		b.text("subject", elide("Subject: "+p.Subject, textCap), "body")
+		b.text("subject", b.fit("Subject: "+p.Subject, textCap), "body")
 		body = append(body, "subject")
 	}
 	if pending && !p.TextReadOnly {
 		b.add("text", "TextField", map[string]any{"label": "Message", "value": bind("/send/text"), "variant": "longText"})
 		ctx["text"] = bind("/send/text")
 	} else {
-		b.text("text", elide(p.Text, textCap), "body")
+		b.text("text", b.fit(p.Text, textCap), "body")
 	}
 	body = append(body, "text")
-	body = append(body, sendExtras(b, p, textCap)...)
+	if canApprove && (len(p.Attachments) > maxSendRows || len(p.Details) > maxSendRows) {
+		return nil, fmt.Errorf("%w: %d attachments and %d details, at most %d of each fit on a card",
+			ErrTooLarge, len(p.Attachments), len(p.Details), maxSendRows)
+	}
+	body = append(body, sendExtras(b, p, limit(300))...)
 
 	if canApprove {
 		b.button(btnApprove, "Approve", "primary", "hil.approve", ctx)
@@ -123,6 +140,11 @@ func buildSend(p hilsend.Payload, text, subject string, textCap int) ([][]byte, 
 	}
 	b.column("body", body...)
 	b.add("root", "Card", map[string]any{"child": "body"})
+	if canApprove {
+		if err := b.whole(); err != nil {
+			return nil, err
+		}
+	}
 	return b.create(SendSurfaceID(p.ID))
 }
 
@@ -134,16 +156,21 @@ func accountSuffix(a hilsend.Account) string {
 }
 
 // sendExtras adds the attachment, detail and host lines, a bounded number
-// each, and returns their ids.
-func sendExtras(b *builder, p hilsend.Payload, textCap int) []string {
+// each and each at most lineCap bytes, and returns their ids.
+func sendExtras(b *builder, p hilsend.Payload, lineCap int) []string {
 	var ids []string
-	line := func(id, s string) { b.text(id, elide(s, min(textCap, 300)), "caption"); ids = append(ids, id) }
+	line := func(id, s string) { b.text(id, b.fit(s, lineCap), "caption"); ids = append(ids, id) }
 	for i, a := range p.Attachments {
 		if i == maxSendRows {
 			line("att-more", fmt.Sprintf("… and %d more attachments", len(p.Attachments)-maxSendRows))
 			break
 		}
-		line(fmt.Sprintf("att-%d", i), fmt.Sprintf("Attachment: %s %s (%d bytes)", a.Kind, a.Name, a.Size))
+		s := fmt.Sprintf("Attachment: %s %s (%d bytes)", a.Kind, a.Name, a.Size)
+		// The name is only the last part of where a link or a file is.
+		if from := firstNonEmpty(a.URL, a.Path); from != "" && from != a.Name {
+			s += " " + from
+		}
+		line(fmt.Sprintf("att-%d", i), s)
 	}
 	for i, d := range p.Details {
 		if i == maxSendRows {
