@@ -139,7 +139,10 @@ MESSAGES AND LIFECYCLE
   org chat approve|deny <org> <gate-id|request-id|role:action> [-- note]
                                     idempotent ("already": true when resolved
                                     before); refused (exit 3) while the org is
-                                    not running, and nothing is sent
+                                    not running, and nothing is sent. An
+                                    approval is approved only by its request
+                                    id (role:action: deny only); one with no
+                                    id is refused: org approve releases all
   org pending                       every question, approval and gate the
                                     folder's orgs wait on you for
   org approve|deny <org> <role> <action> [--request <id>]
