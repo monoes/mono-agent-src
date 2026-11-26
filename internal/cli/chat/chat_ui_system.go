@@ -297,10 +297,10 @@ func typedLike(orig any, s string) any {
 
 type listedHIL struct {
 	surfaces.HILItem
-	Digest   string         `json:"digest"`
-	Redacted bool           `json:"redacted"`
-	Kind   string           `json:"kind"`
-	Send   *hilsend.Payload `json:"send"`
+	Digest   string           `json:"digest"`
+	Redacted bool             `json:"redacted"`
+	Kind     string           `json:"kind"`
+	Send     *hilsend.Payload `json:"send"`
 }
 
 // listHIL is `hil list --json --redact`: cards, and the journal that keeps
