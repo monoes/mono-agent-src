@@ -158,6 +158,9 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 	if parent != nil && name != ToolSpawn && name != ToolWait && name != ToolMessage {
 		return "", fmt.Errorf("unknown org tool %q", name)
 	}
+	if err := c.refusePaidWork(ctx, name); err != nil {
+		return "", err
+	}
 	switch name {
 	case ToolRoster:
 		var a struct {

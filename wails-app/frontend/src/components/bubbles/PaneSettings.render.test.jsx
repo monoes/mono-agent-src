@@ -174,6 +174,8 @@ describe('settings popover', () => {
     [{ bounded: true, source: 'task', capUsd: 1.5, totalUsd: 2 }, "Up to $1.50 for the next message: what is left of this task's $2.00 cap."],
     [{ bounded: true, source: 'session', capUsd: 0, totalUsd: 3, usedUp: true }, "This chat's $3.00 session budget is used up: a message does not run."],
     [{ bounded: true, source: 'task', capUsd: 0, totalUsd: 2, usedUp: true }, 'Nothing is left to spend on this task: a message does not run.'],
+    [{ bounded: true, source: 'wrapup', capUsd: 3, totalUsd: 5 }, "The mission's budget is used up: $3.00 of the lead's $5.00 wrap-up allowance is left. No worker starts."],
+    [{ bounded: true, source: 'wrapup', capUsd: 0, totalUsd: 5, usedUp: true }, "The mission's budget and its wrap-up allowance are used up: a message does not run until you raise the budget."],
     [noCap, "No spend cap bounds this chat's messages."],
   ])('says what bounds the next message: %j', async (cap, text) => {
     const row = await spendText(cap)

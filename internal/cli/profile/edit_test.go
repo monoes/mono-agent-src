@@ -190,6 +190,8 @@ var seedOverrides = map[string]map[string]any{
 	"coder_session_asks":             {"importance": "normal"},
 	// 157: a registered cap run (presence only, no money).
 	"task_session_cap_runs": {"session_id": 1, "lease_until": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z"},
+	// 171: a wrap-up turn of the seeded session, holding part of its allowance.
+	"task_session_wrapup_turns": {"session_id": 1, "budget_micros": 1000000, "hold_micros": 1, "settled": 0},
 }
 
 // seedAfter are statements run once a table's generic row is in: the goal rows are seeded as a proposal, and a check needs a locked

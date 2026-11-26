@@ -1578,6 +1578,8 @@
       "spendTaskUsedUp": "Nothing is left to spend on this task: a message does not run.",
       "spendSession": "Up to {{cap}} for the next message: what is left of this chat's {{total}} session budget.",
       "spendSessionUsedUp": "This chat's {{total}} session budget is used up: a message does not run.",
+      "spendWrapUp": "The mission's budget is used up: {{cap}} of the lead's {{total}} wrap-up allowance is left. No worker starts.",
+      "spendWrapUpUsedUp": "The mission's budget and its wrap-up allowance are used up: a message does not run until you raise the budget.",
       "spendMessage": "Up to {{cap}} per message (coder budget).",
       "spendNone": "No spend cap bounds this chat's messages.",
       "spendUnknown": "The spend cap could not be read.",

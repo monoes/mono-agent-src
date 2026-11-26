@@ -128,6 +128,7 @@ func (c *Conductor) missionAssign(ctx context.Context, mc *MissionRun, named, ta
 // ReportView is mission_report's result.
 type ReportView struct {
 	Session    SessionView         `json:"session"`
+	WrapUp     *tasks.WrapUp       `json:"wrap_up,omitempty"` // the lead's allowance once the budget is spent
 	Counts     tasks.SessionCounts `json:"counts"`
 	Tasks      []ReportTask        `json:"tasks"`
 	Unfinished []int64             `json:"unfinished"`
@@ -163,6 +164,9 @@ func (c *Conductor) missionReport(ctx context.Context, mc *MissionRun, sid int64
 		return ReportView{}, err
 	}
 	rep := ReportView{Session: sessionView(plan.Session), Counts: plan.Session.Counts, Tasks: []ReportTask{}, Unfinished: []int64{}, Workers: c.runningTasks(sid)}
+	if rep.WrapUp, err = mc.Store.WrapUpOf(ctx, mc.ProfileID, sid, missionActor()); err != nil {
+		return ReportView{}, err
+	}
 	for i, t := range plan.Tasks {
 		if t.Kind == tasks.KindEpic {
 			continue

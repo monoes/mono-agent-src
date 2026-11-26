@@ -1578,6 +1578,8 @@
       "spendTaskUsedUp": "No queda nada por gastar en esta tarea: un mensaje no se ejecuta.",
       "spendSession": "Hasta {{cap}} para el siguiente mensaje: lo que queda del presupuesto de sesión de {{total}} de este chat.",
       "spendSessionUsedUp": "El presupuesto de sesión de {{total}} de este chat está agotado: un mensaje no se ejecuta.",
+      "spendWrapUp": "El presupuesto de la misión está agotado: quedan {{cap}} del margen de cierre de {{total}} del agente principal. No arranca ningún trabajador.",
+      "spendWrapUpUsedUp": "El presupuesto de la misión y su margen de cierre están agotados: ningún mensaje se ejecuta hasta que subas el presupuesto.",
       "spendMessage": "Hasta {{cap}} por mensaje (presupuesto del coder).",
       "spendNone": "Ningún límite de gasto acota los mensajes de este chat.",
       "spendUnknown": "No se pudo leer el límite de gasto.",

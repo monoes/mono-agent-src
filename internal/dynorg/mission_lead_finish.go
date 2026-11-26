@@ -65,7 +65,8 @@ func (c *Conductor) handleMissionTaskFinish(ctx context.Context, args json.RawMe
 	if t.Status != tasks.StatusInProgress || t.Claim == nil || t.Claim.By != missionLeadName {
 		return "", fmt.Errorf("task #%d is not held by the lead: only a task mission_next or mission_assign gave to the lead is finished here", a.TaskID)
 	}
-	actor := tasks.Actor{Kind: tasks.Agent, Name: missionLeadName, Session: sid, Task: t.ID}
+	// WrapUp: a mission halted by its budget still takes the lead's hand-back while the wrap-up allowance lasts.
+	actor := tasks.Actor{Kind: tasks.Agent, Name: missionLeadName, Session: sid, Task: t.ID, WrapUp: true}
 	for _, e := range a.Evidence {
 		if _, err := mc.Store.AddArtifact(ctx, mc.ProfileID, sid, t.ID, tasks.ArtifactInput{Kind: e.Kind, Ref: e.Ref, Note: e.Note}, actor); err != nil {
 			return "", fmt.Errorf("evidence %s %q: %w", e.Kind, boundText(e.Ref, 80), err)
