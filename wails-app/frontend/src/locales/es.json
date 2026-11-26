@@ -6250,7 +6250,9 @@
     "approve_gate": "Aprobar compuerta",
     "approve": "Aprobar",
     "noid_before": "Esta solicitud no tiene ID de solicitud, así que la aplicación no puede resolverla por sí sola. Actualiza monomind o ejecuta",
-    "noid_after": "en una terminal; eso resuelve todas las llamadas a {{action}} de {{role}} que estén en espera."
+    "noid_after": "en una terminal; eso resuelve todas las llamadas a {{action}} de {{role}} que estén en espera.",
+    "noid_approve_before": "Esta solicitud no tiene ID de solicitud, así que no se puede aprobar aquí: aprobarla liberaría todas las llamadas en espera del mismo rol y herramienta, también las que no has visto. Denegar sigue funcionando (las deniega todas). Actualiza monomind o ejecuta",
+    "noid_approve_after": "en tu propia terminal; eso libera todas las llamadas a {{action}} de {{role}} que estén en espera."
   },
   "ui7Chat": {
     "open_workflow": "Abrir flujo de trabajo",
