@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { useEscapeClose } from '../lib/escapeStack.js'
+import t from '../lib/i18nOr.js'
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico'])
 const PDF_EXTS = new Set(['pdf'])
@@ -85,7 +86,7 @@ const fmtBytes = (b) => {
 // kind never get here: the caller tells the user and hands off to
 // WailsApp.OpenPathWithOS instead of opening this modal.
 export default function FileViewerModal({ doc, onClose }) {
-  const { t } = useTranslation()
+  useTranslation()
   const overlayRef = useRef(null)
   const [content, setContent] = useState(null) // data URL (image/pdf) or raw text (html/text)
   const [error, setError] = useState(null)

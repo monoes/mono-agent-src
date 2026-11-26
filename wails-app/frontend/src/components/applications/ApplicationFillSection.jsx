@@ -1,8 +1,19 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CheckSquare, Image as ImageIcon, Sparkles, AlertCircle } from 'lucide-react'
-import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle } from './constants.jsx'
+import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle, statusWord } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
+
+const FILL_STATUS_KEYS = {
+  none: 'ui6PagesApps.fill_none',
+  filled: 'ui6PagesApps.fill_filled',
+  filling: 'ui6PagesApps.fill_filling',
+  needs_you: 'ui6PagesApps.fill_needs_you',
+  submitted: 'ui6PagesApps.fill_submitted',
+}
 
 function FillStatusBadge({ status }) {
+  useTranslation()
   const norm = (status || 'none').toLowerCase()
   let bg = 'rgba(100,116,139,0.15)'
   let color = '#94a3b8'
@@ -24,7 +35,7 @@ function FillStatusBadge({ status }) {
   return (
     <span
       role="status"
-      aria-label={`Fill status: ${norm}`}
+      aria-label={t('ui6PagesApps.fill_status_label', { status: norm === 'needs_you' ? t('ui6PagesApps.fill_needs_you_raw') : Object.hasOwn(FILL_STATUS_KEYS, norm) ? t(FILL_STATUS_KEYS[norm]) : norm })}
       style={{
         background: bg,
         border: `1px solid ${color}33`,
@@ -37,7 +48,7 @@ function FillStatusBadge({ status }) {
         textTransform: 'uppercase',
       }}
     >
-      {norm.replace(/_/g, ' ')}
+      {statusWord(FILL_STATUS_KEYS, norm)}
     </span>
   )
 }
@@ -51,6 +62,7 @@ const STACK_CSS = `@media (max-width: 560px) {
 }`
 
 export default function ApplicationFillSection({ fill }) {
+  useTranslation()
   const [showScreenshot, setShowScreenshot] = useState(true)
 
   const hasFields = Array.isArray(fill?.fields) && fill.fields.length > 0
@@ -62,14 +74,14 @@ export default function ApplicationFillSection({ fill }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <h3 id="section-fill-title" style={sectionTitleStyle}>
           <CheckSquare size={14} style={{ color: '#00b4d8' }} />
-          Filled Form
+          {t('ui6PagesApps.filled_form')}
         </h3>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {fill?.status && <FillStatusBadge status={fill.status} />}
           {fill?.updatedAt && (
             <span style={{ fontSize: 10, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono)' }}>
-              Updated: {fill.updatedAt.slice(0, 16).replace('T', ' ')}
+              {t('ui6PagesApps.updated', { date: fill.updatedAt.slice(0, 16).replace('T', ' ') })}
             </span>
           )}
         </div>
@@ -103,7 +115,7 @@ export default function ApplicationFillSection({ fill }) {
             textAlign: 'center',
           }}
         >
-          No filled form data available.
+          {t('ui6PagesApps.no_fill')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -112,7 +124,7 @@ export default function ApplicationFillSection({ fill }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 11, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <ImageIcon size={12} /> Form Screenshot
+                  <ImageIcon size={12} /> {t('ui6PagesApps.form_screenshot')}
                 </span>
                 <button
                   type="button"
@@ -126,7 +138,7 @@ export default function ApplicationFillSection({ fill }) {
                     fontFamily: 'var(--font-mono)',
                   }}
                 >
-                  {showScreenshot ? 'Hide screenshot' : 'Show screenshot'}
+                  {showScreenshot ? t('ui6PagesApps.hide_screenshot') : t('ui6PagesApps.show_screenshot')}
                 </button>
               </div>
 
@@ -145,7 +157,7 @@ export default function ApplicationFillSection({ fill }) {
                 >
                   <img
                     src={fill.screenshot}
-                    alt="Filled form screenshot"
+                    alt={t('ui6PagesApps.screenshot_alt')}
                     style={{
                       maxWidth: '100%',
                       maxHeight: 268,
@@ -165,7 +177,7 @@ export default function ApplicationFillSection({ fill }) {
               <table
                 className="fill-report"
                 role="table"
-                aria-label="Field report table"
+                aria-label={t('ui6PagesApps.field_report')}
                 style={{
                   width: '100%',
                   borderCollapse: 'collapse',
@@ -183,10 +195,10 @@ export default function ApplicationFillSection({ fill }) {
                       textTransform: 'uppercase',
                     }}
                   >
-                    <th style={{ padding: '6px 8px' }}>Field</th>
-                    <th style={{ padding: '6px 8px' }}>Value</th>
-                    <th style={{ padding: '6px 8px' }}>Source</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>Generated</th>
+                    <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_field')}</th>
+                    <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_value')}</th>
+                    <th style={{ padding: '6px 8px' }}>{t('ui6PagesApps.col_source')}</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>{t('ui6PagesApps.col_generated')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -218,7 +230,7 @@ export default function ApplicationFillSection({ fill }) {
                         {f.generated ? (
                           <span
                             role="status"
-                            aria-label="Generated by AI"
+                            aria-label={t('ui6PagesApps.generated_by_ai')}
                             style={{
                               background: 'rgba(168,85,247,0.15)',
                               border: '1px solid rgba(168,85,247,0.35)',
@@ -233,7 +245,7 @@ export default function ApplicationFillSection({ fill }) {
                               gap: 3,
                             }}
                           >
-                            <Sparkles size={9} /> generated
+                            <Sparkles size={9} /> {t('ui6PagesApps.generated_word')}
                           </span>
                         ) : (
                           <span style={{ color: 'var(--text-muted, #475569)' }}>—</span>

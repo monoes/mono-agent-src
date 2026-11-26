@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Upload, Search, Trash2, Plus, X, Sparkles, CheckCircle2, AlertTriangle, XCircle, Eye, PlayCircle, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import i18n from '../i18n.js'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { api, notify, onMonomindInitEvent, onDocumentsChanged } from '../services/api.js'
@@ -14,6 +13,7 @@ import {
   loadSort, saveSort, sourceOptions, filterBySource, tagOptions, filterByTags,
 } from '../lib/documentSort.js'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
+import t from '../lib/i18nOr.js'
 
 // maxInlinePreviewBytes mirrors the backend's own GetProfileDocumentData
 // cap (wails-app/app_files.go) so an oversized file is routed straight to
@@ -59,7 +59,7 @@ export function isMonomindMissing(indexError) {
 }
 
 function TagChip({ tag, onClick, onRemove, active }) {
-  const { t } = useTranslation()
+  useTranslation()
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -90,7 +90,7 @@ function TagChip({ tag, onClick, onRemove, active }) {
 
 // Inline "+ tag" box: type a name (existing tags are suggested), Enter adds.
 function AddTagBox({ doc, knownTags, onAdd }) {
-  const { t } = useTranslation()
+  useTranslation()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const listId = `doc-tags-${doc.id}`
@@ -141,7 +141,7 @@ function AddTagBox({ doc, knownTags, onAdd }) {
 }
 
 export default function Documents({ isActive = true }) {
-  const { t } = useTranslation()
+  useTranslation()
   const [docs, setDocs] = useState([])
   const [error, setError] = useState(null)
   const [query, setQuery] = useState('')
@@ -195,12 +195,12 @@ export default function Documents({ isActive = true }) {
   const handleAddTag = async (docId, name) => {
     try {
       const tag = await WailsApp.AddDocumentTag(docId, name)
-      if (!tag) { notify(i18n.t('ui6PagesDocs.op_tag'), i18n.t('ui6PagesDocs.tag_refused', { name })); return }
+      if (!tag) { notify(t('ui6PagesDocs.op_tag'), t('ui6PagesDocs.tag_refused', { name })); return }
       setDocs(cur => cur.map(d => d.id !== docId || (d.tags || []).some(t => t.id === tag.id)
         ? d
         : { ...d, tags: [...(d.tags || []), tag].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })) }))
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_tag'), i18n.t('ui6PagesDocs.tag_failed', { error: String(e) }))
+      notify(t('ui6PagesDocs.op_tag'), t('ui6PagesDocs.tag_failed', { error: String(e) }))
     }
   }
   const handleRemoveTag = async (docId, tagId) => {
@@ -208,7 +208,7 @@ export default function Documents({ isActive = true }) {
       await WailsApp.RemoveDocumentTag(docId, tagId)
       setDocs(cur => cur.map(d => d.id !== docId ? d : { ...d, tags: (d.tags || []).filter(t => t.id !== tagId) }))
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_tag'), i18n.t('ui6PagesDocs.remove_tag_failed', { error: String(e) }))
+      notify(t('ui6PagesDocs.op_tag'), t('ui6PagesDocs.remove_tag_failed', { error: String(e) }))
     }
   }
 
@@ -216,7 +216,7 @@ export default function Documents({ isActive = true }) {
     try {
       setDocs((await WailsApp.ListProfileDocuments()) || [])
     } catch (e) {
-      setError(i18n.t('ui6PagesDocs.load_failed', { error: String(e) }))
+      setError(t('ui6PagesDocs.load_failed', { error: String(e) }))
     }
   }, [])
 
@@ -235,7 +235,7 @@ export default function Documents({ isActive = true }) {
     if (payload.kind === 'error') {
       initRunningRef.current = false
       setInitStatus('error')
-      notify(i18n.t('ui6PagesDocs.op_init'), payload.message || i18n.t('ui6PagesDocs.failed'))
+      notify(t('ui6PagesDocs.op_init'), payload.message || t('ui6PagesDocs.failed'))
     } else if (payload.kind === 'done') {
       initRunningRef.current = false
       setInitStatus('idle')
@@ -252,14 +252,14 @@ export default function Documents({ isActive = true }) {
     let message = ''
     try {
       const r = await api.initializeMonomindProfile()
-      if (r && r.error) message = r.login_required ? i18n.t('ui6PagesDocs.sign_in_retry', { error: r.error }) : r.error
+      if (r && r.error) message = r.login_required ? t('ui6PagesDocs.sign_in_retry', { error: r.error }) : r.error
     } catch (e) {
       message = e?.message || String(e)
     }
     if (message && initRunningRef.current) {
       initRunningRef.current = false
       setInitStatus('error')
-      notify(i18n.t('ui6PagesDocs.op_init'), message)
+      notify(t('ui6PagesDocs.op_init'), message)
     }
   }
 
@@ -269,23 +269,23 @@ export default function Documents({ isActive = true }) {
     setUploading(true)
     try {
       const r = await WailsApp.UploadProfileDocuments(paths)
-      if (r.failed.length) notify(i18n.t('ui6PagesDocs.op_upload'), i18n.t('ui6PagesDocs.uploads_failed', { failed: r.failed.length, total: paths.length, details: r.failed.slice(0, 3).join('; ') }))
-      else if (r.unindexed) notify(i18n.t('ui6PagesDocs.op_upload'), i18n.t('ui6PagesDocs.uploaded_unindexed', { n: r.unindexed }))
+      if (r.failed.length) notify(t('ui6PagesDocs.op_upload'), t('ui6PagesDocs.uploads_failed', { failed: r.failed.length, total: paths.length, details: r.failed.slice(0, 3).join('; ') }))
+      else if (r.unindexed) notify(t('ui6PagesDocs.op_upload'), t('ui6PagesDocs.uploaded_unindexed', { n: r.unindexed }))
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_upload'), i18n.t('ui6PagesDocs.upload_failed', { error: String(e) }))
+      notify(t('ui6PagesDocs.op_upload'), t('ui6PagesDocs.upload_failed', { error: String(e) }))
     } finally {
       setUploading(false)
       load()
     }
   }
 
-  const handleUpload = async () => uploadPaths(await WailsApp.OpenAnyFilesPicker(i18n.t('ui6PagesDocs.pick_documents')))
+  const handleUpload = async () => uploadPaths(await WailsApp.OpenAnyFilesPicker(t('ui6PagesDocs.pick_documents')))
   const handleUploadFolder = async () => {
     let paths
     try {
-      paths = await WailsApp.OpenFolderFilesPicker(i18n.t('ui6PagesDocs.pick_folder'))
+      paths = await WailsApp.OpenFolderFilesPicker(t('ui6PagesDocs.pick_folder'))
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_upload'), String(e)) // e.g. another dialog is still open: answer or close it first
+      notify(t('ui6PagesDocs.op_upload'), String(e)) // e.g. another dialog is still open: answer or close it first
       return
     }
     return uploadPaths(paths)
@@ -299,14 +299,14 @@ export default function Documents({ isActive = true }) {
     try {
       const result = await WailsApp.IndexProfileDocument(id)
       if (!result.indexed) {
-        notify(i18n.t('ui6PagesDocs.op_index'), isMonomindMissing(result.index_error)
-          ? i18n.t('ui6PagesDocs.not_indexed_no_monomind')
-          : i18n.t('ui6PagesDocs.indexing_failed', { error: String(result.index_error) }))
+        notify(t('ui6PagesDocs.op_index'), isMonomindMissing(result.index_error)
+          ? t('ui6PagesDocs.not_indexed_no_monomind')
+          : t('ui6PagesDocs.indexing_failed', { error: String(result.index_error) }))
       }
       load()
       return result.indexed
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_index'), i18n.t('ui6PagesDocs.indexing_failed', { error: String(e) }))
+      notify(t('ui6PagesDocs.op_index'), t('ui6PagesDocs.indexing_failed', { error: String(e) }))
       return false
     } finally {
       setIndexingIds(s => { const n = new Set(s); n.delete(id); return n })
@@ -336,7 +336,7 @@ export default function Documents({ isActive = true }) {
   const runBulkIndex = async (candidateDocs) => {
     const toIndex = candidateDocs.filter(d => !d.indexed || d.stale)
     if (toIndex.length === 0) {
-      notify(i18n.t('ui6PagesDocs.op_index'), i18n.t('ui6PagesDocs.nothing_to_index'))
+      notify(t('ui6PagesDocs.op_index'), t('ui6PagesDocs.nothing_to_index'))
       return
     }
     setBulkBusy('index')
@@ -347,9 +347,9 @@ export default function Documents({ isActive = true }) {
       if (!ok) failed++
       setBulkProgress(p => ({ ...p, done: p.done + 1 }))
     }
-    notify(i18n.t('ui6PagesDocs.op_index'), failed > 0
-      ? i18n.t('ui6PagesDocs.indexed_partial', { count: toIndex.length, done: toIndex.length - failed, failed })
-      : i18n.t('ui6PagesDocs.indexed_done', { count: toIndex.length }))
+    notify(t('ui6PagesDocs.op_index'), failed > 0
+      ? t('ui6PagesDocs.indexed_partial', { count: toIndex.length, done: toIndex.length - failed, failed })
+      : t('ui6PagesDocs.indexed_done', { count: toIndex.length }))
     setBulkBusy(null)
   }
 
@@ -361,23 +361,23 @@ export default function Documents({ isActive = true }) {
     if (toDelete.length === 0) return
     const discovered = toDelete.filter(d => d.source === 'discovered')
     const question = toDelete.length === 1
-      ? i18n.t('ui6PagesDocs.confirm_delete_one', { name: toDelete[0].filename })
-      : i18n.t('ui6PagesDocs.confirm_delete_many', { n: toDelete.length })
+      ? t('ui6PagesDocs.confirm_delete_one', { name: toDelete[0].filename })
+      : t('ui6PagesDocs.confirm_delete_many', { n: toDelete.length })
     const captures = toDelete.filter(isCapture).length
-    const captureNote = captures > 0 ? ` ${i18n.t('ui6PagesDocs.capture_note')}` : ''
+    const captureNote = captures > 0 ? ` ${t('ui6PagesDocs.capture_note')}` : ''
     const discoveredNote = discovered.length > 0
       ? ` ${discovered.length === toDelete.length
-        ? i18n.t('ui6PagesDocs.discovered_all', { count: discovered.length })
-        : i18n.t('ui6PagesDocs.discovered_some', { count: discovered.length })}`
+        ? t('ui6PagesDocs.discovered_all', { count: discovered.length })
+        : t('ui6PagesDocs.discovered_some', { count: discovered.length })}`
       : ''
     const answer = await confirm(
       `${question}${captureNote}${discoveredNote}`,
       {
-        title: i18n.t('ui6PagesDocs.delete_documents_title'), confirmLabel: i18n.t('ui6PagesDocs.delete'), danger: true,
+        title: t('ui6PagesDocs.delete_documents_title'), confirmLabel: t('ui6PagesDocs.delete'), danger: true,
         ...(discovered.length > 0 && {
           checkbox: {
-            label: i18n.t('ui6PagesDocs.delete_file_label'),
-            warning: i18n.t('ui6PagesDocs.delete_file_warning'),
+            label: t('ui6PagesDocs.delete_file_label'),
+            warning: t('ui6PagesDocs.delete_file_warning'),
           },
         }),
       },
@@ -396,7 +396,7 @@ export default function Documents({ isActive = true }) {
         deletedIds.add(d.id)
       } catch (e) {
         failed++
-        notify(i18n.t('ui6PagesDocs.op_delete'), i18n.t('ui6PagesDocs.delete_one_failed', { name: d.filename, error: String(e) }))
+        notify(t('ui6PagesDocs.op_delete'), t('ui6PagesDocs.delete_one_failed', { name: d.filename, error: String(e) }))
       }
       setBulkProgress(p => ({ ...p, done: p.done + 1 }))
     }
@@ -404,7 +404,7 @@ export default function Documents({ isActive = true }) {
     loadExcluded()
     setSelectedIds(s => { const n = new Set(s); deletedIds.forEach(id => n.delete(id)); return n })
     if (failed === 0) {
-      notify(i18n.t('ui6PagesDocs.op_delete'), i18n.t('ui6PagesDocs.deleted_done', { count: toDelete.length }))
+      notify(t('ui6PagesDocs.op_delete'), t('ui6PagesDocs.deleted_done', { count: toDelete.length }))
     }
     setBulkBusy(null)
   }
@@ -422,18 +422,18 @@ export default function Documents({ isActive = true }) {
       await loadExcluded()
       load()
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_restore'), i18n.t('ui6PagesDocs.restore_failed', { error: String(e) }))
+      notify(t('ui6PagesDocs.op_restore'), t('ui6PagesDocs.restore_failed', { error: String(e) }))
     }
   }
 
   const handleDelete = async (id, filename, capture = false) => {
-    const note = capture ? ` ${i18n.t('ui6PagesDocs.saved_page_note')}` : ''
-    if (!(await confirm(`${i18n.t('ui6PagesDocs.confirm_delete_one', { name: filename })}${note}`, { title: i18n.t('ui6PagesDocs.delete_document_title'), confirmLabel: i18n.t('ui6PagesDocs.delete'), danger: true }))) return
+    const note = capture ? ` ${t('ui6PagesDocs.saved_page_note')}` : ''
+    if (!(await confirm(`${t('ui6PagesDocs.confirm_delete_one', { name: filename })}${note}`, { title: t('ui6PagesDocs.delete_document_title'), confirmLabel: t('ui6PagesDocs.delete'), danger: true }))) return
     try {
       await WailsApp.DeleteProfileDocument(id)
       load()
     } catch (e) {
-      notify(i18n.t('ui6PagesDocs.op_delete'), i18n.t('ui6PagesDocs.delete_failed', { error: String(e) }))
+      notify(t('ui6PagesDocs.op_delete'), t('ui6PagesDocs.delete_failed', { error: String(e) }))
     }
   }
 
@@ -451,10 +451,10 @@ export default function Documents({ isActive = true }) {
     }
     const type = documentType(d).toUpperCase()
     const name2 = d.filename
-    notify(i18n.t('ui6PagesDocs.op_open'), d.size_bytes > maxInlinePreviewBytes
-      ? i18n.t('ui6PagesDocs.too_large', { name: name2 })
-      : type ? i18n.t('ui6PagesDocs.no_viewer', { type, name: name2 }) : i18n.t('ui6PagesDocs.no_viewer_unknown', { name: name2 }))
-    WailsApp.OpenPathWithOS(d.path).catch(e => notify(i18n.t('ui6PagesDocs.op_open'), i18n.t('ui6PagesDocs.open_failed', { name: d.filename, error: String(e) })))
+    notify(t('ui6PagesDocs.op_open'), d.size_bytes > maxInlinePreviewBytes
+      ? t('ui6PagesDocs.too_large', { name: name2 })
+      : type ? t('ui6PagesDocs.no_viewer', { type, name: name2 }) : t('ui6PagesDocs.no_viewer_unknown', { name: name2 }))
+    WailsApp.OpenPathWithOS(d.path).catch(e => notify(t('ui6PagesDocs.op_open'), t('ui6PagesDocs.open_failed', { name: d.filename, error: String(e) })))
   }
 
   const handleSearch = async (e) => {
@@ -465,7 +465,7 @@ export default function Documents({ isActive = true }) {
     try {
       setResults(await WailsApp.SearchProfileKnowledge(query))
     } catch (e) {
-      setError(i18n.t('ui6PagesDocs.search_failed', { error: String(e) }))
+      setError(t('ui6PagesDocs.search_failed', { error: String(e) }))
     } finally {
       setSearching(false)
     }

@@ -1,7 +1,7 @@
+import t from './i18nOr.js'
 // Sorting, labelling and filtering for the Documents page. Pure functions,
 // kept out of Documents.jsx so they can be unit-tested without rendering.
 
-import i18n from '../i18n.js'
 
 // Human labels (locale keys) for vault_documents.source. Anything not listed
 // (a custom `upload-document --source`) is shown as stored.
@@ -15,8 +15,8 @@ const SOURCE_LABEL_KEYS = {
 }
 
 export function sourceLabel(source) {
-  if (!source) return i18n.t('ui6PagesDocs.source_unknown')
-  return Object.hasOwn(SOURCE_LABEL_KEYS, source) ? i18n.t(SOURCE_LABEL_KEYS[source]) : source
+  if (!source) return t('ui6PagesDocs.source_unknown')
+  return Object.hasOwn(SOURCE_LABEL_KEYS, source) ? t(SOURCE_LABEL_KEYS[source]) : source
 }
 
 // True for a row backed by a browser capture (an inbox envelope) rather

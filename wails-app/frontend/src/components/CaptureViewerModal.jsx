@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import i18n from '../i18n.js'
 import { X, ExternalLink, AlertTriangle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { mdComponents } from './FileViewerModal.jsx'
 import { useEscapeClose } from '../lib/escapeStack.js'
+import t from '../lib/i18nOr.js'
 
 // A browser capture previewed from its parts: the AI summary (when the
 // capture asked for one), the page's readable text, a video's transcript,
@@ -32,11 +32,11 @@ export function initialCaptureTab(view) {
 export function summaryStatusText(st) {
   if (!st || !st.status) return ''
   switch (st.status) {
-    case 'done': return st.runtime ? i18n.t('ui6PagesViewers.summary_by', { runtime: st.runtime }) : i18n.t('ui6PagesViewers.summary')
-    case 'pending': return st.runtime ? i18n.t('ui6PagesViewers.summary_queued_runtime', { runtime: st.runtime }) : i18n.t('ui6PagesViewers.summary_queued')
-    case 'running': return st.runtime ? i18n.t('ui6PagesViewers.summary_writing_by', { runtime: st.runtime }) : i18n.t('ui6PagesViewers.summary_writing')
-    case 'stalled': return i18n.t('ui6PagesViewers.summary_stalled')
-    case 'error': return st.error ? i18n.t('ui6PagesViewers.summary_failed_error', { error: st.error }) : i18n.t('ui6PagesViewers.summary_failed')
+    case 'done': return st.runtime ? t('ui6PagesViewers.summary_by', { runtime: st.runtime }) : t('ui6PagesViewers.summary')
+    case 'pending': return st.runtime ? t('ui6PagesViewers.summary_queued_runtime', { runtime: st.runtime }) : t('ui6PagesViewers.summary_queued')
+    case 'running': return st.runtime ? t('ui6PagesViewers.summary_writing_by', { runtime: st.runtime }) : t('ui6PagesViewers.summary_writing')
+    case 'stalled': return t('ui6PagesViewers.summary_stalled')
+    case 'error': return st.error ? t('ui6PagesViewers.summary_failed_error', { error: st.error }) : t('ui6PagesViewers.summary_failed')
     default: return st.status
   }
 }
@@ -49,7 +49,7 @@ const tabStyle = (active) => ({
 })
 
 export default function CaptureViewerModal({ doc, onClose }) {
-  const { t } = useTranslation()
+  useTranslation()
   const overlayRef = useRef(null)
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)

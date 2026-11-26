@@ -1,8 +1,11 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Users, Mail, ArrowDownLeft, ArrowUpRight, MessageSquare, ExternalLink } from 'lucide-react'
 import { sectionCardStyle, sectionTitleStyle, subtleBtnStyle } from './constants.jsx'
+import t from '../../lib/i18nOr.js'
 
 export default function ApplicationPeopleMessagesSection({ people = [], messages = [], onNavigate }) {
+  useTranslation()
   const peopleList = Array.isArray(people) ? people : []
   const messageList = Array.isArray(messages) ? messages : []
 
@@ -26,7 +29,7 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
     <section aria-labelledby="section-people-messages-title" style={sectionCardStyle}>
       <h3 id="section-people-messages-title" style={sectionTitleStyle}>
         <Users size={14} style={{ color: '#00b4d8' }} />
-        People & Messages
+        {t('ui6PagesApps.people_messages')}
       </h3>
 
       {isEmpty ? (
@@ -41,7 +44,7 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
             textAlign: 'center',
           }}
         >
-          No people or messages linked to this application.
+          {t('ui6PagesApps.people_empty')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -57,12 +60,12 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              Recruiter & Contacts ({peopleList.length})
+              {t('ui6PagesApps.contacts_n', { n: peopleList.length })}
             </span>
 
             {!hasPeople ? (
               <div style={{ fontSize: 11, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono)', padding: '4px 0' }}>
-                No recruiter or contacts linked.
+                {t('ui6PagesApps.no_contacts')}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -86,7 +89,7 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                       <Users size={13} style={{ color: '#64748b', flexShrink: 0 }} />
                       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <span style={{ fontWeight: 600, color: 'var(--text-primary, #f1f5f9)' }}>
-                          {p.name || 'Unnamed Contact'}
+                          {p.name || t('ui6PagesApps.unnamed')}
                         </span>
                         <div style={{ display: 'flex', gap: 6, color: 'var(--text-muted, #94a3b8)', fontSize: 10 }}>
                           {p.role && <span>{p.role}</span>}
@@ -100,9 +103,9 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                       type="button"
                       onClick={() => handleOpenCommunicationsPerson(p)}
                       style={subtleBtnStyle}
-                      aria-label={`Open communications for ${p.name || 'contact'}`}
+                      aria-label={t('ui6PagesApps.open_comms_for', { name: p.name || t('ui6PagesApps.contact_word') })}
                     >
-                      <MessageSquare size={11} /> Communications
+                      <MessageSquare size={11} /> {t('ui6PagesApps.communications')}
                     </button>
                   </div>
                 ))}
@@ -122,12 +125,12 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              Messages & Threads ({messageList.length})
+              {t('ui6PagesApps.messages_n', { n: messageList.length })}
             </span>
 
             {!hasMessages ? (
               <div style={{ fontSize: 11, color: 'var(--text-muted, #64748b)', fontFamily: 'var(--font-mono)', padding: '4px 0' }}>
-                No messages or threads linked.
+                {t('ui6PagesApps.no_messages')}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -167,7 +170,7 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                             }}
                           >
                             {isIncoming ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}
-                            {isIncoming ? 'Incoming' : 'Outgoing'}
+                            {isIncoming ? t('ui6PagesApps.incoming') : t('ui6PagesApps.outgoing')}
                           </span>
 
                           {m.channel && (
@@ -177,7 +180,7 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                           )}
 
                           <span style={{ fontWeight: 600, color: 'var(--text-primary, #f1f5f9)' }}>
-                            {m.subject || '(no subject)'}
+                            {m.subject || t('ui6PagesApps.no_subject')}
                           </span>
                         </div>
 
@@ -208,9 +211,9 @@ export default function ApplicationPeopleMessagesSection({ people = [], messages
                         type="button"
                         onClick={() => handleOpenCommunicationsMessage(m)}
                         style={subtleBtnStyle}
-                        aria-label={`View thread in communications`}
+                        aria-label={t('ui6PagesApps.view_thread_label')}
                       >
-                        <ExternalLink size={11} /> View thread
+                        <ExternalLink size={11} /> {t('ui6PagesApps.view_thread')}
                       </button>
                     </div>
                   )

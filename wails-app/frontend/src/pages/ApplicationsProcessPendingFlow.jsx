@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import SendToCoderButton from '../components/SendToCoderButton.jsx'
 import ApplyWithCoderButton from '../components/ApplyWithCoderButton.jsx'
 import { selectionText } from '../components/SendToCoderApi.js'
 import { useDialog } from './connections/ui.jsx'
+import t from '../lib/i18nOr.js'
 
 // computeNextStep is the flow's per-item state-machine decision function,
 // extracted pure and exported for direct unit testing (see
@@ -41,6 +43,7 @@ const btnStyle = {
 }
 
 export default function ApplicationsProcessPendingFlow({ pendingApplications, onClose }) {
+  useTranslation()
   const [mode, setMode] = useState('confirm')
   const [started, setStarted] = useState(false)
   const [cvPath, setCvPath] = useState('')
@@ -64,11 +67,11 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
   const dialog = useDialog(onClose)
   const current = pendingApplications[index]
 
-  const pickCv = async () => { const p = await WailsApp.OpenJSONFilePicker('Select CV data JSON'); if (p) setCvPath(p) }
-  const pickLetter = async () => { const p = await WailsApp.OpenJSONFilePicker('Select cover letter data JSON'); if (p) setLetterPath(p) }
+  const pickCv = async () => { const p = await WailsApp.OpenJSONFilePicker(t('ui6PagesApps.pick_cv')); if (p) setCvPath(p) }
+  const pickLetter = async () => { const p = await WailsApp.OpenJSONFilePicker(t('ui6PagesApps.pick_letter')); if (p) setLetterPath(p) }
 
   const start = async () => {
-    if (!(await confirm(`Process ${pendingApplications.length} pending application(s)?`, { title: 'Process Pending', confirmLabel: 'Start', danger: false }))) return
+    if (!(await confirm(t('ui6PagesApps.process_question', { n: pendingApplications.length }), { title: t('ui6PagesApps.process_pending'), confirmLabel: t('ui6PagesApps.start'), danger: false }))) return
     setStarted(true)
     processCurrent()
   }
@@ -161,21 +164,21 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
   return (
     <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}>
       <div {...dialog} role="dialog" aria-modal="true" aria-labelledby="process-pending-title" style={boxStyle}>
-        <h3 id="process-pending-title" style={{ margin: 0, fontSize: 14 }}>Process Pending Applications</h3>
+        <h3 id="process-pending-title" style={{ margin: 0, fontSize: 14 }}>{t('ui6PagesApps.process_title')}</h3>
 
         {!started && (
           <>
             <div style={{ display: 'flex', gap: 12, marginTop: 12, fontSize: 12 }}>
-              <label><input type="radio" checked={mode === 'confirm'} onChange={() => setMode('confirm')} /> Confirm each one</label>
-              <label><input type="radio" checked={mode === 'auto'} onChange={() => setMode('auto')} /> Auto (AI handles it)</label>
+              <label><input type="radio" checked={mode === 'confirm'} onChange={() => setMode('confirm')} /> {t('ui6PagesApps.confirm_each')}</label>
+              <label><input type="radio" checked={mode === 'auto'} onChange={() => setMode('auto')} /> {t('ui6PagesApps.auto_mode')}</label>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-              <button style={btnStyle} onClick={pickCv}>{cvPath ? `CV: ${cvPath}` : 'Select CV data file'}</button>
-              <button style={btnStyle} onClick={pickLetter}>{letterPath ? `Cover letter: ${letterPath}` : 'Select cover letter data file'}</button>
+              <button style={btnStyle} onClick={pickCv}>{cvPath ? t('ui6PagesApps.cv_path', { path: cvPath }) : t('ui6PagesApps.select_cv')}</button>
+              <button style={btnStyle} onClick={pickLetter}>{letterPath ? t('ui6PagesApps.letter_path', { path: letterPath }) : t('ui6PagesApps.select_letter')}</button>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button style={btnStyle} onClick={onClose}>Cancel</button>
-              <button style={{ ...btnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }} onClick={start}>Start</button>
+              <button style={btnStyle} onClick={onClose}>{t('ui6PagesApps.cancel')}</button>
+              <button style={{ ...btnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }} onClick={start}>{t('ui6PagesApps.start')}</button>
             </div>
           </>
         )}
@@ -184,33 +187,33 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
           <div style={{ marginTop: 12, fontSize: 12 }}>
             <div style={{ color: 'var(--text-muted)' }}>{index + 1} / {pendingApplications.length}</div>
             <div style={{ fontWeight: 600, marginTop: 4 }}>{current.title} — {current.company}</div>
-            {stage === 'evaluating' && <div style={{ marginTop: 8 }}>Evaluating fit…</div>}
+            {stage === 'evaluating' && <div style={{ marginTop: 8 }}>{t('ui6PagesApps.evaluating')}</div>}
             {verdict && (
               <div style={{ marginTop: 8, padding: 8, background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
-                <div><strong>{verdict.verdict}</strong> (overall {verdict.overall_score?.toFixed(1)})</div>
+                <div><strong>{verdict.verdict}</strong> {t('ui6PagesApps.overall', { score: verdict.overall_score?.toFixed(1) ?? '' })}</div>
                 <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>{verdict.rationale}</div>
                 <div style={{ marginTop: 8 }}>
-                  <SendToCoderButton label="Discuss in coder" goal="Discuss whether this application fits me, and what would make it stronger."
-                    applicationId={current.id} origin={{ page: 'applications', label: 'Applications' }}
+                  <SendToCoderButton label={t('ui6PagesApps.discuss')} goal="Discuss whether this application fits me, and what would make it stronger."
+                    applicationId={current.id} origin={{ page: 'applications', label: t('ui6PagesApps.applications') }}
                     context={[selectionText(`${current.title} at ${current.company}\nVerdict: ${verdict.verdict} (overall ${verdict.overall_score ?? '?'})\n${verdict.rationale || ''}`)]} />
                 </div>
               </div>
             )}
             {stage === 'evaluated' && mode === 'confirm' && (
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button style={btnStyle} disabled={busy} onClick={() => decide('apply')}>Apply</button>
+                <button style={btnStyle} disabled={busy} onClick={() => decide('apply')}>{t('ui6PagesApps.apply')}</button>
                 <ApplyWithCoderButton applicationId={current.id} className="" style={btnStyle} />
-                <button style={btnStyle} disabled={busy} onClick={() => decide('skip')}>Skip</button>
-                <button style={{ ...btnStyle, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }} disabled={busy} onClick={() => decide('not-interested')}>Not Interested</button>
+                <button style={btnStyle} disabled={busy} onClick={() => decide('skip')}>{t('ui6PagesApps.skip')}</button>
+                <button style={{ ...btnStyle, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }} disabled={busy} onClick={() => decide('not-interested')}>{t('ui6PagesApps.not_interested')}</button>
               </div>
             )}
-            {stage === 'applying' && <div style={{ marginTop: 8 }}>Preparing documents and opening browser…</div>}
+            {stage === 'applying' && <div style={{ marginTop: 8 }}>{t('ui6PagesApps.preparing')}</div>}
             {stage === 'applied' && (
               <div style={{ marginTop: 12 }}>
-                <div style={{ color: '#10b981' }}>Ready to send.</div>
+                <div style={{ color: '#10b981' }}>{t('ui6PagesApps.ready_send')}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <button style={{ ...btnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }} disabled={busy} onClick={sendCurrent}>Send Now</button>
-                  <button style={btnStyle} disabled={busy} onClick={advance}>Next (send later)</button>
+                  <button style={{ ...btnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }} disabled={busy} onClick={sendCurrent}>{t('ui6PagesApps.send_now')}</button>
+                  <button style={btnStyle} disabled={busy} onClick={advance}>{t('ui6PagesApps.next_later')}</button>
                 </div>
               </div>
             )}
@@ -222,8 +225,8 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
               // end (no backdrop-click-to-close or Escape handler either).
               // Give the user an explicit way out of a failed item.
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={btnStyle} onClick={() => { setError(null); finishItem('skipped'); advance() }}>Skip This Item</button>
-                <button style={btnStyle} onClick={onClose}>Close</button>
+                <button style={btnStyle} onClick={() => { setError(null); finishItem('skipped'); advance() }}>{t('ui6PagesApps.skip_item')}</button>
+                <button style={btnStyle} onClick={onClose}>{t('ui6PagesApps.close')}</button>
               </div>
             )}
           </div>
@@ -231,9 +234,9 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
 
         {stage === 'done' && (
           <div style={{ marginTop: 12, fontSize: 12 }}>
-            <div>Done. Applied: {summary.applied}, Skipped: {summary.skipped}, Not interested: {summary.notInterested}, Sent now: {summary.sent}.</div>
+            <div>{t('ui6PagesApps.summary_done', summary)}</div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-              <button style={btnStyle} onClick={onClose}>Close</button>
+              <button style={btnStyle} onClick={onClose}>{t('ui6PagesApps.close')}</button>
             </div>
           </div>
         )}

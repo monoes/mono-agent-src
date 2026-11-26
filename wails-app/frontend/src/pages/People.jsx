@@ -5,9 +5,9 @@ import { api, subscribeEvent } from '../services/api.js'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { useTranslation } from 'react-i18next'
-import i18n from '../i18n.js'
 import { loginRequiredInError } from '../lib/accountBindingWatch.js'
 import { commsByPerson, isCompany, isOwnAccount, onCommsChanged } from '../lib/commsStatus.js'
+import t from '../lib/i18nOr.js'
 
 // ── Tag colour palette ────────────────────────────────────────
 export const TAG_COLORS = [
@@ -28,8 +28,8 @@ export const TAG_COLORS = [
 // ── Curated Suggested Tags by Purpose ─────────────────────────
 export const TAG_SUGGESTION_GROUPS = [
   {
-    get title() { return i18n.t('ui6PagesPeople.group_sales_title') },
-    get description() { return i18n.t('ui6PagesPeople.group_sales_desc') },
+    get title() { return t('ui6PagesPeople.group_sales_title') },
+    get description() { return t('ui6PagesPeople.group_sales_desc') },
     tags: [
       { name: 'Lead', color: '#00b4d8' },
       { name: 'Prospect', color: '#0284c7' },
@@ -43,8 +43,8 @@ export const TAG_SUGGESTION_GROUPS = [
     ],
   },
   {
-    get title() { return i18n.t('ui6PagesPeople.group_role_title') },
-    get description() { return i18n.t('ui6PagesPeople.group_role_desc') },
+    get title() { return t('ui6PagesPeople.group_role_title') },
+    get description() { return t('ui6PagesPeople.group_role_desc') },
     tags: [
       { name: 'Founder', color: '#7c3aed' },
       { name: 'Co-Founder', color: '#8b5cf6' },
@@ -57,8 +57,8 @@ export const TAG_SUGGESTION_GROUPS = [
     ],
   },
   {
-    get title() { return i18n.t('ui6PagesPeople.group_advocacy_title') },
-    get description() { return i18n.t('ui6PagesPeople.group_advocacy_desc') },
+    get title() { return t('ui6PagesPeople.group_advocacy_title') },
+    get description() { return t('ui6PagesPeople.group_advocacy_desc') },
     tags: [
       { name: 'Champion', color: '#e1306c' },
       { name: 'Sales Agent', color: '#f97316' },
@@ -134,7 +134,7 @@ function TagChip({ tag }) {
 
 // ── Tag Editor Modal ──────────────────────────────────────────
 function TagEditor({ personId, username, fullName, onClose }) {
-  const { t } = useTranslation()
+  useTranslation()
   const [tags, setTags]               = useState([])
   const [allTags, setAllTags]         = useState([])
   const [input, setInput]             = useState('')
@@ -750,7 +750,7 @@ function TagEditor({ personId, username, fullName, onClose }) {
 
 // ── Tags cell in the table ────────────────────────────────────
 function TagsCell({ personId, username, fullName, initialTags }) {
-  const { t } = useTranslation()
+  useTranslation()
   const [open, setOpen]       = useState(false)
   const [tags, setTags]       = useState(initialTags || [])
 
@@ -836,7 +836,7 @@ function TagsCell({ personId, username, fullName, initialTags }) {
 
 // ── Main People page ──────────────────────────────────────────
 export default function People({ onProfile, isActive = true, onNavigate }) {
-  const { t } = useTranslation()
+  useTranslation()
   const [comms, setComms] = useState({})
   const [people, setPeople]   = useState([])
   const [tagsMap, setTagsMap] = useState({})
@@ -887,7 +887,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
       }
     } catch (e) {
       // Signed out: the account gate (watching every binding) takes over.
-      if (seq === loadSeq.current && !loginRequiredInError(e)) setError(e?.message || i18n.t('ui6PagesPeople.load_failed'))
+      if (seq === loadSeq.current && !loginRequiredInError(e)) setError(e?.message || t('ui6PagesPeople.load_failed'))
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
