@@ -49,15 +49,15 @@ describe('the bubble approval card', () => {
 })
 
 describe('the Needs you approval card', () => {
-  it('shows every command one Approve would release', async () => {
+  it('shows beside each Approve the command it would release', async () => {
     api.getOrgApprovals.mockResolvedValue({ items: [
       { roleId: 'writer', action: 'Bash', ts: 1, approved: null, requestId: 'apr-1', command: 'go test ./...', cwd: '/w' },
       { roleId: 'writer', action: 'Bash', ts: 2, approved: null, requestId: 'apr-2', command: 'git push --force', command_truncated: true, cwd: '/w' },
     ] })
     render(<NeedsYouPanel orgName="bud" />)
-    const card = await screen.findByTestId('pending-item')
-    const boxes = within(card).getAllByTestId('approval-command')
-    expect(boxes).toHaveLength(2)
+    const cards = await screen.findAllByTestId('pending-item')
+    expect(cards).toHaveLength(2)
+    const boxes = cards.map(card => within(card).getByTestId('approval-command'))
     expect(boxes[0]).toHaveTextContent('go test ./...')
     expect(boxes[0]).toHaveTextContent('Role folder: /w')
     expect(boxes[0]).not.toHaveTextContent(en.ask.commandCut)

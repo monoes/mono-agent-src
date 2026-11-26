@@ -374,8 +374,11 @@ export const api = {
   setOrgSchedule:     (name, schedule) => GoApp.SetOrgSchedule(name, schedule).then(s => JSON.parse(s)).catch(guard('org schedule', { error: 'Could not save the schedule.' })),
   getOrgMemoryStats:  (name) => GoApp.GetOrgMemoryStats(name).then(s => JSON.parse(s)).catch(guard('org memory stats', null)),
   answerOrgQuestion:  (name, questionID, answer) => GoApp.AnswerOrgQuestion(name, questionID, answer).then(s => JSON.parse(s)),
-  approveOrgAction:   (name, role, action) => GoApp.ApproveOrgAction(name, role, action).then(s => JSON.parse(s)),
-  denyOrgAction:      (name, role, action) => GoApp.DenyOrgAction(name, role, action).then(s => JSON.parse(s)),
+  // Every org's questions, approvals and gates that wait for a person.
+  listOrgPending:     () => GoApp.ListOrgPending().then(s => JSON.parse(s)).catch(asError),
+  // One approval request, by its id: never every call of the role and action.
+  approveOrgAction:   (name, role, action, requestID) => GoApp.ApproveOrgAction(name, role, action, requestID).then(s => JSON.parse(s)),
+  denyOrgAction:      (name, role, action, requestID) => GoApp.DenyOrgAction(name, role, action, requestID).then(s => JSON.parse(s)),
   gateApproveOrgAction: (name, gateID, resolution = '') => GoApp.GateApproveOrgAction(name, gateID, resolution).then(s => JSON.parse(s)),
   gateRejectOrgAction:  (name, gateID, resolution = '') => GoApp.GateRejectOrgAction(name, gateID, resolution).then(s => JSON.parse(s)),
   // streamId (newOrgEventsStreamId) names one tail, so the stop that ends it

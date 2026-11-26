@@ -55,9 +55,9 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('needsYouModel', () => {
-  it('groups approvals by role and action and skips resolved ones', () => {
+  it('keeps each approval with an id apart, groups those without, and skips resolved ones', () => {
     const raw = pendingRawItems(QUESTIONS, GATES, APPROVALS)
-    expect(raw.map(r => r.key)).toEqual(['gate:gate-1', 'question:q-1', 'approval:dev:Bash', 'approval:lead:monoagent__automation_publish_post'])
+    expect(raw.map(r => r.key)).toEqual(['gate:gate-1', 'question:q-1', 'approval:dev:Bash', 'approval:apr-1'])
     const bash = raw.find(r => r.key === 'approval:dev:Bash')
     expect(bash.count).toBe(2)
     expect(bash.since).toBe(NOW - 50_000)
@@ -67,7 +67,7 @@ describe('needsYouModel', () => {
     const raw = pendingRawItems(QUESTIONS, GATES, APPROVALS)
     const j = joinNeedsYou(NEEDS_YOU, raw)
     expect(j.available).toBe(true)
-    expect(j.mine.map(m => m.raw?.key)).toEqual(['gate:gate-1', 'approval:lead:monoagent__automation_publish_post'])
+    expect(j.mine.map(m => m.raw?.key)).toEqual(['gate:gate-1', 'approval:apr-1'])
     expect(j.others.map(r => r.key)).toEqual(['question:q-1', 'approval:dev:Bash'])
 
     const byClass = joinNeedsYou({ items: [{ kind: 'approval', ref: 'dev+Bash', requester: 'dev', class: 'tool:Bash' }] }, raw)
@@ -107,7 +107,7 @@ describe('NeedsYouPanel', () => {
     fireEvent.click(within(items[0]).getByRole('button', { name: /Reject/ }))
     await waitFor(() => expect(api.gateRejectOrgAction).toHaveBeenCalledWith('growth', 'gate-1', ''))
     fireEvent.click(within(items[1]).getByRole('button', { name: /Approve/ }))
-    await waitFor(() => expect(api.approveOrgAction).toHaveBeenCalledWith('growth', 'lead', 'monoagent__automation_publish_post'))
+    await waitFor(() => expect(api.approveOrgAction).toHaveBeenCalledWith('growth', 'lead', 'monoagent__automation_publish_post', 'apr-1'))
   })
 
   it('answers a question with typed text', async () => {
@@ -122,8 +122,53 @@ describe('NeedsYouPanel', () => {
     api.denyOrgAction.mockResolvedValue({ error: 'No pending approval found' })
     render(<NeedsYouPanel orgName="growth" />)
     const items = await screen.findAllByTestId('pending-item')
-    fireEvent.click(within(items[3]).getByRole('button', { name: /Deny/ }))
+    fireEvent.click(within(items[1]).getByRole('button', { name: /Deny/ }))
     await waitFor(() => expect(notify).toHaveBeenCalledWith('org decision', 'No pending approval found'))
+    expect(api.denyOrgAction).toHaveBeenCalledWith('growth', 'lead', 'monoagent__automation_publish_post', 'apr-1')
+  })
+
+  // Resolving by role and action would also release a call queued after the
+  // card was drawn, so a card is one request and its buttons name it.
+  const bash = (id, command, ts) => ({ roleId: 'dev', action: 'Bash', ts, approved: null, requestId: id, command })
+
+  it('gives each request its own card and resolves only the one clicked', async () => {
+    api.listNeedsYou.mockResolvedValue({ error: 'unavailable' })
+    api.getOrgQuestions.mockResolvedValue({ items: [] })
+    api.getOrgGates.mockResolvedValue({ items: [] })
+    api.getOrgApprovals.mockResolvedValue({ items: [bash('apr-a', 'go test ./...', NOW - 2000)] })
+    render(<NeedsYouPanel orgName="growth" />)
+    const [seen] = await screen.findAllByTestId('pending-item')
+    // A second call is queued after the card was drawn.
+    api.getOrgApprovals.mockResolvedValue({ items: [bash('apr-a', 'go test ./...', NOW - 2000), bash('apr-b', 'git push --force', NOW - 1000)] })
+    fireEvent.click(within(seen).getByRole('button', { name: /Approve/ }))
+    await waitFor(() => expect(screen.getAllByTestId('pending-item')).toHaveLength(2))
+    expect(api.approveOrgAction.mock.calls).toEqual([['growth', 'dev', 'Bash', 'apr-a']])
+    const [a, b] = screen.getAllByTestId('pending-item')
+    expect(within(a).queryByText('git push --force')).not.toBeInTheDocument()
+    fireEvent.click(within(b).getByRole('button', { name: /Deny/ }))
+    await waitFor(() => expect(api.denyOrgAction.mock.calls).toEqual([['growth', 'dev', 'Bash', 'apr-b']]))
+    expect(api.approveOrgAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('never joins a needs-you item to another request of the same role and tool', async () => {
+    api.listNeedsYou.mockResolvedValue({ v: 1, items: [{ kind: 'approval', ref: 'apr-gone', requester: 'dev', class: 'tool:Bash', summary: 'dev wants to use Bash' }] })
+    api.getOrgQuestions.mockResolvedValue({ items: [] })
+    api.getOrgGates.mockResolvedValue({ items: [] })
+    api.getOrgApprovals.mockResolvedValue({ items: [bash('apr-b', 'git push --force', NOW - 1000)] })
+    render(<NeedsYouPanel orgName="growth" />)
+    const [mine, other] = await screen.findAllByTestId('pending-item')
+    expect(within(mine).getByText('dev wants to use Bash')).toBeInTheDocument()
+    expect(within(mine).queryByRole('button', { name: /Approve/ })).not.toBeInTheDocument()
+    expect(within(other).getByTestId('approval-command')).toHaveTextContent('git push --force')
+  })
+
+  it('offers no Approve or Deny for a request that has no id', async () => {
+    render(<NeedsYouPanel orgName="growth" />)
+    const items = await screen.findAllByTestId('pending-item')
+    const idless = items[3]
+    expect(within(idless).queryByRole('button', { name: /Approve|Deny/ })).not.toBeInTheDocument()
+    expect(within(idless).getByText(/has no request id/)).toBeInTheDocument()
+    expect(within(idless).getByText(/monoagentcli --profile <profile> org approve\|deny growth dev Bash/)).toBeInTheDocument()
   })
 
   it('falls back to all pending items when needs-you fails', async () => {
