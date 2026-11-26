@@ -2347,7 +2347,11 @@
     "commandFolder": "Carpeta del rol: {{path}}",
     "commandCut": "Solo se conoce el principio de este comando: el motor guarda sus primeros 200 caracteres.",
     "commandRedacted": "monomind ocultó parte de este comando ([REDACTED]). El texto oculto puede incluir más comandos.",
-    "commandMore": "Hay más abajo: desplaza el recuadro para leer el comando completo."
+    "commandMore": "Hay más abajo: desplaza el recuadro para leer el comando completo.",
+    "inputLabel": "Argumentos de la llamada",
+    "inputMore": "Hay más abajo: desplaza el recuadro para leer todos los argumentos.",
+    "inputCut": "Solo se conoce el principio de algunos argumentos: el motor guarda los primeros 200 caracteres de cada uno.",
+    "inputRedacted": "monomind ocultó parte de estos argumentos ([REDACTED]). El texto oculto puede cambiar lo que hace la llamada."
   },
   "comms": {
     "status": {

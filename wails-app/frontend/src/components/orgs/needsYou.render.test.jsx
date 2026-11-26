@@ -162,6 +162,23 @@ describe('NeedsYouPanel', () => {
     expect(within(other).getByTestId('approval-command')).toHaveTextContent('git push --force')
   })
 
+  // Approve releases the whole call, so the card shows its arguments without opening Details.
+  it('shows every argument of a request beside its command', async () => {
+    api.listNeedsYou.mockResolvedValue({ error: 'unavailable' })
+    api.getOrgQuestions.mockResolvedValue({ items: [] })
+    api.getOrgGates.mockResolvedValue({ items: [] })
+    api.getOrgApprovals.mockResolvedValue({ items: [
+      { ...bash('apr-a', 'make deploy', NOW - 2000), input: { command: 'make deploy', force: true } },
+      { roleId: 'dev', action: 'Write', ts: NOW - 1000, approved: null, requestId: 'apr-w', input: { file_path: '/etc/hosts' } },
+    ] })
+    render(<NeedsYouPanel orgName="growth" />)
+    const items = await screen.findAllByTestId('pending-item')
+    const [shell, write] = items.map(i => within(i).getByTestId('approval-input'))
+    expect(JSON.parse(shell.textContent)).toEqual({ force: true })
+    expect(JSON.parse(write.textContent)).toEqual({ file_path: '/etc/hosts' })
+    expect(shell.closest('details')).toBeNull()
+  })
+
   it('offers no Approve or Deny for a request that has no id', async () => {
     render(<NeedsYouPanel orgName="growth" />)
     const items = await screen.findAllByTestId('pending-item')

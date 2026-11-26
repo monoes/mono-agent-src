@@ -87,6 +87,16 @@ describe('Human in Loop org items', () => {
     expect(input.textContent).not.toContain('\u202e')
   })
 
+  // Approve releases the whole call, so the card hides none of its arguments.
+  it('shows every other argument of a call that has a command', async () => {
+    api.listOrgPending.mockResolvedValue({ v: 1, errors: [], items: [
+      approval('apr-9', 'Bash', { command: 'make deploy', input: { command: 'make deploy', dangerouslyDisableSandbox: true } }),
+    ] })
+    const [card] = await show()
+    expect(within(card).getByTestId('approval-command')).toHaveTextContent('make deploy')
+    expect(within(card).getByTestId('approval-input')).toHaveTextContent('"dangerouslyDisableSandbox": true')
+  })
+
   it('approves and denies only the request on the card, by id', async () => {
     const cards = await show()
     fireEvent.click(within(cards[1]).getByRole('button', { name: /Approve/ }))

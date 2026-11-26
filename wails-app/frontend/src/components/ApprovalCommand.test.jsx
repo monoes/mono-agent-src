@@ -9,7 +9,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import '../i18n.js'
 import en from '../locales/en.json'
 import es from '../locales/es.json'
-import { ApprovalCommand } from './ApprovalCommand.jsx'
+import { ApprovalCommand, ApprovalCall, ApprovalInput } from './ApprovalCommand.jsx'
 
 const sizes = ['scrollHeight', 'clientHeight']
 afterEach(() => {
@@ -96,9 +96,62 @@ describe('a command that does not fit its box', () => {
   })
 })
 
+describe('every argument of a call', () => {
+  const shown = () => screen.getByTestId('approval-input')
+
+  it('shows the command and every other argument beside it', () => {
+    const input = { command: 'git push', dangerouslyDisableSandbox: true, force: false, target: 'prod' }
+    render(<ApprovalCall command="git push" input={input} />)
+    expect(box().textContent).toBe('git push')
+    expect(JSON.parse(shown().textContent)).toEqual({ dangerouslyDisableSandbox: true, force: false, target: 'prod' })
+  })
+
+  it('shows all of them for a call with no command, and no box when the command is all there is', () => {
+    render(<ApprovalCall input={{ command: ['rm', '-rf'], url: 'u' }} />)
+    expect(JSON.parse(shown().textContent)).toEqual({ command: ['rm', '-rf'], url: 'u' })
+    cleanup()
+    render(<ApprovalCall command="ls" input={{ command: 'ls' }} />)
+    expect(screen.queryByTestId('approval-input')).toBeNull()
+  })
+
+  it('keeps an input command that is not the one in the command box', () => {
+    render(<ApprovalCall command="ls" input={{ command: 'rm x' }} />)
+    expect(JSON.parse(shown().textContent)).toEqual({ command: 'rm x' })
+  })
+
+  it('says there is more below until the end is reached', () => {
+    sized(400, 160)
+    render(<ApprovalInput input={{ a: 1 }} />)
+    expect(screen.getByText(en.ask.inputMore)).toBeInTheDocument()
+    const el = screen.getByLabelText(en.ask.inputLabel)
+    el.scrollTop = 240
+    fireEvent.scroll(el)
+    expect(screen.queryByText(en.ask.inputMore)).toBeNull()
+  })
+
+  it('counts the lines while the box has no size yet', () => {
+    render(<ApprovalInput input={Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, i]))} />)
+    expect(screen.getByText(en.ask.inputMore)).toBeInTheDocument()
+    cleanup()
+    render(<ApprovalInput input={{ a: 1 }} />)
+    expect(screen.queryByText(en.ask.inputMore)).toBeNull()
+  })
+
+  it('warns when monomind cut or hid part of an argument', () => {
+    // monomind keeps the first 200 UTF-16 units of a string argument, then adds an ellipsis
+    render(<ApprovalInput input={{ content: `${'a'.repeat(200)}\u2026`, token: '[REDACTED]' }} />)
+    expect(screen.getByText(en.ask.inputCut)).toBeInTheDocument()
+    expect(screen.getByText(en.ask.inputRedacted)).toBeInTheDocument()
+    cleanup()
+    render(<ApprovalInput input={{ content: 'wait\u2026' }} />)
+    expect(screen.queryByText(en.ask.inputCut)).toBeNull()
+    expect(screen.queryByText(en.ask.inputRedacted)).toBeNull()
+  })
+})
+
 describe('the warnings', () => {
   it('exist in both locales', () => {
-    for (const key of ['commandRedacted', 'commandMore']) {
+    for (const key of ['commandRedacted', 'commandMore', 'inputLabel', 'inputMore', 'inputCut', 'inputRedacted']) {
       expect(en.ask[key]).toBeTruthy()
       expect(es.ask[key]).toBeTruthy()
       expect(es.ask[key]).not.toBe(en.ask[key])
