@@ -121,11 +121,16 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
   const changed = s.enabled && validThreshold(thr, s.default_threshold) && Number(thr) !== s.threshold
   const thrId = `jev-thr-${s.surface}`
   // A sampled provider's top probability is at most sampledCeiling: a
-  // threshold above it is never reached, so the feature only suggests.
+  // threshold above it is never reached, unless the CLI says the feature
+  // lowers it to that. api_auto's options vary, so its ceiling may be lower.
   const effective = (providers?.providers || []).find(p => p.name === target.name)
   const ceiling = sampledCeiling(s.surface)
-  const unreachable = (s.enabled || pending) && effective?.caps?.probability === 'sampled' &&
-    validThreshold(thr, s.default_threshold) && Number(thr) > ceiling
+  const sampled = (s.enabled || pending) && effective?.caps?.probability === 'sampled' &&
+    validThreshold(thr, s.default_threshold)
+  const lowers = s.sampled_lowers_threshold === true
+  let sampledKey = ''
+  if (sampled && Number(thr) > ceiling) sampledKey = lowers ? 'sampledLowered' : 'sampledUnreachable'
+  else if (sampled && lowers && s.surface === 'api_auto' && Number(thr) > 0) sampledKey = 'sampledLoweredVariable'
 
   return (
     <div data-jev-surface={s.surface} style={{
@@ -159,14 +164,14 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
         />
       </div>
 
-      {unreachable && (
+      {sampledKey && (
         <div data-testid={`jev-sampled-warning-${s.surface}`} role="note" style={{
           display: 'flex', alignItems: 'flex-start', gap: 6, fontFamily: 'var(--font-body)', fontSize: 11, lineHeight: 1.5,
           color: 'var(--yellow)', background: 'rgba(234,179,8,.05)', border: '1px solid rgba(234,179,8,.22)',
           borderRadius: 'var(--radius)', padding: '6px 10px',
         }}>
           <ShieldAlert size={13} style={{ flexShrink: 0, marginTop: 2 }} />
-          <span>{t('settings.jev.providers.sampledUnreachable', { max: ceiling.toFixed(2) })}</span>
+          <span>{t(`settings.jev.providers.${sampledKey}`, { max: ceiling.toFixed(2) })}</span>
         </div>
       )}
 
