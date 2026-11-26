@@ -75,23 +75,37 @@ func newOrgPendingCmd(env *orgEnv) *cobra.Command {
 	}
 }
 
-// orgPending reads one org's three item lists. A list that fails is reported
-// and the others still show.
+// orgPending reads one org's three item lists at once. A list that fails is
+// reported and the others still show.
 func orgPending(ctx context.Context, root, org string) ([]pendingItem, []pendingError) {
 	var human orgchat.HumanItems
+	var failed [3]error
+	var wg sync.WaitGroup
+	kinds := [3]string{"questions", "approvals", "gates"}
+	// Each parser fills its own field of human.
+	parsers := [3]func(raw []byte) error{
+		func(raw []byte) (err error) { human.Questions, err = orgchat.ParseQuestions(raw); return },
+		func(raw []byte) (err error) { human.Approvals, err = orgchat.ParseApprovals(raw); return },
+		func(raw []byte) (err error) { human.Gates, err = orgchat.ParseGates(raw); return },
+	}
+	for i := range kinds {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			raw, err := orgChatClient.All(ctx, root, org, kinds[i])
+			if err == nil {
+				err = parsers[i](raw)
+			}
+			failed[i] = err
+		}(i)
+	}
+	wg.Wait()
 	var errs []pendingError
-	read := func(kind string, parse func(raw []byte) error) {
-		raw, err := orgChatClient.All(ctx, root, org, kind)
-		if err == nil {
-			err = parse(raw)
-		}
+	for i, err := range failed {
 		if err != nil {
-			errs = append(errs, pendingError{Org: org, Error: kind + ": " + err.Error()})
+			errs = append(errs, pendingError{Org: org, Error: kinds[i] + ": " + err.Error()})
 		}
 	}
-	read("questions", func(raw []byte) (err error) { human.Questions, err = orgchat.ParseQuestions(raw); return })
-	read("approvals", func(raw []byte) (err error) { human.Approvals, err = orgchat.ParseApprovals(raw); return })
-	read("gates", func(raw []byte) (err error) { human.Gates, err = orgchat.ParseGates(raw); return })
 
 	byID := map[string]orgchat.Approval{}
 	for _, a := range human.Approvals {
