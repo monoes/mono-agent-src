@@ -13,13 +13,16 @@ import (
 	"github.com/monoes/mono-agent/internal/aitask/budget"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
-// The three limits a coder chat's message can run under.
+// The limits a coder chat's message can run under.
 const (
 	spendCapMessage = "message" // the operator's coder budget, per message
 	spendCapSession = "session" // what the coder session's budget has left
 	spendCapTask    = "task"    // what the AI task's cap has left
+	spendCapWrapUp  = "wrapup"  // what the wrap-up allowance of a mission that spent its budget has left
 )
 
 // chatSpendCap is the spend cap of a conversation's next message: the lowest
@@ -31,9 +34,9 @@ type chatSpendCap struct {
 	// Bounded is false when nothing limits what a message spends.
 	Bounded bool    `json:"bounded"`
 	CapUSD  float64 `json:"capUsd"`
-	Source  string  `json:"source,omitempty"` // message, session or task
-	// TotalUSD is the session's budget or the task's cap that CapUSD is what
-	// is left of.
+	Source  string  `json:"source,omitempty"` // message, session, task or wrapup
+	// TotalUSD is the session's budget, the task's cap or the wrap-up
+	// allowance that CapUSD is what is left of.
 	TotalUSD float64 `json:"totalUsd,omitempty"`
 	// UsedUp: nothing is left under Source, so a message does not run.
 	UsedUp bool   `json:"usedUp,omitempty"`
@@ -103,6 +106,22 @@ func spendCapOfConversation(ctx context.Context, db *sql.DB, profileID string, c
 	if !taskBound && conv.OrgMode == ai.OrgModeDynamic {
 		out.WorkersCapUSD = settings.OrgBudgetUSD
 	}
+	if conv.OrgMode == ai.OrgModeDynamic {
+		mission := &dynorg.MissionConfig{Store: tasks.NewStore(db), ProfileID: profileID, ConversationID: conv.ID, Actor: missionActor, Access: access}
+		_, w, err := mission.WrapUp(ctx)
+		if err != nil {
+			return out, err
+		}
+		if w != nil {
+			// A spent mission starts no worker. Its allowance is checked when a message starts, so it holds on a
+			// runtime that takes no cap of its own too.
+			out.WorkersCapUSD = 0
+			out.lower(spendCapWrapUp, w.LeftUSD, w.AllowanceUSD)
+			if out.Source == spendCapWrapUp {
+				out.UnenforceableOn = ""
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -112,7 +131,8 @@ func newChatHistorySpendCapCmd(cfg *Deps) *cobra.Command {
 		Short: "Show the spend cap the conversation's next message runs under",
 		Long: "The lowest of what really bounds a coder conversation's turn: the coder budget per message " +
 			"(`coder set --budget-usd`), what the session's budget has left (`coder sessions settings " +
-			"--budget-usd`) and what an AI task's cap has left. A scoped chat has no cap.",
+			"--budget-usd`), what an AI task's cap has left and, for the lead of a mission that spent its budget, " +
+			"what its wrap-up allowance has left. A scoped chat has no cap.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, profileID, closeStore, err := openChatHistory(cfg)

@@ -31,6 +31,7 @@ func leadSpendMission(t *testing.T, costs string) (turn func(id string) (meter, 
 // prompt of its latest exec.
 type leadSpendRig struct {
 	send       func(id string) error
+	spendCap   func(t *testing.T) chatSpendCap
 	argsLog    string
 	systemFile string
 
@@ -106,6 +107,10 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
 		}
 	}
 	rig := leadSpendRig{store: store, session: se.ID, argsLog: argsLog, systemFile: systemFile}
+	rig.spendCap = func(t *testing.T) chatSpendCap {
+		t.Helper()
+		return spendCapOf(t, dbPath, conv.ID)
+	}
 	rig.send = func(id string) error {
 		t.Helper()
 		_, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", id, "--", "work")

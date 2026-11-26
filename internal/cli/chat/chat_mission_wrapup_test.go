@@ -202,6 +202,32 @@ func TestMissionOperatorPauseHasNoWrapUp(t *testing.T) {
 	wantMeter(t, r, "two turns", 6, tasks.SessionPaused)
 }
 
+// `chat history spend-cap` reports the allowance as what the next message runs under, and says when it is used up.
+func TestSpendCapShowsTheWrapUpAllowance(t *testing.T) {
+	r := newLeadSpendRig(t, "2\n10\n", true)
+	if got := r.spendCap(t); got.Bounded || got.Source != "" {
+		t.Fatalf("with money left: %+v", got)
+	}
+	exhaust(t, r, 5)
+	want := func(when string, left float64, usedUp bool) {
+		t.Helper()
+		got := r.spendCap(t)
+		if !got.Bounded || got.Source != spendCapWrapUp || math.Abs(got.CapUSD-left) > 1e-9 || got.TotalUSD != 5 ||
+			got.UsedUp != usedUp || got.UnenforceableOn != "" || got.WorkersCapUSD != 0 {
+			t.Errorf("%s: %+v", when, got)
+		}
+	}
+	want("spent", 5, false)
+	if err := r.send("t1"); err != nil {
+		t.Fatal(err)
+	}
+	want("after a turn", 3, false)
+	if err := r.send("t2"); err != nil {
+		t.Fatal(err)
+	}
+	want("used up", 0, true)
+}
+
 // The per-message cap of a wrap-up turn is what is left, never above a lower cap the turn already has, and is left
 // out where the runtime would compare it with something else (a resumed claude session) or takes none (kilo).
 func TestMissionWrapUpCap(t *testing.T) {

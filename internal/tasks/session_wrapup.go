@@ -25,6 +25,7 @@ var ErrWrapUpUsedUp = errors.New("the mission's wrap-up allowance is used up")
 
 // WrapUp is the allowance of a mission that has spent its budget.
 type WrapUp struct {
+	SessionID    int64   `json:"session_id"`
 	AllowanceUSD float64 `json:"allowance_usd"`
 	SpentUSD     float64 `json:"spent_usd"` // what the lead's wrap-up turns cost
 	HeldUSD      float64 `json:"held_usd"`  // held by turns whose cost is not known: running, or ended without one
@@ -62,7 +63,7 @@ func (s *Store) wrapUpTx(ctx context.Context, x dbx, se Session) (*WrapUp, error
 		return nil, fmt.Errorf("tasks: reading the wrap-up allowance of session #%d: %w", se.ID, err)
 	}
 	left := max(toMicros(WrapUpAllowanceUSD)-spent-held, 0)
-	return &WrapUp{AllowanceUSD: WrapUpAllowanceUSD, SpentUSD: fromMicros(spent), HeldUSD: fromMicros(held), LeftUSD: fromMicros(left)}, nil
+	return &WrapUp{SessionID: se.ID, AllowanceUSD: WrapUpAllowanceUSD, SpentUSD: fromMicros(spent), HeldUSD: fromMicros(held), LeftUSD: fromMicros(left)}, nil
 }
 
 // handBackBy is writableBy for the writes that hand a task back (its evidence and its finish): the lead of a mission

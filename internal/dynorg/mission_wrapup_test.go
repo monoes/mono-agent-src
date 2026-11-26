@@ -50,8 +50,11 @@ func TestWrapUpRefusesNewPaidWork(t *testing.T) {
 	if n, w := r.ex.execCount(), c.workerCount(); n != 0 || w != 0 {
 		t.Errorf("%d execs and %d workers on a spent mission", n, w)
 	}
-	r.call(c, ToolMissionReport, `{}`)
-	r.call(c, ToolMissionStatus, `{}`)
+	for _, tool := range []string{ToolMissionReport, ToolMissionStatus} {
+		if out := r.call(c, tool, `{}`); !strings.Contains(out, `"wrap_up"`) || !strings.Contains(out, `"left_usd":5`) {
+			t.Errorf("%s does not show the allowance: %s", tool, out)
+		}
+	}
 }
 
 // Without exhaustion the same tools are not touched by the wrap-up rule: a raised budget resumes the mission.
