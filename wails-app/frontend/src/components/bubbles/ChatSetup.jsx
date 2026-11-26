@@ -5,7 +5,7 @@ import { ACCESS_LEVELS, isCoderAccess } from '../../lib/chatAccess.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import AgentSetupLink from '../AgentSetupLink.jsx'
 import { FolderPicker } from '../chat/FolderPicker.jsx'
-import { FullAccessWarning } from '../chat/ChatWarnings.jsx'
+import { AccessWarning } from '../chat/ChatWarnings.jsx'
 import FixMonomindButton from '../FixMonomindButton.jsx'
 import { useRecentWorkspaces, coderReady, fidelityNote, missingText, monomindNeedsFix } from '../chat/useCoderMode.js'
 
@@ -59,7 +59,7 @@ export function ChatSetup({ s, setup, onChange, onNavigate }) {
         </select>
       </div>
       <div style={note}>{t(`bubbles.pane.allows.${s.access}`)}</div>
-      {s.access === 'full' && <FullAccessWarning />}
+      <AccessWarning access={s.access} status={s.status} />
       {coderOff && (
         <div data-testid="coder-disabled" style={warn}>
           {t('bubbles.pane.coderOffScoped')}{' '}

@@ -3614,6 +3614,8 @@
   },
   "chatWarnings": {
     "fullAccess": "Acceso completo: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",
-    "unsandboxed": "Este turno no tiene sandbox: el agente no está limitado a una carpeta de trabajo."
+    "unsandboxed": "Este turno no tiene sandbox: el agente no está limitado a una carpeta de trabajo.",
+    "boxOff": "El nivel de acceso «{{level}}» no se aplica porque la caja del coder está desactivada: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",
+    "workerUnsandboxed": "Este agente no tiene sandbox: su entorno no puede limitarlo a leer, así que tiene acceso completo y solo se le indica que no cambie archivos."
   }
 }

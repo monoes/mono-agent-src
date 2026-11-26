@@ -109,7 +109,8 @@ function agentPatch(state, ev) {
         parts: state.parts.some(x => x.kind === 'agent' && x.agentId === id) ? state.parts : [...state.parts, { kind: 'agent', agentId: id }],
       }
     case 'agent.status':
-      return put({ status: p.to, statusDetail: p.detail || '' })
+      // confinement is per run and absent from other agents: kept once reported.
+      return put({ status: p.to, statusDetail: p.detail || '', ...(p.confinement ? { confinement: p.confinement } : {}) })
     case 'agent.reassigned':
       return put({ runtime: p.toRuntime, model: p.toModel, reassigned: `${p.fromRuntime}/${p.fromModel || 'default'}: ${p.reason}` })
     case 'agent.message':

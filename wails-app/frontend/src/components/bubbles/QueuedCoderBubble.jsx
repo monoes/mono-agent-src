@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Palette, SwatchBook, Wrench, Bug, Plug, MessageCircleQuestion, FolderOpen, X, Play, Loader } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { folderName } from '../chat/useCoderMode.js'
-import { FullAccessWarning } from '../chat/ChatWarnings.jsx'
+import { AccessWarning } from '../chat/ChatWarnings.jsx'
 
 // Queued coder chats (C5 of docs/mastermind/plans/2026-10-15-coder-browser.md):
 // the browser extension queues a coder chat with a page's context, and it
@@ -149,7 +149,7 @@ export function QueuedCoderBubble({ item, onStart, onDismiss }) {
         </button>
       </div>
       {/* Start makes a full-access chat (`coder queue start`). A status: this card's alert is its error. */}
-      <div style={{ margin: '0 -12px' }}><FullAccessWarning role="status" /></div>
+      <div style={{ margin: '0 -12px' }}><AccessWarning access="full" role="status" /></div>
       {error && <div role="alert" style={{ color: 'var(--red)', lineHeight: 1.4 }}>{error}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
         <button type="button" className="btn btn-ghost btn-sm" onClick={run('dismiss', () => onDismiss(item))} disabled={!!busy} style={{ fontSize: 10 }}>

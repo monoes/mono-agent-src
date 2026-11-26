@@ -7,6 +7,7 @@ import i18n from '../../i18n.js'
 import { chatReducer, initialChatState } from './chatReducer.js'
 import { reduceTurnEvents } from './useChatStream.js'
 import { ChatTimeline } from './ChatTimeline.jsx'
+import { FetchedAccessWarning } from './ChatWarnings.jsx'
 import { LiteTurn } from '../bubbles/LiteTurn.jsx'
 import { ChatSetup } from '../bubbles/ChatSetup.jsx'
 import { QueuedCoderBubble } from '../bubbles/QueuedCoderBubble.jsx'
@@ -14,6 +15,7 @@ import { QueuedCoderBubble } from '../bubbles/QueuedCoderBubble.jsx'
 vi.mock('../../services/api.js', () => ({
   api: {
     coderQueueImage: () => Promise.resolve(null),
+    coderStatus: () => Promise.resolve({ enabled: true, box: 'off' }),
     coderRecentWorkspaces: () => Promise.resolve([]),
     pickCoderFolder: () => Promise.resolve(''),
   },
@@ -56,6 +58,70 @@ describe('full access warning', () => {
   it('shows on a queued coder chat, which always starts at full access', () => {
     render(<QueuedCoderBubble item={{ id: 'q1', kind: 'ask', origin: 'https://example.com', path: '/' }} onStart={() => {}} onDismiss={() => {}} />)
     expect(screen.getByText(FULL).closest('[role="status"]')).toBeTruthy()
+  })
+})
+
+const BOX_OFF = level => new RegExp(`${level} access is not enforced because the coder box is off: this chat can run any command and change any file on this computer as you\\.`)
+
+describe('coding and workspace while the coder box is off', () => {
+  const draw = (access, status) => <ChatSetup s={{ ...setupState(access), status }} setup={{ access }} onChange={() => {}} />
+
+  for (const [access, level] of [['coding', 'Coding'], ['workspace', 'Workspace']]) {
+    it(`warns on a ${access} draft, naming the level`, () => {
+      render(draw(access, { enabled: true, box: 'off' }))
+      expect(screen.getByRole('alert').textContent).toMatch(BOX_OFF(level))
+    })
+  }
+
+  it('warns when an older CLI reports no box at all', () => {
+    render(draw('coding', { enabled: true }))
+    expect(screen.getByRole('alert').textContent).toMatch(BOX_OFF('Coding'))
+  })
+
+  it('says nothing when the box is on, at scoped, or when the status could not be read', () => {
+    for (const [access, status] of [
+      ['coding', { enabled: true, box: 'compat' }], ['coding', { enabled: true, box: 'strict' }],
+      ['workspace', { enabled: true, box: 'strict' }], ['scoped', { enabled: true, box: 'off' }], ['coding', null],
+    ]) {
+      render(draw(access, status))
+      expect(screen.queryByRole('alert')).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('reads coder status itself where the view has none (the open-ended start screen)', async () => {
+    render(<FetchedAccessWarning access="workspace" />)
+    expect((await screen.findByRole('alert')).textContent).toMatch(BOX_OFF('Workspace'))
+  })
+
+  it('is said in Spanish', async () => {
+    await act(() => i18n.changeLanguage('es'))
+    render(draw('coding', { enabled: true, box: 'off' }))
+    expect(screen.getByRole('alert').textContent).toMatch(/no se aplica/)
+  })
+})
+
+const NO_SANDBOX_WORKER = /No sandbox for this agent: its runtime cannot limit it to reading, so it has full access and is only told not to change files\./
+
+describe('unconfined research worker warning', () => {
+  const events = confinement => [
+    { type: 'agent.spawned', seq: 1, payload: { agentId: 'w1', role: 'scout', agentType: 'worker', runtime: 'copilot' } },
+    { type: 'agent.status', seq: 2, payload: { agentId: 'w1', from: 'starting', to: 'working', confinement } },
+    { type: 'agent.status', seq: 3, payload: { agentId: 'w1', from: 'working', to: 'done' } },
+  ]
+
+  it('shows on the worker row of a turn, and stays once it is done', () => {
+    render(<ChatTimeline state={reduceTurnEvents(events('write-lease'))} turnId="t1" />)
+    expect(screen.getByText(NO_SANDBOX_WORKER).closest('[role="status"]')).toBeTruthy()
+  })
+
+  it('is absent for a confined worker', () => {
+    for (const confinement of ['access-read', 'sandbox-read-only', undefined]) {
+      render(<ChatTimeline state={reduceTurnEvents(events(confinement))} turnId="t1" />)
+      expect(screen.getByTestId('agent-row')).toBeTruthy()
+      expect(screen.queryByText(NO_SANDBOX_WORKER)).toBeNull()
+      cleanup()
+    }
   })
 })
 
