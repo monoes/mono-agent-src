@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -282,6 +283,7 @@ func (a journalAnswers) Answer(_ context.Context, agentID, questionID string) (s
 // Emit implements dynorg.Emitter: a worker's event, journaled in the
 // lead's turn. Events after the turn finished are dropped.
 func (j *turnJournal) Emit(typ chatevents.EventType, payload any) {
+	warnUnconfinedWorker(os.Stderr, typ, payload)
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.finished {

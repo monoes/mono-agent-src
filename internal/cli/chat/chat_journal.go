@@ -78,7 +78,6 @@ type turnJournal struct {
 	turnID         string
 	runtimeID      string
 	out            io.Writer
-	warnTo         io.Writer // the turn's stderr warnings
 
 	mu            sync.Mutex
 	coalescer     *chatevents.TextCoalescer
@@ -120,7 +119,7 @@ func (e lockedEmitter) Emit(typ chatevents.EventType, payload any) {
 func newTurnJournal(store *ai.AIStore, profileID, conversationID, turnID, runtimeID string, out io.Writer) *turnJournal {
 	return &turnJournal{
 		store: store, profileID: profileID, conversationID: conversationID, turnID: turnID,
-		runtimeID: runtimeID, out: out, warnTo: os.Stderr, coalescer: chatevents.NewTextCoalescer(),
+		runtimeID: runtimeID, out: out, coalescer: chatevents.NewTextCoalescer(),
 	}
 }
 
@@ -252,7 +251,7 @@ func (j *turnJournal) handle(ev monomind.Event) {
 		}
 		// The badge the app shows on the turn; message is the status key.
 		if ev.SandboxStatus != "" {
-			_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandbox, Message: ev.SandboxStatus, Severity: j.sandboxSeverity(ev)})
+			_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandbox, Message: ev.SandboxStatus, Severity: sandboxSeverity(ev.SandboxStatus)})
 			if detail := sandboxDetail(ev); detail != "" {
 				_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandboxDetail, Message: detail, Severity: chatevents.SeverityInfo})
 			}

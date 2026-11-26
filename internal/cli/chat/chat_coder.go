@@ -253,8 +253,8 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 			}
 		}
 	}
-	if t.confine == nil && startsFullChat(journal, t.access, t.resume) {
-		warnFullAccess(cmd.ErrOrStderr())
+	if t.confine == nil && startsChat(journal, t.resume) {
+		warnAccess(cmd.ErrOrStderr(), t.access, settings)
 	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
 	if settleLead != nil {
@@ -380,11 +380,11 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 // createCoderConversation is `chat history create` above the scoped level
 // (--mode coder is full); runtimeID "" means claude.
 // chatMode ("" is off) is written in the transaction that inserts the conversation.
-// A conversation created at full access warns on stderr.
+// A conversation that can run anything warns on stderr (warnAccess).
 func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID, chatMode string, folder coderFolderChoice) (conv ai.Conversation, err error) {
 	defer func() {
-		if err == nil && access == ai.AccessFull {
-			warnFullAccess(cmd.ErrOrStderr())
+		if err == nil {
+			warnNewChatAccess(cmd.ErrOrStderr(), cfg, access)
 		}
 	}()
 	// A conversation above scoped is a raise from nothing: an agent, the chat or

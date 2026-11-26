@@ -109,6 +109,15 @@ func UnsandboxedWarning(runtime, status string) string {
 	return fmt.Sprintf("this turn is running without a sandbox (%s: %s): the agent runtime is not confined to a working folder", runtime, status)
 }
 
+// warnUnsandboxed prints the stderr line every turn that runs without a
+// sandbox gets. Exec calls it with each start event's verdict, so no caller
+// has to.
+func warnUnsandboxed(runtime, status string) {
+	if SandboxMissing(status) {
+		fmt.Fprintln(os.Stderr, "warning: "+UnsandboxedWarning(runtime, status))
+	}
+}
+
 // AppliedSandboxStatus is the verdict once monomind reports sandbox_applied
 // for a turn that used the fallback: sandboxed when it is the mode asked
 // for, off when it is "full" (no sandbox at all), else restricted.
