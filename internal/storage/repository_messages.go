@@ -190,7 +190,7 @@ func (d *Database) syncMessageToKG(msg *PersonMessage, profileID string) {
 }
 
 // The listing queries of person_messages. A message belongs to its person's
-// profile; migration 171 keeps the message's own profile_id equal to it. The
+// profile; migration 172 keeps the message's own profile_id equal to it. The
 // listings filter on both, so a row that ever disagreed (an older binary, a
 // hand edit) shows in no profile rather than in the wrong one. CROSS JOIN
 // keeps person_messages the outer table, so its indexes serve the filter and
@@ -201,7 +201,7 @@ const messageListColumns = `pm.id, pm.person_id, pm.source, pm.external_id, pm.d
 		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at`
 
 // messageInstantOrder is the newest-first order of the listings.
-// idx_person_messages_profile_instant (migration 171) indexes this expression.
+// idx_person_messages_profile_instant (migration 172) indexes this expression.
 func messageInstantOrder() string {
 	return "COALESCE(" + sentAtInstant("pm.sent_at") + ", " + sentAtInstant("pm.created_at") + ") DESC"
 }

@@ -354,8 +354,8 @@ func (s *Store) ReopenFailedAnswers() error {
 // take_default (never for a hard class: Decide clamps it to park): the host
 // records a model decision in the ledger and tells the session. Everything else
 // stays parked, and so does a question whose session is stopped or whose
-// check-in streak is at the limit (a default would start a turn nobody asked
-// for). A question whose conversation is gone is removed. It returns how many
+// check-in streak is at the limit or whose mission spent its budget (a default
+// would start a turn nobody asked for). A question whose conversation is gone is removed. It returns how many
 // defaults it applied.
 func (s *Store) ApplyDefaults() (int, error) {
 	errs := []error{s.redeliver()}
@@ -406,6 +406,9 @@ func (s *Store) applyDefault(cache map[string]*passCtx, q Question) (bool, error
 	}
 	if _, _, berr := s.TurnCap(q.ProfileID, q.ConversationID); berr != nil {
 		return false, nil // the budget is used up: the note could not start a turn
+	}
+	if spent, err := s.missionSpent(q.ProfileID, q.ConversationID); err != nil || spent {
+		return false, err // a spent mission runs only what the person sends
 	}
 	if err := s.claimQuestion(q, questionStatusDefault, q.Default, WhoModel); err != nil {
 		return false, nil // answered meanwhile

@@ -194,8 +194,8 @@ export function ApproveHIL(arg1, arg2) {
   return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
 }
 
-export function ApproveOrgAction(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ApproveOrgAction'](arg1, arg2, arg3);
+export function ApproveOrgAction(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ApproveOrgAction'](arg1, arg2, arg3, arg4);
 }
 
 export function ApprovePendingPerson(arg1, arg2, arg3) {
@@ -438,8 +438,8 @@ export function DeleteWorkflow(arg1) {
   return window['go']['main']['App']['DeleteWorkflow'](arg1);
 }
 
-export function DenyOrgAction(arg1, arg2, arg3) {
-  return window['go']['main']['App']['DenyOrgAction'](arg1, arg2, arg3);
+export function DenyOrgAction(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['DenyOrgAction'](arg1, arg2, arg3, arg4);
 }
 
 export function DisableAutomation(arg1) {
@@ -1136,6 +1136,10 @@ export function ListOrgDesigns() {
 
 export function ListOrgGrants(arg1) {
   return window['go']['main']['App']['ListOrgGrants'](arg1);
+}
+
+export function ListOrgPending() {
+  return window['go']['main']['App']['ListOrgPending']();
 }
 
 export function ListOrgQueuedMessages(arg1) {

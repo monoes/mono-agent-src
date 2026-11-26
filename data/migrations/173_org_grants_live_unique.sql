@@ -1,4 +1,4 @@
--- 172_org_grants_live_unique.sql
+-- 173_org_grants_live_unique.sql
 -- One live org_grants row per slot: per (profile, org, role, alias) for an
 -- automation grant, and per (profile, org, role) for an org-tool grant.
 -- Writers used to read and then write with no lock, so two at once could leave

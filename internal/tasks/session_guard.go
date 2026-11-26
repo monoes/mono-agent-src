@@ -26,6 +26,6 @@ func (s *Store) agentWritable(ctx context.Context, profileID string, sessionID i
 		if err != nil {
 			return err
 		}
-		return writableBy(se, actor, what)
+		return s.handBackBy(ctx, x, se, actor, what)
 	})
 }

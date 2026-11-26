@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, MessageCircleQuestion, ShieldAlert, KeyRound } from 'lucide-react'
+import { ApprovalCall } from '../../components/ApprovalCommand.jsx'
+import { NoRequestID } from '../../components/NoRequestID.jsx'
 
 // ── 4. Org Decision / Question / Gate Card ────────────────────
 export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDenyAction, onApproveGate, onRejectGate }) {
@@ -21,7 +23,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
     setLoading('approve')
     try {
       if (item.kind === 'approval') {
-        await onApproveAction(item.orgName, item.role, item.action)
+        await onApproveAction(item)
       } else if (item.kind === 'gate') {
         await onApproveGate(item.orgName, item.id)
       }
@@ -34,7 +36,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
     setLoading('reject')
     try {
       if (item.kind === 'approval') {
-        await onDenyAction(item.orgName, item.role, item.action)
+        await onDenyAction(item)
       } else if (item.kind === 'gate') {
         await onRejectGate(item.orgName, item.id)
       }
@@ -43,10 +45,13 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
     }
   }
 
+  // Only a request with an id can be resolved on its own.
+  const noRequestID = item.kind === 'approval' && !item.request_id
+
   const KindIcon = item.kind === 'question' ? MessageCircleQuestion : item.kind === 'gate' ? ShieldAlert : KeyRound
 
   return (
-    <div style={{
+    <div data-testid="org-decision" style={{
       background: 'linear-gradient(160deg,#181024 0%,#100a1c 100%)',
       border: '1.5px solid rgba(139,92,246,0.25)',
       borderRadius: 10,
@@ -96,8 +101,14 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
             border: '1px solid rgba(255,255,255,0.07)', fontSize: 13, color: 'var(--text-secondary)',
             marginBottom: 16, lineHeight: 1.5,
           }}>
-            {item.text || item.summary || item.question || item.description}
+            {item.text || item.name}
           </div>
+
+          {item.kind === 'approval' && (
+            <div style={{ marginBottom: 16 }}>
+              <ApprovalCall command={item.command} truncated={item.command_truncated} cwd={item.cwd} input={item.input} />
+            </div>
+          )}
 
           {item.kind === 'question' ? (
             <div style={{ display: 'flex', gap: 8 }}>
@@ -124,6 +135,8 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
                 {loading === 'answer' ? 'Answering…' : 'Submit Answer'}
               </button>
             </div>
+          ) : noRequestID ? (
+            <NoRequestID org={item.orgName} role={item.role} action={item.action} />
           ) : (
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <button

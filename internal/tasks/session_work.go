@@ -437,7 +437,7 @@ func (s *Store) AddArtifact(ctx context.Context, profileID string, sessionID, id
 		if err != nil {
 			return err
 		}
-		if err := writableBy(se, actor, "attach an artifact"); err != nil {
+		if err := s.handBackBy(ctx, x, se, actor, "attach an artifact"); err != nil {
 			return err
 		}
 		if err := s.noUnboundInManaged(ctx, x, profileID, sessionID, actor, "attach an artifact"); err != nil {

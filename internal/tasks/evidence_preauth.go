@@ -28,7 +28,7 @@ func (s *Store) authorizedForEvidence(ctx context.Context, profileID string, ses
 			if err != nil {
 				return err
 			}
-			if err := writableBy(se, actor, what); err != nil {
+			if err := s.handBackBy(ctx, x, se, actor, what); err != nil {
 				return err
 			}
 		}

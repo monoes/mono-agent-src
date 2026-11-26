@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// dedupeOrgGrants runs inside migration 172's transaction, before its unique
+// dedupeOrgGrants runs inside migration 173's transaction, before its unique
 // indexes: nothing kept one live org_grants row per (profile, org, role,
 // alias), or one org-tool row per (profile, org, role). It leaves one live row
 // per slot and never gives a role anything it could not already use:
@@ -73,7 +73,7 @@ type grantRow struct {
 
 // duplicateOrgGrants returns the live rows that share a slot, each group
 // oldest first in the order the runtime reads them. The slot expressions are
-// those of migration 172's indexes.
+// those of migration 173's indexes.
 func duplicateOrgGrants(ctx context.Context, tx *sql.Tx) ([][]grantRow, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at,
 		tools_json IN ('[]', 'null'),

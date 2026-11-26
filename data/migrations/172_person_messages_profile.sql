@@ -1,4 +1,4 @@
--- 171_person_messages_profile.sql
+-- 172_person_messages_profile.sql
 -- A message belongs to its person's profile. Nothing kept
 -- person_messages.profile_id equal to it (the column defaults to 'default',
 -- and migration 099 stamped empty values without looking at the person), so

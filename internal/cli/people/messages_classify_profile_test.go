@@ -7,7 +7,7 @@ import (
 )
 
 // A message whose own profile disagrees with its person's (only possible past
-// migration 171's triggers: an older binary, a hand edit) is classified in
+// migration 172's triggers: an older binary, a hand edit) is classified in
 // neither profile: its text must not be sent for one it may not belong to.
 func TestInboxCandidatesNeverCrossProfiles(t *testing.T) {
 	dbPath := newMessagesCLITestDB(t)

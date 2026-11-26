@@ -1,159 +1,304 @@
 package storage
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/data"
 )
 
-func autoTool(alias, extra string) string {
-	return `[{"tool":"automation_` + alias + `","alias":"` + alias + `","workflow_id":"wf1",` + extra + `}]`
+// execNoFK runs stmts on one connection with foreign key enforcement off: the only way to seed a message whose
+// person no longer exists, which an older database can hold.
+func execNoFK(t *testing.T, d *Database, stmts ...string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := d.DB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	defer conn.ExecContext(ctx, "PRAGMA foreign_keys = ON")
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range stmts {
+		if _, err := conn.ExecContext(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
 }
+
+// dumpRows reads query as one string per row, so two dumps can be compared whole.
+func dumpRows(t *testing.T, d *Database, query string, args ...any) []string {
+	t.Helper()
+	rows, err := d.DB.Query(query, args...)
+	if err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, fmt.Sprintf("%v", vals))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Every column of person_messages but the one migration 172 repairs, as text so odd values survive the read.
+const messagesButProfile = `SELECT id, person_id, source, external_id, direction, quote(sender), quote(subject),
+	quote(body), quote(metadata), status, quote(sent_at), quote(created_at), quote(read_at), quote(hil_ref)
+	FROM person_messages ORDER BY id`
 
 func seed172(t *testing.T) *Database {
 	t.Helper()
 	d := open156(t)
 	applyMigrationsBelow(t, d, 172)
-	add := func(id, profile, org, role, tools, orgTools, created string, revoked any) {
-		t.Helper()
-		if _, err := d.DB.Exec(`INSERT INTO org_grants (id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at, revoked_at)
-			VALUES (?,?,?,?,?,?,?,?,?)`, id, profile, org, role, tools, orgTools, created, created, revoked); err != nil {
-			t.Fatalf("seed %s: %v", id, err)
-		}
-	}
-	// Two live grants of one alias: the older one is stricter and pins the workflow.
-	add("a_old", "p", "o", "r", autoTool("x", `"workflow_hash":"h1","approval":"required","tier":"irreversible","max_calls_per_run":2,"max_calls_per_day":50,"max_output_bytes":100`), `[]`, "2026-01-01", nil)
-	add("a_new", "p", "o", "r", autoTool("x", `"approval":"none","tier":"routine","max_calls_per_run":20,"max_calls_per_day":10,"max_output_bytes":900,"extra":9007199254740993`), `[]`, "2026-02-01", nil)
-	// The same alias for another role or profile, another alias, and a revoked twin are not duplicates.
-	add("b_role", "p", "o", "r2", autoTool("x", `"approval":"none"`), `[]`, "2026-01-01", nil)
-	add("b_alias", "p", "o", "r", autoTool("y", `"approval":"none"`), `[]`, "2026-01-01", nil)
-	add("b_profile", "q", "o", "r", autoTool("x", `"approval":"none"`), `[]`, "2026-01-01", nil)
-	add("b_revoked", "p", "o", "r", autoTool("x", `"approval":"none"`), `[]`, "2025-01-01", "2025-02-01")
-	// Org-tool duplicates: only what both hold survives, on the oldest row.
-	add("t_old", "p", "o", "boss", `[]`, `[{"tool":"org_start","orgs":["s","m"]},{"tool":"org_stop","orgs":["s"]}]`, "2026-01-01", nil)
-	add("t_new", "p", "o", "boss", `[]`, `[{"tool":"org_start","orgs":["s","z"]},{"tool":"org_report","orgs":["s"]}]`, "2026-02-01", nil)
-	// Nothing in common: all revoked. Unreadable: all revoked.
-	add("n_old", "p", "o", "none", `[]`, `[{"tool":"org_start","orgs":["s"]}]`, "2026-01-01", nil)
-	add("n_new", "p", "o", "none", `[]`, `[{"tool":"org_stop","orgs":["s"]}]`, "2026-02-01", nil)
-	add("u_old", "p", "o", "bad", `[]`, `[{"tool":"org_start","orgs":["s"]}]`, "2026-01-01", nil)
-	add("u_new", "p", "o", "bad", `null`, `{broken`, "2026-02-01", nil)
-	// A single row is left byte for byte, and rows with no slot are left alone.
-	add("s_one", "p", "o", "solo", `[]`, `[ {"tool":"org_start", "orgs":["s"]} ]`, "2026-01-01", nil)
-	add("w_bad1", "p", "o", "odd", `{broken`, `[]`, "2026-01-01", nil)
-	add("w_bad2", "p", "o", "odd", `{broken`, `[]`, "2026-01-01", nil)
+	execNoFK(t, d,
+		`INSERT INTO people (id, platform_username, platform, profile_id) VALUES
+			('pa', 'a', 'email', 'a'), ('pb', 'b', 'email', 'b'), ('pd', 'd', 'email', 'default'), ('pnone', 'n', 'email', '')`,
+		`INSERT INTO person_messages (id, person_id, source, external_id, direction, subject, body, status, sent_at, profile_id, hil_ref) VALUES
+			('ok',            'pa',    'email', '1', 'inbound',  's', 'b', 'sent',  '2026-10-01 10:00:00 +0000 UTC', 'a', NULL),
+			('empty',         'pa',    'email', '2', 'inbound',  's', 'b', 'sent',  '2026-10-02T10:00:00Z',          '',  NULL),
+			('wrongdefault',  'pb',    'email', '3', 'inbound',  's', 'b', 'draft', 1750000000,                      'default', NULL),
+			('wrongother',    'pa',    'email', '4', 'outbound', 's', 'b', 'draft', '',                              'b', 'h1'),
+			('oddnow',        'pd',    'email', '5', 'inbound',  's', 'b', 'sent',  'now',                           'a', NULL),
+			('oddtext',       'pd',    'email', '6', 'inbound',  's', 'b', 'sent',  'not a time',                    'default', NULL),
+			('oddblob',       'pd',    'email', '7', 'inbound',  's', 'b', 'sent',  x'00ff',                         'default', NULL),
+			('personnoowner', 'pnone', 'email', '8', 'inbound',  's', 'b', 'sent',  NULL,                            'a', NULL),
+			('orphan',        'gone',  'email', '9', 'inbound',  's', 'b', 'sent',  NULL,                            'b', NULL),
+			('orphanempty',   'gone',  'email', '10','inbound',  's', 'b', 'sent',  NULL,                            '',  NULL)`,
+	)
 	return d
 }
 
-// Migration 172 leaves one live row per slot, never gives the kept row more than the duplicates agreed on, deletes
-// nothing, records what it changed, leaves every other row as it was, and running it again changes nothing.
-func TestMigration172MergesDuplicateGrants(t *testing.T) {
-	d := seed172(t)
-	const all = `SELECT id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at, revoked_at FROM org_grants ORDER BY id`
-	const untouched = `SELECT id, tools_json, org_tools_json, updated_at, revoked_at FROM org_grants
-		WHERE id LIKE 'b%' OR id IN ('s_one','w_bad1','w_bad2') ORDER BY id`
-	beforeRows, beforeSame := dumpRows(t, d, all), dumpRows(t, d, untouched)
+var want172 = map[string]string{
+	"ok": "a", "empty": "a", "wrongdefault": "b", "wrongother": "a",
+	"oddnow": "default", "oddtext": "default", "oddblob": "default",
+	// No owner to give: kept exactly as stored.
+	"personnoowner": "a", "orphan": "b", "orphanempty": "",
+}
 
-	if err := d.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	live := strings.Join(dumpRows(t, d, `SELECT id FROM org_grants WHERE revoked_at IS NULL ORDER BY id`), "")
-	if want := "[a_new][b_alias][b_profile][b_role][s_one][t_old][w_bad1][w_bad2]"; live != want {
-		t.Fatalf("live = %s, want %s", live, want)
-	}
-	if got := dumpRows(t, d, `SELECT id FROM org_grants`); len(got) != len(beforeRows) {
-		t.Errorf("%d rows, had %d: nothing may be deleted", len(got), len(beforeRows))
-	}
-	if got := dumpRows(t, d, untouched); strings.Join(got, "\n") != strings.Join(beforeSame, "\n") {
-		t.Errorf("rows that shared no slot changed:\n%v\nwas\n%v", got, beforeSame)
-	}
-	value := func(query string, args ...any) string {
-		t.Helper()
-		var s string
-		if err := d.DB.QueryRow(query, args...).Scan(&s); err != nil {
-			t.Fatalf("%s: %v", query, err)
-		}
-		return s
-	}
-	for field, want := range map[string]string{
-		"approval": "required", "tier": "irreversible", "max_calls_per_run": "2", "max_calls_per_day": "10",
-		"max_output_bytes": "100", "workflow_hash": "h1", "extra": "9007199254740993", "alias": "x",
-	} {
-		if got := value(`SELECT CAST(json_extract(tools_json, ?) AS TEXT) FROM org_grants WHERE id = 'a_new'`, "$[0]."+field); got != want {
-			t.Errorf("kept grant %s = %s, want %s", field, got, want)
-		}
-	}
-	if got, want := value(`SELECT org_tools_json FROM org_grants WHERE id = 't_old'`), `[{"tool":"org_start","orgs":["s"]}]`; got != want {
-		t.Errorf("merged org tools = %s, want %s", got, want)
-	}
-	log := strings.Join(dumpRows(t, d, `SELECT grant_id, action, COALESCE(kept_grant_id,'-') FROM org_grant_dedupe_log ORDER BY grant_id, action`), "")
-	wantLog := "[a_new rewritten a_new][a_old revoked a_new][n_new revoked -][n_old revoked -][t_new revoked t_old][t_old rewritten t_old][u_new revoked -][u_old revoked -]"
-	if log != wantLog {
-		t.Errorf("log = %s\nwant %s", log, wantLog)
-	}
-	if old := value(`SELECT org_tools_json FROM org_grant_dedupe_log WHERE grant_id = 't_old'`); !strings.Contains(old, "org_stop") {
-		t.Errorf("the log of t_old lost its former tools: %s", old)
-	}
-
-	after := dumpRows(t, d, all)
-	if err := d.ApplyMigrations(); err != nil {
-		t.Fatalf("second run: %v", err)
-	}
-	tx, err := d.DB.Begin()
+func profiles172(t *testing.T, d *Database) map[string]string {
+	t.Helper()
+	rows, err := d.DB.Query(`SELECT id, profile_id FROM person_messages`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dedupeOrgGrants(t.Context(), tx); err != nil {
-		t.Fatalf("second merge: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range migrationStatements(t, "172_org_grants_live_unique.sql") {
-		if _, err := d.DB.Exec(s); err != nil {
-			t.Fatalf("replay: %v", err)
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, p string
+		if err := rows.Scan(&id, &p); err != nil {
+			t.Fatal(err)
 		}
+		out[id] = p
 	}
-	if got := dumpRows(t, d, all); strings.Join(got, "\n") != strings.Join(after, "\n") {
-		t.Error("a second run changed rows")
-	}
-	if n := value(`SELECT COUNT(*) FROM org_grant_dedupe_log`); n != "8" {
-		t.Errorf("a second run recorded more: %s rows", n)
+	return out
+}
+
+// Migration 172 gives every message its person's profile without losing a row or changing anything else, records
+// what it changed, leaves orphans alone, keeps every message visible in its person's profile and in no other, and
+// running it again changes nothing.
+func TestMigration172RepairsMessageProfiles(t *testing.T) {
+	d := seed172(t)
+	before := dumpRows(t, d, messagesButProfile)
+	// What the person-joined listings showed before the migration: the messages of a profile's people.
+	visibleBefore := map[string][]string{}
+	for _, p := range []string{"a", "b", "default"} {
+		visibleBefore[p] = dumpRows(t, d, `SELECT pm.id FROM person_messages pm JOIN people p ON p.id = pm.person_id
+			WHERE p.profile_id = ? ORDER BY pm.id`, p)
+		if len(visibleBefore[p]) == 0 {
+			t.Fatalf("seed: nothing visible in %s", p)
+		}
 	}
 
-	// The database now refuses a second live row per slot, and only then.
-	const ins = `INSERT INTO org_grants (id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at) VALUES (?, 'p', 'o', ?, ?, '[]', 'n', 'n')`
-	for _, c := range [][3]string{{"d1", "r", autoTool("x", `"mode":"run"`)}, {"d2", "boss", `[]`}, {"d3", "boss", `null`}} {
-		if _, err := d.DB.Exec(ins, c[0], c[1], c[2]); err == nil {
-			t.Errorf("%s: a second live row was accepted", c[0])
+	for run := 1; run <= 2; run++ {
+		if err := d.ApplyMigrations(); err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		if got := fmt.Sprint(profiles172(t, d)); got != fmt.Sprint(want172) {
+			t.Fatalf("run %d: profiles = %s\nwant %v", run, got, want172)
+		}
+		if got := dumpRows(t, d, messagesButProfile); strings.Join(got, "\n") != strings.Join(before, "\n") {
+			t.Fatalf("run %d: rows changed beyond profile_id:\n%s\nwas:\n%s", run, strings.Join(got, "\n"), strings.Join(before, "\n"))
 		}
 	}
-	for _, c := range [][3]string{{"e1", "r", autoTool("z", `"mode":"run"`)}, {"e2", "none", `[]`}, {"e3", "bad", autoTool("x", `"mode":"run"`)}} {
-		if _, err := d.DB.Exec(ins, c[0], c[1], c[2]); err != nil {
-			t.Errorf("%s: %v", c[0], err)
+	// The statements themselves are idempotent too.
+	for _, s := range migrationStatements(t, "172_person_messages_profile.sql") {
+		if _, err := d.DB.Exec(s); err != nil {
+			t.Fatalf("replaying %q: %v", truncate(s, 60), err)
 		}
 	}
-	if _, err := d.DB.Exec(`UPDATE org_grants SET revoked_at = NULL WHERE id = 'a_old'`); err == nil {
-		t.Error("reviving a duplicate was accepted")
+	if got := fmt.Sprint(profiles172(t, d)); got != fmt.Sprint(want172) {
+		t.Fatalf("after a replay: %s", got)
+	}
+
+	repairs := dumpRows(t, d, `SELECT message_id, was_profile, now_profile FROM person_message_profile_repairs ORDER BY message_id`)
+	wantRepairs := "[empty  a] [oddnow a default] [wrongdefault default b] [wrongother b a]"
+	if got := strings.Join(repairs, " "); got != wantRepairs {
+		t.Errorf("recorded repairs = %s, want %s", got, wantRepairs)
+	}
+
+	for _, p := range []string{"a", "b", "default"} {
+		all, err := d.ListAllPersonMessagesByStatus(p, "", "", false, 100, 0)
+		if err != nil {
+			t.Fatalf("list all %s: %v", p, err)
+		}
+		var ids []string
+		byStatus := map[string]bool{}
+		for _, st := range []string{"sent", "draft"} {
+			ms, err := d.ListPersonMessagesByStatus(p, st)
+			if err != nil {
+				t.Fatalf("by status %s: %v", p, err)
+			}
+			for _, m := range ms {
+				byStatus["["+m.ID+"]"] = true
+			}
+		}
+		for _, m := range all {
+			ids = append(ids, "["+m.ID+"]")
+			one, err := d.ListPersonMessages(m.PersonID, "", p, 100, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, o := range one {
+				found = found || o.ID == m.ID
+			}
+			if !found || !byStatus["["+m.ID+"]"] {
+				t.Errorf("%s/%s: person listing %v, status listing %v", p, m.ID, found, byStatus["["+m.ID+"]"])
+			}
+		}
+		sort.Strings(ids)
+		if strings.Join(ids, " ") != strings.Join(visibleBefore[p], " ") {
+			t.Errorf("profile %s sees %v, saw %v before", p, ids, visibleBefore[p])
+		}
+		if len(byStatus) != len(visibleBefore[p]) {
+			t.Errorf("profile %s: status listings show %d, want %d", p, len(byStatus), len(visibleBefore[p]))
+		}
 	}
 }
 
-// A database with no duplicates (the usual case) is not touched.
-func TestMigration172LeavesCleanGrantsAlone(t *testing.T) {
-	d := open156(t)
-	applyMigrationsBelow(t, d, 172)
-	if _, err := d.DB.Exec(`INSERT INTO org_grants (id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at)
-		VALUES ('g1','p','o','r',?,'[]','c','u'), ('g2','p','o','r','[]','[]','c','u')`, autoTool("x", `"mode":"run"`)); err != nil {
-		t.Fatal(err)
-	}
-	before := dumpRows(t, d, `SELECT * FROM org_grants ORDER BY id`)
+// After 172 the database itself refuses a message in another profile than its person's, and fills in a profile that
+// is left empty.
+func TestMigration172KeepsProfilesEqual(t *testing.T) {
+	d := seed172(t)
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
-	after := dumpRows(t, d, `SELECT * FROM org_grants ORDER BY id`)
-	if fmt.Sprint(after) != fmt.Sprint(before) {
-		t.Errorf("rows changed: %v\nwas %v", after, before)
+	profileOf := func(id string) string { return profiles172(t, d)[id] }
+	ins := `INSERT INTO person_messages (id, person_id, source, external_id, profile_id) VALUES (?, ?, 'x', ?, ?)`
+
+	for _, bad := range []struct{ person, profile string }{{"pa", "b"}, {"pb", "default"}} {
+		if _, err := d.DB.Exec(ins, "bad", bad.person, "bad", bad.profile); err == nil || !strings.Contains(err.Error(), "profile") {
+			t.Errorf("insert for %s in %s: err = %v, want refused", bad.person, bad.profile, err)
+		}
+		if _, err := d.DB.Exec(strings.Replace(ins, "INSERT", "INSERT OR IGNORE", 1), "bad", bad.person, "bad", bad.profile); err == nil {
+			t.Errorf("INSERT OR IGNORE for %s in %s was accepted", bad.person, bad.profile)
+		}
 	}
-	if got := dumpRows(t, d, `SELECT COUNT(*) FROM org_grant_dedupe_log`); fmt.Sprint(got) != "[[0]]" {
-		t.Errorf("log: %v", got)
+	if profileOf("bad") != "" {
+		t.Error("a refused insert left a row")
 	}
+	if _, err := d.DB.Exec(ins, "filled", "pb", "filled", ""); err != nil || profileOf("filled") != "b" {
+		t.Errorf("an empty profile: %q, %v, want b", profileOf("filled"), err)
+	}
+	if _, err := d.DB.Exec(`UPDATE person_messages SET profile_id = 'b' WHERE id = 'ok'`); err == nil {
+		t.Error("moving a message to another profile was accepted")
+	}
+	if _, err := d.DB.Exec(`UPDATE person_messages SET profile_id = '' WHERE id = 'ok'`); err == nil {
+		t.Error("emptying a message's profile was accepted")
+	}
+	if _, err := d.DB.Exec(`UPDATE person_messages SET person_id = 'pb' WHERE id = 'ok'`); err == nil {
+		t.Error("giving a message to a person of another profile was accepted")
+	}
+	// Rows with no owner to compare with stay writable.
+	for _, id := range []string{"orphan", "orphanempty", "personnoowner"} {
+		if _, err := d.DB.Exec(`UPDATE person_messages SET status = 'sent', profile_id = profile_id WHERE id = ?`, id); err != nil {
+			t.Errorf("updating %s: %v", id, err)
+		}
+	}
+	// A person that changes profile takes its messages along.
+	if _, err := d.DB.Exec(`UPDATE people SET profile_id = 'c' WHERE id = 'pa'`); err != nil {
+		t.Fatal(err)
+	}
+	if profileOf("ok") != "c" || profileOf("wrongother") != "c" || profileOf("orphan") != "b" {
+		t.Errorf("after the person moved: %v", profiles172(t, d))
+	}
+	// A re-sync of a stored message still updates it.
+	msg := &PersonMessage{PersonID: "pb", Source: "x", ExternalID: "filled", Body: "again"}
+	if err := d.UpsertPersonMessage(msg, "b"); err != nil {
+		t.Errorf("upsert: %v", err)
+	}
+}
+
+// Reads filter on the message's own profile as well as the person's: should a row ever disagree (an older binary,
+// a hand edit), it shows in neither profile.
+func TestMessageReadsNeverCrossProfiles(t *testing.T) {
+	d := seed172(t)
+	if err := d.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	for _, trig := range dumpRows(t, d, `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'person%profile%'`) {
+		if _, err := d.DB.Exec("DROP " + "TRIGGER " + strings.Trim(trig, "[]")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.DB.Exec(`UPDATE person_messages SET profile_id = 'b' WHERE id = 'ok'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"a", "b"} {
+		all, err := d.ListAllPersonMessagesByStatus(p, "", "", false, 100, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sent, err := d.ListPersonMessagesByStatus(p, "sent")
+		if err != nil {
+			t.Fatal(err)
+		}
+		one, err := d.ListPersonMessages("pa", "", p, 100, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range append(all, sent...) {
+			if m.ID == "ok" {
+				t.Errorf("profile %s lists the mismatched message", p)
+			}
+		}
+		for _, m := range one {
+			if m.ID == "ok" {
+				t.Errorf("profile %s lists the mismatched message under its person", p)
+			}
+		}
+	}
+}
+
+func migrationStatements(t *testing.T, file string) []string {
+	t.Helper()
+	b, err := data.MigrationsFS.ReadFile("migrations/" + file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := splitStatementsChecked(string(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
 }

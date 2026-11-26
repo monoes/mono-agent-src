@@ -66,7 +66,7 @@ func (d Deps) newSessionTreeCmd() *cobra.Command {
 					fmt.Fprintln(w, "No sessions.")
 					return nil
 				}
-				printSessionTree(w, tree, 0)
+				printSessionTree(w, tree, 0, func(se tasks.Session) *tasks.WrapUp { return wrapUpOf(ctx, store, p.ID, se, actor) })
 				return nil
 			})
 		},
@@ -75,10 +75,14 @@ func (d Deps) newSessionTreeCmd() *cobra.Command {
 	return cmd
 }
 
-func printSessionTree(w io.Writer, nodes []tasks.SessionNode, level int) {
+func printSessionTree(w io.Writer, nodes []tasks.SessionNode, level int, wrap func(tasks.Session) *tasks.WrapUp) {
 	for _, n := range nodes {
-		fmt.Fprintf(w, "%s#%d  %-8s %-9s %d/%d done  %s of %s  %s\n", strings.Repeat("  ", level), n.ID, n.State, n.Kind,
+		fmt.Fprintf(w, "%s#%d  %-8s %-9s %d/%d done  %s of %s  %s", strings.Repeat("  ", level), n.ID, n.State, n.Kind,
 			n.Counts.Done, n.Counts.Total, money(n.SpentUSD), budgetWord(n.Session), taskCut(n.Title, 60))
-		printSessionTree(w, n.Children, level+1)
+		if wu := wrap(n.Session); wu != nil {
+			fmt.Fprintf(w, "  [wrap-up: %s]", wrapUpWords(*wu))
+		}
+		fmt.Fprintln(w)
+		printSessionTree(w, n.Children, level+1, wrap)
 	}
 }

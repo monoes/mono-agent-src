@@ -14,9 +14,9 @@ function list(payload, key) {
 }
 
 /**
- * Pending raw items, one per resolvable unit. Approvals are grouped by
- * (role, action) because `org approve|deny` resolves every pending entry for
- * that pair at once.
+ * Pending raw items, one per resolvable unit. An approval with a request id is
+ * its own unit, so its buttons resolve that call alone. Those a monomind gave
+ * no id are grouped by (role, action): only all of them can be resolved.
  */
 export function pendingRawItems(questionsRes, gatesRes, approvalsRes) {
   const out = []
@@ -31,20 +31,20 @@ export function pendingRawItems(questionsRes, gatesRes, approvalsRes) {
   const groups = new Map()
   for (const a of list(approvalsRes, 'approvals')) {
     if (a.approved !== null && a.approved !== undefined) continue
-    const key = `approval:${a.roleId}:${a.action}`
+    const key = a.requestId ? `approval:${a.requestId}` : `approval:${a.roleId}:${a.action}`
     const g = groups.get(key)
     const since = toMillis(a.ts)
-    const commands = a.command ? [{ command: a.command, truncated: !!a.command_truncated, cwd: a.cwd }] : []
+    // What each call would do, as ApprovalCall shows it.
+    const calls = a.command || a.input ? [{ command: a.command, truncated: !!a.command_truncated, cwd: a.cwd, input: a.input }] : []
     if (!g) {
       groups.set(key, {
         kind: 'approval', key, ref: `${a.roleId}:${a.action}`, role: a.roleId ?? null, action: a.action,
-        since, count: 1, requestIds: a.requestId ? [a.requestId] : [], text: a.question ?? i18n.t('ui6Orgs.approve_action', { action: a.action }), raw: a, commands,
+        since, count: 1, requestId: a.requestId || null, text: a.question ?? i18n.t('ui6Orgs.approve_action', { action: a.action }), raw: a, calls,
       })
     } else {
       g.count++
       if (since != null && (g.since == null || since < g.since)) g.since = since
-      if (a.requestId) g.requestIds.push(a.requestId)
-      g.commands.push(...commands)
+      g.calls.push(...calls)
     }
   }
   out.push(...groups.values())
@@ -56,7 +56,10 @@ function matches(item, raw) {
   if (kind !== raw.kind) return false
   if (kind === 'question' || kind === 'gate') return item.ref === raw.ref
   if (kind === 'approval') {
-    if (item.ref && (item.ref === raw.ref || raw.requestIds.includes(item.ref))) return true
+    // A request with an id is only itself: another of the same role and tool
+    // must not appear under this item's summary.
+    if (raw.requestId) return item.ref === raw.requestId
+    if (item.ref === raw.ref) return true
     return item.requester === raw.role && item.class === classOfAction(raw.action)
   }
   return false

@@ -70,7 +70,7 @@ func (v *sentAtValue) parse(s string) {
 // julian day), whatever form it is stored in, or NULL when it is empty or
 // unreadable. It lets ORDER BY see RFC3339 and Go time text as the same scale.
 // Text that does not start with a digit is unreadable too, which keeps 'now'
-// out of julianday: the expression is indexed (migration 171, which must
+// out of julianday: the expression is indexed (migration 172, which must
 // change with it), and SQLite refuses a non-deterministic one there.
 func sentAtInstant(col string) string {
 	c := "NULLIF(" + col + ", '')"

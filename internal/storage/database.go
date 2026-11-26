@@ -426,7 +426,7 @@ func (d *Database) afterSchemaMigrations(ctx context.Context) error {
 // them. Keyed by migration version.
 var preMigrationSteps = map[int]func(ctx context.Context, tx *sql.Tx) error{
 	95:  prepareConnectionsForAdhocTables,
-	172: dedupeOrgGrants,
+	173: dedupeOrgGrants,
 }
 
 // prepareConnectionsForAdhocTables lets migration 095 run on a database whose

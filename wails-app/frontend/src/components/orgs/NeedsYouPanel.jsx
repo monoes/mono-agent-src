@@ -7,7 +7,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, MessageCircleQuestion, ShieldAlert, KeyRound, Clock, Hourglass, Workflow } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { KVBlock } from '../KVBlock.jsx'
-import { ApprovalCommand } from '../ApprovalCommand.jsx'
+import { ApprovalCall } from '../ApprovalCommand.jsx'
+import { NoRequestID } from '../NoRequestID.jsx'
 import { pendingRawItems, joinNeedsYou } from './needsYouModel.js'
 import { waitedLabel, idleStopRemainingMs, idleStopLabel } from './waiting.js'
 import { Card, Chip, TierChip, mono, mutedText, sectionLabel } from './ui.jsx'
@@ -76,7 +77,7 @@ function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
           {raw?.count > 1 && <Chip>{t('ui6Orgs.calls', { count: raw.count })}</Chip>}
         </div>
         {summary && <div style={{ ...mono, fontSize: 11.5, color: 'var(--text)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{summary}</div>}
-        {raw?.commands?.map((c, i) => <ApprovalCommand key={i} {...c} />)}
+        {raw?.calls?.map((c, i) => <ApprovalCall key={i} {...c} />)}
         <WaitingLine since={item?.waiting_since ?? raw?.since} idleSeconds={item?.idle_stop_in_seconds} fetchedAt={fetchedAt} now={now} />
         {raw && (
           <details>
@@ -97,12 +98,13 @@ function PendingCard({ orgName, entry, fetchedAt, now, busyKey, onAct }) {
             </button>
           </div>
         )}
-        {raw?.kind === 'approval' && (
+        {raw?.kind === 'approval' && !raw.requestId && <NoRequestID org={orgName} role={raw.role} action={raw.action} />}
+        {raw?.kind === 'approval' && raw.requestId && (
           <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => onAct(key, () => api.approveOrgAction(orgName, raw.role, raw.action))}>
+            <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => onAct(key, () => api.approveOrgAction(orgName, raw.role, raw.action, raw.requestId))}>
               <CheckCircle2 size={11} /> {t('ui6Orgs.approve')}
             </button>
-            <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => onAct(key, () => api.denyOrgAction(orgName, raw.role, raw.action))}>
+            <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => onAct(key, () => api.denyOrgAction(orgName, raw.role, raw.action, raw.requestId))}>
               <XCircle size={11} /> {t('ui6Orgs.deny')}
             </button>
           </div>
