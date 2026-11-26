@@ -5533,5 +5533,27 @@
     "cancel": "Cancelar",
     "open": "Abrir",
     "import": "Importar"
+  },
+  "ui6ConnMisc": {
+    "generate_title": "Generar un flujo de trabajo con coder",
+    "close": "Cerrar",
+    "describe": "Describe lo que debe hacer el flujo de trabajo.",
+    "brief_placeholder": "Cada mañana, obtén las filas nuevas de mi hoja y envíame un resumen por correo…",
+    "cancel": "Cancelar",
+    "generate": "Generar con coder",
+    "workflows": "Flujos de trabajo",
+    "auth_expired": "La autenticación ha caducado",
+    "reconnect_failed": "No se pudo volver a conectar",
+    "search": "Buscar {{type}}...",
+    "browse_all": "Ver todo",
+    "select": "Seleccionar {{label}}",
+    "name_placeholder": "Nombre...",
+    "create": "Crear",
+    "auth_expired_reconnect": "La autenticación ha caducado: vuelve a conectar tu cuenta.",
+    "reconnecting": "Reconectando…",
+    "reconnect_account": "Volver a conectar la cuenta",
+    "loading": "Cargando...",
+    "no_results": "No se encontraron resultados",
+    "no_credential": "No hay ninguna credencial seleccionada"
   }
 }

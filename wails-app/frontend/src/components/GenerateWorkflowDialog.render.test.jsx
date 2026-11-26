@@ -6,6 +6,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 const { aitaskApi } = vi.hoisted(() => ({ aitaskApi: { status: vi.fn(), submit: vi.fn() } }))
 vi.mock('./SendToCoderApi.js', async (orig) => ({ ...(await orig()), aitaskApi }))
 
+import '../i18n.js'
 import GenerateWorkflowDialog, { BRIEF_MAX } from './GenerateWorkflowDialog.jsx'
 import { CoderBubbleContext } from './bubbles/CoderBubbleContext.jsx'
 

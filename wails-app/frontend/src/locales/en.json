@@ -5533,5 +5533,27 @@
     "cancel": "Cancel",
     "open": "Open",
     "import": "Import"
+  },
+  "ui6ConnMisc": {
+    "generate_title": "Generate a workflow with coder",
+    "close": "Close",
+    "describe": "Describe what the workflow should do.",
+    "brief_placeholder": "Every morning, fetch new rows from my sheet and email me a summary…",
+    "cancel": "Cancel",
+    "generate": "Generate with coder",
+    "workflows": "Workflows",
+    "auth_expired": "Authentication expired",
+    "reconnect_failed": "Reconnection failed",
+    "search": "Search {{type}}...",
+    "browse_all": "Browse all",
+    "select": "Select {{label}}",
+    "name_placeholder": "Name...",
+    "create": "Create",
+    "auth_expired_reconnect": "Authentication expired — please reconnect your account.",
+    "reconnecting": "Reconnecting…",
+    "reconnect_account": "Reconnect Account",
+    "loading": "Loading...",
+    "no_results": "No results found",
+    "no_credential": "No credential selected"
   }
 }
