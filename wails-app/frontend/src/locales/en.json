@@ -6422,5 +6422,9 @@
     "task_complete": "complete",
     "task_failed": "failed",
     "task_cancelled": "cancelled"
+  },
+  "ui8Sandbox": {
+    "badge": "No sandbox",
+    "agentLabel": "No sandbox: this agent has full access"
   }
 }

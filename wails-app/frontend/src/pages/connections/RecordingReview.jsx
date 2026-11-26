@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n.js'
 import { ArrowLeft, ShieldCheck, Play, Save, Sparkles, AlertTriangle } from 'lucide-react'
 import { api } from '../../services/api.js'
+import { UnsandboxedWarning } from '../../components/chat/ChatWarnings.jsx'
 import { confirm } from '../../components/ConfirmDialog.jsx'
 import { Chip, EffectChip, ErrorBox, OkBox, Busy, isRisky, body, label, mono, muted, panel } from './ui.jsx'
 import { ScriptSources } from './ImportReview.jsx'
@@ -77,6 +78,7 @@ export default function RecordingReview({ recording, automationId, onBack, onSav
   const [forceAsk, setForceAsk] = useState(false) // lint errors shown, waiting for "Save anyway"
   const [draftDir, setDraftDir] = useState('')
   const [draft, setDraft] = useState(null)
+  const [unsandboxed, setUnsandboxed] = useState(false) // the drafting turn ran without a sandbox
   const [verify, setVerify] = useState(null)
   const [saved, setSaved] = useState(null)
   const [names, setNames] = useState({ action: '', automation: '', fragment: '' })
@@ -96,6 +98,7 @@ export default function RecordingReview({ recording, automationId, onBack, onSav
       const d = res.draft || {}
       setDraftDir(res.draftDir)
       setDraft(d)
+      setUnsandboxed(!!res.sandboxStatus)
       setNames({ action: d.names?.action || d.action || '', automation: d.names?.automation || d.targetAutomation || automationId, fragment: d.names?.fragment || '' })
       setInputNames(Object.fromEntries((d.inputs || []).map(i => [i.name, i.name])))
       setSaveAs(d.saveAs || 'action')
@@ -170,6 +173,7 @@ export default function RecordingReview({ recording, automationId, onBack, onSav
 
       {draft && (
         <>
+          {unsandboxed && <UnsandboxedWarning />}
           <div style={{ ...panel, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Sparkles size={12} color="var(--cyan)" />

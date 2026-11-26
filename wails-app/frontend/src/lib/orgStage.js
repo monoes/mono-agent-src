@@ -476,6 +476,8 @@ function stageApply(d, ev) {
     case 'agent.status':
       if (!p.agentId || !p.to) break
       if (p.branch) d.node(p.agentId).branch = p.branch
+      // Per run and absent from other agents: kept once reported.
+      if (p.confinement) d.node(p.agentId).confinement = p.confinement
       // A repeat of the same status only updates the leases it holds.
       if (d.nodes[p.agentId]?.status === p.to) {
         setStatus(d, ev, p.agentId, p.to, p.detail, p.leases)

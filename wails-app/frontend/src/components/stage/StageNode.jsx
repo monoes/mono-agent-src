@@ -144,6 +144,7 @@ export const StageNode = memo(function StageNode({ node, x, y, selected, leadInf
   else if (node.status === 'queued') line = t('stage.status.queued')
   else if (isIdleVeteran(node)) line = t('stage.veteranIdle')
   else line = node.summary || doingText(node)
+  const unsandboxed = node.confinement === 'write-lease'
   const Fallback = isLead ? Code2 : node.native ? Bot : User
   const cost = formatCost(node.costUsd, node.costEstimated)
   const tokens = node.tokensIn != null || node.tokensOut != null ? `${formatTokens(node.tokensIn ?? 0)}/${formatTokens(node.tokensOut ?? 0)}` : ''
@@ -160,11 +161,12 @@ export const StageNode = memo(function StageNode({ node, x, y, selected, leadInf
     <button type="button" className={cls} data-testid="stage-node" data-agent={node.id} data-status={node.status}
       title={isIdleVeteran(node) ? t('stage.veteranHelp') : undefined}
       aria-pressed={selected} onClick={() => onSelect(node.id)}
-      aria-label={t('stage.nodeLabel', { name: title, status: statusLabel, doing: line })}
+      aria-label={[t('stage.nodeLabel', { name: title, status: statusLabel, doing: line }), unsandboxed && t('ui8Sandbox.agentLabel')].filter(Boolean).join('. ')}
       style={{ left: x, top: y, borderTopColor: color }}>
       {node.needsYou && <span className="stage-badge needs" data-testid="stage-needs-you">{t('stage.needsYou')}</span>}
       {node.limited && <span className="stage-badge limited" title={t('stage.limitedHelp')}>{t('stage.limited')}</span>}
       {node.fullAccess && <span className="stage-badge access"><FullAccessBadge entry={node.fullAccess} compact /></span>}
+      {unsandboxed && <span className="stage-badge unsandboxed" data-testid="stage-unsandboxed" title={t('ui8Sandbox.agentLabel')}>{t('ui8Sandbox.badge')}</span>}
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
         <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}22`, color }}>
           {icon ? <img src={iconUrl(icon)} alt="" width={16} height={16} /> : <Fallback size={12} />}

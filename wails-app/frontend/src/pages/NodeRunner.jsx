@@ -41,6 +41,8 @@ import { withAiPorts, isAiEdge, checkSubConnection, subEdge, missingRequired, ai
 import { AI_GROUP_PREFIX } from './paletteSections.js'
 import { isAgentNotSetup, withoutAgentSetupMarker } from '../lib/agentSetup.js'
 import AgentSetupLink from '../components/AgentSetupLink.jsx'
+import { UnsandboxedWarning } from '../components/chat/ChatWarnings.jsx'
+import { ranUnsandboxed } from '../lib/nodeSandbox.js'
 import { useSchemaCatalog, localizeFields, localizeSubInputs } from '../lib/schemaI18n.js'
 
 // ── Wails bindings with mock fallback ────────────────────────────────────────
@@ -1014,6 +1016,8 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 </button>
               )}
             </div>
+
+            {node.runStatus === 'ok' && ranUnsandboxed(node) && <UnsandboxedWarning />}
 
             {node.runStatus === 'running' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11 }}>

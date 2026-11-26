@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { UnsandboxedWarning } from '../components/chat/ChatWarnings.jsx'
 import { useTranslation } from 'react-i18next'
 import { Sparkles, ChevronDown, ChevronRight, Lock, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
@@ -76,11 +77,11 @@ export default function Info({ isActive = true }) {
         fresh = await loadEntries()
       } catch {
         // The fill itself worked: do not tell the user to run it again.
-        setAiResult({ ok: true, text: t('infoPage.filledReloadFailed', { count: n }) })
+        setAiResult({ ok: true, unsandboxed: !!res?.sandbox_status, text: t('infoPage.filledReloadFailed', { count: n }) })
         return
       }
       const empty = leftEmpty(catalog, fresh, profileType(fresh))
-      setAiResult({ ok: true, text: n > 0 ? t('info.aiDone', { count: n, empty }) : t('info.aiNothing', { empty }) })
+      setAiResult({ ok: true, unsandboxed: !!res?.sandbox_status, text: n > 0 ? t('info.aiDone', { count: n, empty }) : t('info.aiNothing', { empty }) })
     } catch (e) {
       setAiResult({ ok: false, text: t('info.aiFailed', { message: errorText(e) }) })
     } finally {
@@ -134,6 +135,7 @@ export default function Info({ isActive = true }) {
             </div>
           )}
         </div>
+        {aiResult?.unsandboxed && <UnsandboxedWarning />}
         {loadError && <div className="info-banner is-error" role="alert"><AlertTriangle size={14} color="var(--red)" /><span>{loadError}</span><button type="button" className="btn btn-ghost btn-sm" onClick={load}>{t('nodeRunner.modals.retry')}</button></div>}
         {!catalog && !loadError && <div className="info-lead">{t('info.loading')}</div>}
         {catalog && groups.length === 0 && <div className="info-lead">{t('info.empty')}</div>}
