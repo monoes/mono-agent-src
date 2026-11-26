@@ -3841,7 +3841,14 @@
     "inputItems_one": "ENTRADA · {{count}} elemento",
     "inputItems_other": "ENTRADA · {{count}} elementos",
     "moreItems": "+ {{n}} más",
-    "unsaved": "SIN GUARDAR"
+    "unsaved": "SIN GUARDAR",
+    "turnAgentSetup": "El agente de IA no está instalado o no ha iniciado sesión. Abre Agentes de IA, configura uno y vuelve a enviar.",
+    "turnAuth": "El agente de IA rechazó su inicio de sesión. Vuelve a iniciar sesión en la página de agentes de IA y envía de nuevo.",
+    "turnQuota": "El proveedor de IA indica que se ha agotado la cuota. Espera a que se restablezca o cambia a otro agente o modelo y vuelve a enviar.",
+    "turnRate": "El proveedor de IA está limitando la frecuencia. Espera un minuto o cambia a otro modelo y vuelve a enviar.",
+    "turnMissing": "No se encontró el programa del agente de IA. Comprueba su estado de instalación en Agentes de IA y vuelve a enviar.",
+    "turnBudget": "El turno alcanzó su límite de gasto. Sube el límite o pide menos y vuelve a enviar.",
+    "turnTimeout": "El turno se quedó sin tiempo. Pide un paso más pequeño y vuelve a enviar."
   },
   "ui6PagesPeople": {
     "group_sales_title": "Embudo de ventas",

@@ -11,6 +11,7 @@ import { Inspector } from './NodeRunner.jsx'
 import FormFieldsEditor from './FormFieldsEditor.jsx'
 import { checkSubConnection } from './aiSubNodes.js'
 import { parseTriggerInput } from './triggerInput.js'
+import { failureHint } from '../lib/turnFailure.js'
 
 vi.mock('../wailsjs/go/main/App', async (importOriginal) => ({
   ...await importOriginal(),
@@ -80,5 +81,10 @@ describe('step settings in Spanish', () => {
     render(<FormFieldsEditor field={{ key: 'formFields', label: 'Campos' }} value="" config={{}} onCommit={vi.fn()} inputStyle={{}} />)
     expect(screen.getByRole('button', { name: /Añadir campo/ })).toBeInTheDocument()
     expect(parseTriggerInput('[').error).toMatch(/^JSON no válido/)
+  })
+
+  it("says what to do about a failed turn in the app's language", () => {
+    expect(failureHint('auth')).toMatch(/inicio de sesión/)
+    expect(failureHint('no-such-code')).toBe('')
   })
 })
