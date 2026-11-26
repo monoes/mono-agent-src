@@ -10,3 +10,15 @@ func (a *App) HILPendingAll() string {
 	}
 	return a.runRawCLI(summaryCLITimeout, unscopedCLIArgs("hil", "pending", "--all"))
 }
+
+// HILOrgPendingAll is the same view's organisation items: `org pending --all`
+// handed back untouched, every question, approval and gate the orgs of every
+// profile wait on, each item and error with its profile. It only reads. It
+// starts monomind for each org, so it gets the org timeout, which is longer
+// than the CLI's own limit for the listing.
+func (a *App) HILOrgPendingAll() string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.runRawCLI(orgCLITimeout, unscopedCLIArgs("org", "pending", "--all"))
+}
