@@ -7,6 +7,8 @@
 // never one the engine would reject; the draft stays on screen with the
 // problems marked.
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import '../i18n.js'
 import { ChevronUp, ChevronDown, Trash2, Plus } from 'lucide-react'
 import {
   FORM_FIELD_TYPES, OPTION_TYPES, parseFormFields, serializeFormFields, validateFormFields,
@@ -40,6 +42,7 @@ function IconButton({ label, onClick, disabled, children }) {
 }
 
 export default function FormFieldsEditor({ field, value, config, onCommit, inputStyle }) {
+  const { t } = useTranslation()
   const [state, setState] = useState(() => {
     const parsed = parseFormFields(value)
     return parsed.error
@@ -94,11 +97,11 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
       </span>
       {mode === 'visual' && (
         <button type="button" style={linkButton} aria-pressed={showPreview} onClick={() => setShowPreview(p => !p)}>
-          {showPreview ? 'Hide preview' : 'Preview'}
+          {showPreview ? t('ui6Node.hidePreview') : t('ui6Node.preview')}
         </button>
       )}
       <button type="button" style={linkButton} aria-pressed={mode === 'json'} onClick={mode === 'json' ? toVisual : toJSON}>
-        {mode === 'json' ? 'Visual editor' : 'Raw JSON'}
+        {mode === 'json' ? t('ui6Node.visualEditor') : t('ui6Node.rawJson')}
       </button>
     </div>
   )
@@ -109,7 +112,7 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
         {header}
         <textarea
           className="field-code"
-          aria-label={`${field.label} JSON`}
+          aria-label={t('ui6Node.jsonOf', { label: field.label })}
           rows={field.rows || 10}
           value={text}
           onChange={e => { setState(s => ({ ...s, text: e.target.value, note: '' })); commit(e.target.value) }}
@@ -129,10 +132,10 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
       {header}
       {fields.length === 0 && (
         <div style={{ ...mono, fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>
-          No fields yet. A form needs at least one.
+          {t('ui6Node.noFormFields')}
         </div>
       )}
-      <ol aria-label="Form fields" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+      <ol aria-label={t('ui6Node.formFieldsList')} style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {fields.map((f, i) => (
           <FieldCard
             key={f.id}
@@ -153,10 +156,10 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
         style={{ ...linkButton, display: 'inline-flex', alignItems: 'center', gap: 4 }}
         onClick={() => { const nf = newField(); focusId.current = nf.id; update([...fields, nf]) }}
       >
-        <Plus size={10} /> Add field
+        <Plus size={10} /> {t('ui6Node.addField')}
       </button>
       {Object.keys(errors).length > 0 && (
-        <div style={errorStyle}>Not saved until the marked fields are fixed.</div>
+        <div style={errorStyle}>{t('ui6Node.notSaved')}</div>
       )}
       {showPreview && <FormPreview fields={fields} config={config} />}
     </div>
@@ -164,6 +167,7 @@ export default function FormFieldsEditor({ field, value, config, onCommit, input
 }
 
 function FieldCard({ f, index, count, error, inputStyle, labelRef, onPatch, onMove, onRemove }) {
+  const { t } = useTranslation()
   const n = index + 1
   const errorId = `form-field-${f.id}-error`
   const types = FORM_FIELD_TYPES.includes(f.fieldType) ? FORM_FIELD_TYPES : [...FORM_FIELD_TYPES, f.fieldType]
@@ -174,30 +178,30 @@ function FieldCard({ f, index, count, error, inputStyle, labelRef, onPatch, onMo
   return (
     <li style={{ ...card, ...(error ? { borderColor: 'rgba(248,113,113,0.6)' } : null) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 6 }}>
-        <span style={{ ...small, flex: 1 }}>Field {n}</span>
-        <IconButton label={`Move field ${n} up`} disabled={index === 0} onClick={() => onMove(-1)}><ChevronUp size={12} /></IconButton>
-        <IconButton label={`Move field ${n} down`} disabled={index === count - 1} onClick={() => onMove(1)}><ChevronDown size={12} /></IconButton>
-        <IconButton label={`Remove field ${n}`} onClick={onRemove}><Trash2 size={12} /></IconButton>
+        <span style={{ ...small, flex: 1 }}>{t('ui6Node.fieldN', { n })}</span>
+        <IconButton label={t('ui6Node.moveFieldUp', { n })} disabled={index === 0} onClick={() => onMove(-1)}><ChevronUp size={12} /></IconButton>
+        <IconButton label={t('ui6Node.moveFieldDown', { n })} disabled={index === count - 1} onClick={() => onMove(1)}><ChevronDown size={12} /></IconButton>
+        <IconButton label={t('ui6Node.removeField', { n })} onClick={onRemove}><Trash2 size={12} /></IconButton>
       </div>
       <input
         ref={labelRef}
-        aria-label={`Field ${n} label`}
+        aria-label={t('ui6Node.fieldLabelOf', { n })}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
-        placeholder="Label, e.g. Email"
+        placeholder={t('ui6Node.labelPlaceholder')}
         value={f.fieldLabel}
         onChange={e => onPatch({ fieldLabel: e.target.value })}
         style={{ ...inputStyle, marginBottom: 6 }}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <select
-          aria-label={`Field ${n} type`}
+          aria-label={t('ui6Node.fieldTypeOf', { n })}
           className="select-compact"
           value={f.fieldType}
           onChange={e => onPatch({ fieldType: e.target.value })}
           style={{ flex: 1, fontSize: 11 }}
         >
-          {types.map(t => <option key={t} value={t}>{t}</option>)}
+          {types.map(type => <option key={type} value={type}>{type}</option>)}
         </select>
         <label style={{ ...mono, fontSize: 10, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
           <input
@@ -206,39 +210,39 @@ function FieldCard({ f, index, count, error, inputStyle, labelRef, onPatch, onMo
             onChange={e => onPatch({ requiredField: e.target.checked })}
             style={{ accentColor: '#00b4d8', width: 13, height: 13 }}
           />
-          Required
+          {t('ui6Node.required')}
         </label>
       </div>
       {takesPlaceholder && (
         <input
-          aria-label={`Field ${n} placeholder`}
-          placeholder="Placeholder (optional)"
+          aria-label={t('ui6Node.fieldPlaceholderOf', { n })}
+          placeholder={t('ui6Node.placeholderOptional')}
           value={f.placeholder}
           onChange={e => onPatch({ placeholder: e.target.value })}
           style={inputStyle}
         />
       )}
       {takesOptions && (
-        <div role="group" aria-label={`Field ${n} options`}>
+        <div role="group" aria-label={t('ui6Node.fieldOptionsOf', { n })}>
           <div style={{ ...small, margin: '2px 0 4px' }}>
-            Options{f.fieldType === 'checkbox' ? ' (none: a single box)' : ''}
+            {t('ui6Node.options')}{f.fieldType === 'checkbox' ? t('ui6Node.optionsSingleBox') : ''}
           </div>
           {options.map((o, oi) => (
             <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 4 }}>
               <input
-                aria-label={`Field ${n} option ${oi + 1}`}
+                aria-label={t('ui6Node.fieldOptionOf', { n, m: oi + 1 })}
                 value={o.option}
                 onChange={e => setOptions(options.map((x, xi) => (xi === oi ? { ...x, option: e.target.value } : x)))}
                 style={{ ...inputStyle, flex: 1 }}
               />
-              <IconButton label={`Move option ${oi + 1} up`} disabled={oi === 0} onClick={() => setOptions(moveItem(options, oi, -1))}><ChevronUp size={11} /></IconButton>
-              <IconButton label={`Move option ${oi + 1} down`} disabled={oi === options.length - 1} onClick={() => setOptions(moveItem(options, oi, 1))}><ChevronDown size={11} /></IconButton>
-              <IconButton label={`Remove option ${oi + 1}`} onClick={() => setOptions(options.filter((_, xi) => xi !== oi))}><Trash2 size={11} /></IconButton>
+              <IconButton label={t('ui6Node.moveOptionUp', { n: oi + 1 })} disabled={oi === 0} onClick={() => setOptions(moveItem(options, oi, -1))}><ChevronUp size={11} /></IconButton>
+              <IconButton label={t('ui6Node.moveOptionDown', { n: oi + 1 })} disabled={oi === options.length - 1} onClick={() => setOptions(moveItem(options, oi, 1))}><ChevronDown size={11} /></IconButton>
+              <IconButton label={t('ui6Node.removeOption', { n: oi + 1 })} onClick={() => setOptions(options.filter((_, xi) => xi !== oi))}><Trash2 size={11} /></IconButton>
             </div>
           ))}
           <button type="button" style={{ ...linkButton, display: 'inline-flex', alignItems: 'center', gap: 4 }}
             onClick={() => setOptions([...options, { option: '' }])}>
-            <Plus size={10} /> Add option
+            <Plus size={10} /> {t('ui6Node.addOption')}
           </button>
         </div>
       )}
@@ -263,12 +267,13 @@ const pv = {
 const previewSelect = { display: 'block', width: '100%', marginTop: 4, fontSize: 13 }
 
 export function FormPreview({ fields, config }) {
+  const { t } = useTranslation()
   const title = String(config?.formTitle ?? '').trim()
   const description = String(config?.formDescription ?? '').trim()
   const button = String(config?.buttonLabel ?? '').trim() || 'Submit'
   return (
-    <section aria-label="Form preview" style={{ marginTop: 6 }}>
-      <div style={small}>Preview</div>
+    <section aria-label={t('ui6Node.formPreview')} style={{ marginTop: 6 }}>
+      <div style={small}>{t('ui6Node.preview')}</div>
       <div style={pv.box} inert>
         {title && <h1 style={{ fontSize: 18, margin: '0 0 6px' }}>{title}</h1>}
         {description && <p style={{ margin: '0 0 4px', whiteSpace: 'pre-wrap' }}>{description}</p>}
@@ -280,7 +285,8 @@ export function FormPreview({ fields, config }) {
 }
 
 function PreviewField({ f }) {
-  const label = String(f.fieldLabel ?? '').trim() || 'Untitled field'
+  const { t } = useTranslation()
+  const label = String(f.fieldLabel ?? '').trim() || t('ui6Node.untitledField')
   const star = f.requiredField ? <span aria-hidden="true"> *</span> : null
   const options = (f.options || []).map(o => String(o.option ?? '').trim()).filter(Boolean)
   if (f.fieldType === 'checkbox' && options.length) {

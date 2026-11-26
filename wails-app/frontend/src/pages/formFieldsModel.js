@@ -15,6 +15,8 @@
 // editor does not know (n8n has more per field) are kept as they were.
 
 // The field types the engine serves.
+import i18n from '../i18n.js'
+
 export const FORM_FIELD_TYPES = ['text', 'email', 'number', 'textarea', 'dropdown', 'date', 'checkbox']
 
 // Types whose choices the editor lists. A dropdown needs at least one; a
@@ -84,16 +86,16 @@ export function parseFormFields(value) {
   if (typeof raw === 'string') {
     const s = raw.trim()
     if (!s) return { fields: [] }
-    if (s.includes('{{')) return { error: 'formFields holds a {{ template }}; edit it as JSON.' }
-    try { raw = JSON.parse(s) } catch (e) { return { error: 'Not valid JSON: ' + e.message } }
+    if (s.includes('{{')) return { error: i18n.t('ui6Node.formTemplate', { template: '{{ template }}' }) }
+    try { raw = JSON.parse(s) } catch (e) { return { error: i18n.t('ui6Node.notJson', { error: e.message }) } }
   }
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = raw.values ?? []
-  if (!Array.isArray(raw)) return { error: 'formFields must be a list of fields.' }
+  if (!Array.isArray(raw)) return { error: i18n.t('ui6Node.formNotList') }
   const fields = []
   for (let i = 0; i < raw.length; i++) {
     const item = raw[i]
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      return { error: `Field ${i + 1} is not an object.` }
+      return { error: i18n.t('ui6Node.fieldNotObject', { n: i + 1 }) }
     }
     fields.push(toEditable(item))
   }
@@ -125,11 +127,11 @@ export function validateFormFields(fields) {
   const seen = new Map()
   for (const f of fields || []) {
     const label = String(f.fieldLabel ?? '').trim()
-    if (!label) { errors[f.id] = 'Give the field a label.'; continue }
-    if (seen.has(label)) { errors[f.id] = `Another field is already labelled "${label}".`; continue }
+    if (!label) { errors[f.id] = i18n.t('ui6Node.fieldNeedsLabel'); continue }
+    if (seen.has(label)) { errors[f.id] = i18n.t('ui6Node.fieldLabelTaken', { label }); continue }
     seen.set(label, f.id)
     if (NEEDS_OPTIONS.has(f.fieldType) && cleanOptions(f.options).length === 0) {
-      errors[f.id] = 'Add at least one option.'
+      errors[f.id] = i18n.t('ui6Node.fieldNeedsOption')
     }
   }
   return errors

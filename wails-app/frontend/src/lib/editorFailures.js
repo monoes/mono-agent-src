@@ -2,6 +2,8 @@
 // kept out of NodeRunner.jsx so it can be tested without rendering the canvas.
 // Every failure is reported through the injected notify(op, message).
 
+import i18n from '../i18n.js'
+
 const why = (e) => e?.message || String(e)
 
 // Opening a run replaces the canvas only when it holds a different workflow.
@@ -15,7 +17,7 @@ export async function toggleActive({ id, prev, next, setActive, save, notify }) 
   if (!id) return
   try { await save(id, next) } catch (e) {
     setActive(prev)
-    notify('activate workflow', `Could not ${next ? 'activate' : 'deactivate'} the workflow: ${why(e)}`)
+    notify(i18n.t('nodeRunnerMore.op_activateWorkflow'), i18n.t(next ? 'ui6Node.activateFailed' : 'ui6Node.deactivateFailed', { error: why(e) }))
   }
 }
 
@@ -24,10 +26,10 @@ export async function toggleActive({ id, prev, next, setActive, save, notify }) 
 export async function loadWorkflowChecked({ id, getWorkflow, stopPolling, notify }) {
   let wf
   try { wf = await getWorkflow(id) } catch (e) {
-    notify('load workflow', `Could not load the workflow: ${why(e)}`)
+    notify(i18n.t('ui6Node.opLoadWorkflow'), i18n.t('ui6Node.loadFailed', { error: why(e) }))
     return null
   }
-  if (!wf) { notify('load workflow', 'That workflow no longer exists.'); return null }
+  if (!wf) { notify(i18n.t('ui6Node.opLoadWorkflow'), i18n.t('ui6Node.workflowGone')); return null }
   stopPolling()
   return wf
 }
@@ -43,9 +45,9 @@ export async function openRunWorkflow({ detail, wfId, needLoad, isDirty, getWork
   try {
     const wf = await getWorkflow(detail.workflow_id)
     if (wf) return { wf }
-    notify('open run', `Workflow ${detail.workflow_id} no longer exists, so only the run's own detail is shown.`)
+    notify(i18n.t('ui6Node.opOpenRun'), i18n.t('ui6Node.runWorkflowGone', { id: detail.workflow_id }))
   } catch (e) {
-    notify('open run', `Could not load workflow ${detail.workflow_id} (${why(e)}), so only the run's own detail is shown.`)
+    notify(i18n.t('ui6Node.opOpenRun'), i18n.t('ui6Node.runWorkflowUnloadable', { id: detail.workflow_id, error: why(e) }))
   }
   return { wf: null }
 }

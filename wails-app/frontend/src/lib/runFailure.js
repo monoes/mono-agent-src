@@ -2,6 +2,8 @@
 // only. The facts (status, the execution's error, each node's error) come
 // from `workflow execution <id> --json` via GetExecutionDetail.
 
+import i18n from '../i18n.js'
+
 const PROBLEM_STATUSES = new Set(['FAILED', 'SUCCESS_WITH_ERRORS'])
 
 // A run refused because the workflow is switched off (app_workflows.go
@@ -30,7 +32,7 @@ export function runProblem(detail, nodes = []) {
     for (const node of nodesNamedIn(error, nodes)) failed.push({ id: node.id, name: node.label, error, inferred: true })
   }
   if (!error && failed.length === 0) {
-    return { status, error: status === 'FAILED' ? 'The run failed without an error message.' : '', failed }
+    return { status, error: status === 'FAILED' ? i18n.t('ui6Node.runNoMessage') : '', failed }
   }
   return { status, error, failed }
 }
