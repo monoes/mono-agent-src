@@ -126,5 +126,13 @@ func evaluateAgent(ctx context.Context, bin, runtime string, app *applications.A
 	if res.Err != nil {
 		return nil, fmt.Errorf("agent turn failed: %s", res.Err.Error())
 	}
-	return parseVerdict(res.ResultText)
+	v, err := parseVerdict(res.ResultText)
+	if err != nil {
+		return nil, err
+	}
+	v.SandboxStatus = "" // never the model's own word
+	if monomind.SandboxMissing(res.SandboxStatus) {
+		v.SandboxStatus = res.SandboxStatus
+	}
+	return v, nil
 }

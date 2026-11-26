@@ -61,5 +61,8 @@ func (n *EvaluateNode) Execute(ctx context.Context, input workflow.NodeInput, co
 		"application_id": applicationID, "verdict": verdict.Verdict, "overall_score": verdict.OverallScore,
 		"rationale": verdict.Rationale,
 	}
+	if verdict.SandboxStatus != "" {
+		out["_agent_sandbox"] = verdict.SandboxStatus
+	}
 	return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{workflow.NewItem(out)}}}, nil
 }

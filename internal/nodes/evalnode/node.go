@@ -19,6 +19,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/datatable"
 	"github.com/monoes/mono-agent/internal/evaluation"
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/nodes/aisub"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -109,7 +110,7 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, cfg map[st
 		}
 		return pass, nil
 	case "setMetrics":
-		out, err := n.setMetrics(ctx, input, cfg)
+		out, unsandboxed, err := n.setMetrics(ctx, input, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -122,6 +123,12 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, cfg map[st
 				return nil, err
 			}
 		}
+		// Marked after recording: a case's metrics are numbers only.
+		for i, s := range unsandboxed {
+			if s != "" {
+				out[i].JSON["_agent_sandbox"] = s
+			}
+		}
 		return []workflow.NodeOutput{{Handle: "main", Items: out}}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s: operation %q (use setInputs, setOutputs, setMetrics or checkIfEvaluating)", workflow.ErrInvalidConfig, nodeType, op)
@@ -129,11 +136,12 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, cfg map[st
 }
 
 // setMetrics computes the metric for each item; each output item holds
-// only the metric, by its name.
-func (n *Node) setMetrics(ctx context.Context, input workflow.NodeInput, cfg map[string]interface{}) ([]workflow.Item, error) {
+// only the metric, by its name. The second result is, per item, the verdict of
+// a judge turn that ran without a sandbox ("" for none).
+func (n *Node) setMetrics(ctx context.Context, input workflow.NodeInput, cfg map[string]interface{}) ([]workflow.Item, []string, error) {
 	metric := cfgStr(cfg, "metric", evaluation.DefaultMetric)
 	if metric != evaluation.MetricCustom && defaultMetricNames[metric] == "" {
-		return nil, fmt.Errorf("%w: %s: unknown metric %q (use correctness, helpfulness, stringSimilarity, categorization, toolsUsed or customMetrics)",
+		return nil, nil, fmt.Errorf("%w: %s: unknown metric %q (use correctness, helpfulness, stringSimilarity, categorization, toolsUsed or customMetrics)",
 			workflow.ErrInvalidConfig, nodeType, metric)
 	}
 	var j *judge
@@ -148,7 +156,7 @@ func (n *Node) setMetrics(ctx context.Context, input workflow.NodeInput, cfg map
 		}
 		var err error
 		if j, err = newJudge(ctx, runtime, model, timeout, input, vault.DBFromContext(ctx), metric); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	held := map[string]interface{}{}
@@ -159,18 +167,21 @@ func (n *Node) setMetrics(ctx context.Context, input workflow.NodeInput, cfg map
 	}
 	engine := workflow.NewExpressionEngine()
 	out := make([]workflow.Item, 0, len(input.Items))
+	unsandboxed := make([]string, 0, len(input.Items))
 	for i, item := range input.Items {
 		ic, err := engine.ResolveConfig(held, input.ItemContext(item.JSON))
 		if err != nil {
-			return nil, fmt.Errorf("%s: item %d: %w", nodeType, i, err)
+			return nil, nil, fmt.Errorf("%s: item %d: %w", nodeType, i, err)
 		}
-		m, err := metricValue(ctx, j, metric, ic)
+		turns, sandbox := monomind.WatchSandbox(ctx)
+		m, err := metricValue(turns, j, metric, ic)
 		if err != nil {
-			return nil, fmt.Errorf("%s: item %d: %w", nodeType, i, err)
+			return nil, nil, fmt.Errorf("%s: item %d: %w", nodeType, i, err)
 		}
 		out = append(out, workflow.Item{JSON: m})
+		unsandboxed = append(unsandboxed, sandbox.Missing())
 	}
-	return out, nil
+	return out, unsandboxed, nil
 }
 
 // metricValue computes one item's metric from its resolved fields.

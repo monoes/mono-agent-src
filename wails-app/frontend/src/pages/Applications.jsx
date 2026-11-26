@@ -200,8 +200,8 @@ export default function Applications({ isActive = true, navData = null, onNaviga
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 16, gap: 12, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>{t('ui6PagesApps.applications')}</h2>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{t('ui6PagesApps.applications')}</h2>
         <div style={{ flex: 1 }} />
         <button style={headerBtnStyle} onClick={() => setShowAdd(true)}><Plus size={13} /> {t('ui6PagesApps.add')}</button>
         {visible.some(queueable) && (
@@ -212,20 +212,20 @@ export default function Applications({ isActive = true, navData = null, onNaviga
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {STATUS_TABS.map(tab => (
           <button
             key={tab}
             onClick={() => setStatusTab(tab)}
             style={{
-              padding: '5px 12px', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--font-mono)',
+              padding: '5px 12px', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
               background: statusTab === tab ? 'rgba(0,180,216,0.15)' : 'transparent',
               border: `1px solid ${statusTab === tab ? 'rgba(0,180,216,0.4)' : 'rgba(255,255,255,0.1)'}`,
               color: statusTab === tab ? '#00b4d8' : 'var(--text-secondary)',
             }}
           >{statusWord(STATUS_KEYS, tab)}</button>
         ))}
-        <input style={{ ...inputStyle, flex: 1, marginLeft: 8 }} placeholder={t('ui6PagesApps.search')} value={search} onChange={e => setSearch(e.target.value)} />
+        <input style={{ ...inputStyle, flex: '1 1 160px', minWidth: 0, marginLeft: 8 }} placeholder={t('ui6PagesApps.search')} value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {error && <div style={{ color: '#ff6b6b', fontSize: 12 }}>{error}</div>}

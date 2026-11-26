@@ -6431,5 +6431,9 @@
     "task_complete": "completada",
     "task_failed": "con error",
     "task_cancelled": "cancelada"
+  },
+  "ui8Sandbox": {
+    "badge": "Sin sandbox",
+    "agentLabel": "Sin sandbox: este agente tiene acceso completo"
   }
 }

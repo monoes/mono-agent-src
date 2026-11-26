@@ -6,6 +6,7 @@ import { ChatTimeline } from '../chat/ChatTimeline.jsx'
 import { LEAD_ID } from '../../lib/orgStage.js'
 import { ModelChip, formatCost, formatTokens, roleColor } from './StageNode.jsx'
 import { FullAccessBadge } from '../orgdesigner/fullAccess.jsx'
+import { UnconfinedWorkerWarning } from '../chat/ChatWarnings.jsx'
 
 // agentTimeline is an agent's own text and tool calls as chatReducer-shaped
 // state, so ChatTimeline (and NativeToolCard under it) renders them exactly
@@ -62,6 +63,7 @@ export function StageDrawer({ node, calls, leadInfo, turnId, isLive, onClose, on
         </button>
       </div>
       <div className="stage-drawer-body">
+        {node.confinement === 'write-lease' && <UnconfinedWorkerWarning />}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
           <ModelChip node={node} fallback={isLead ? leadInfo : null} now={0} />
           {node.access && <span className="stage-chip" style={{ color: 'var(--text-secondary)' }}>{t('stage.access', { access: node.access })}</span>}
