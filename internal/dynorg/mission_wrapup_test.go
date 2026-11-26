@@ -219,3 +219,31 @@ func (r *missionRig) pause() {
 		r.t.Fatal(err)
 	}
 }
+
+// org_roster's suggested team can cost a chooser call: a spent mission gets the plain roster and a note instead.
+func TestWrapUpRosterSuggestsNoTeamOnASpentMission(t *testing.T) {
+	r := newRig(t, rigOpts{conv: "conv-1", budget: 1})
+	r.add(spec{title: "one", exec: ExecWorker})
+	r.approve()
+	c := r.conductorFor(Limits{MaxAgents: 20, MaxConcurrent: 5}, r.leadOf("conv-1"))
+	ch := &fakeChooser{}
+	c.cfg.Staffer.Chooser = ch
+	const brief = `{"brief":"implement the cache layer, then write tests that verify it, and review the change for security problems"}`
+	if out := r.call(c, ToolRoster, brief); !strings.Contains(out, `"suggested_team"`) || len(ch.asked) == 0 {
+		t.Fatalf("with money left the suggestion is made: %d chooser calls, %s", len(ch.asked), out)
+	}
+	r.spend(1.2)
+	ch.asked = nil
+	for _, args := range []string{brief, `{}`} {
+		out := r.call(c, ToolRoster, args)
+		if !strings.Contains(out, `"models"`) || strings.Contains(out, `"suggested_team"`) {
+			t.Errorf("the roster of a spent mission for %s: %s", args, out)
+		}
+		if asked := strings.Contains(out, "has spent its budget"); asked != (args == brief) {
+			t.Errorf("the note for %s: %v", args, asked)
+		}
+	}
+	if len(ch.asked) != 0 {
+		t.Errorf("a spent mission paid %d chooser calls: %v", len(ch.asked), ch.asked)
+	}
+}

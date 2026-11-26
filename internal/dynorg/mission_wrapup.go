@@ -58,7 +58,15 @@ var paidTools = map[string]bool{
 
 // refusePaidWork refuses a tool that starts paid work while the lead's mission has spent its budget.
 func (c *Conductor) refusePaidWork(ctx context.Context, tool string) error {
-	if !paidTools[tool] || c.cfg.Mission == nil {
+	if !paidTools[tool] {
+		return nil
+	}
+	return c.refuseIfSpent(ctx, tool)
+}
+
+// refuseIfSpent refuses a piece of paid work while the lead's mission has spent its budget.
+func (c *Conductor) refuseIfSpent(ctx context.Context, tool string) error {
+	if c.cfg.Mission == nil {
 		return nil
 	}
 	se, w, err := c.cfg.Mission.WrapUp(ctx)
