@@ -50,6 +50,26 @@
     return "";
   }
 
+  /**
+   * fieldText is a text field's value. Unlike textOf it is never clipped: the
+   * whole of it is what a button sends, so the whole of it is shown.
+   */
+  const fieldText = (v) => (typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? String(v) : "");
+
+  /**
+   * grow makes a text box as tall as its text. The field keeps its height while
+   * the box is measured, so the log does not jump on each key.
+   */
+  function grow(el) {
+    const holder = el.parentElement && el.parentElement.style ? el.parentElement : null;
+    const held = holder ? holder.style.minHeight : "";
+    if (holder && holder.offsetHeight) holder.style.minHeight = `${holder.offsetHeight}px`;
+    el.style.height = "auto";
+    // 0 while the card is not shown: the width observer measures it once it is.
+    if (el.scrollHeight) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight + 1}px`;
+    if (holder) holder.style.minHeight = held;
+  }
+
   function mount(doc, surface, opts) {
     const o = opts || {};
     const setT = o.setTimeout || ((fn, ms) => setTimeout(fn, ms));
@@ -70,6 +90,36 @@
     let visits = 0; // component references followed, whatever they led to
     let drawn = new Set(); // ids already followed: a repeated reference draws nothing
     let localData = -1; // dataVersion after our own last edit: not a reason to re-enable buttons
+
+    // The card's text boxes show their whole text: measured on every change of
+    // value, when their width changes (the first layout too) and when a font arrives.
+    const Observer = o.ResizeObserver || root.ResizeObserver;
+    const frame = o.requestAnimationFrame || (root.requestAnimationFrame ? (fn) => root.requestAnimationFrame(fn) : (fn) => setT(fn, 0));
+    let boxes = [];
+    let observer = null;
+    const widths = new Map();
+    const growAll = () => boxes.forEach(grow);
+    if (doc.fonts && doc.fonts.addEventListener) doc.fonts.addEventListener("loadingdone", growAll);
+    function watch(el) {
+      boxes.push(el);
+      if (!Observer) return;
+      if (!observer) {
+        observer = new Observer((entries) => {
+          for (const { target } of entries) {
+            if (widths.get(target) === target.clientWidth) continue;
+            widths.set(target, target.clientWidth);
+            // A frame later: resizing inside the observer's callback is a loop error.
+            frame(() => grow(target));
+          }
+        });
+      }
+      observer.observe(el);
+    }
+    function unwatch() {
+      if (observer) observer.disconnect();
+      widths.clear();
+      boxes = [];
+    }
 
     const mk = (tag, cls) => {
       const e = doc.createElement(tag);
@@ -224,15 +274,33 @@
       },
       TextField(c) {
         const f = field(c.value);
-        const multi = c.variant === "longText";
-        const input = mk(multi ? "textarea" : "input", "a2ui-input");
-        if (!multi) input.type = c.variant === "number" ? "number" : "text";
+        const num = c.variant === "number";
+        const long = c.variant === "longText";
+        const input = mk(num ? "input" : "textarea", "a2ui-input");
+        if (num) input.type = "number";
+        else {
+          input.rows = long ? 3 : 1;
+          watch(input);
+          // A one-line field wraps like any other but takes no line break from the keyboard.
+          if (!long) {
+            input.addEventListener("keydown", (ev) => {
+              if (ev.key === "Enter" && !ev.isComposing) ev.preventDefault();
+            });
+          }
+        }
         if (c.placeholder !== undefined) input.placeholder = textOf(dyn(c.placeholder));
-        input.value = textOf(f.get());
-        input.addEventListener("input", () => f.set(input.value));
+        input.value = fieldText(f.get());
+        const fit = () => {
+          if (!num) grow(input);
+        };
+        input.addEventListener("input", () => {
+          f.set(input.value);
+          fit();
+        });
         binds.push(() => {
-          const v = textOf(f.get());
+          const v = fieldText(f.get());
           if (input.value !== v) input.value = v;
+          fit();
         });
         input.dataset.cid = `${c.id}:input`;
         const l = labelled(c.label, input, "a2ui-field");
@@ -410,6 +478,7 @@
 
     function rebuild() {
       clearT(timer);
+      unwatch();
       // A rebuild replaces the elements: the keyboard stays where it was.
       const focused = doc.activeElement;
       const cid = focused && focused.dataset && wrap.contains && wrap.contains(focused) ? focused.dataset.cid : "";
@@ -449,6 +518,7 @@
         seen = { struct: -1, data: -1 };
       }
       if (s.deleted) {
+        unwatch();
         wrap.hidden = true;
         wrap.replaceChildren();
         return;
@@ -465,7 +535,12 @@
     }
 
     sync(surface);
-    return { el: wrap, sync, destroy: () => clearT(timer) };
+    function destroy() {
+      clearT(timer);
+      unwatch();
+      if (doc.fonts && doc.fonts.removeEventListener) doc.fonts.removeEventListener("loadingdone", growAll);
+    }
+    return { el: wrap, sync, destroy };
   }
 
   root.MonoA2UIRender = { mount, textOf, clip, MAX_NODES, MAX_DEPTH };

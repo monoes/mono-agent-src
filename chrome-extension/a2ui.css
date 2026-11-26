@@ -188,9 +188,12 @@
   font-size: var(--t-base);
 }
 
+/* A text box is as tall as its text (a2ui_render.js): no limit on its height and no handle to shrink it. */
 textarea.a2ui-input {
-  min-height: 72px;
-  resize: vertical;
+  flex-shrink: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  resize: none;
 }
 
 .a2ui-input:focus-visible,
@@ -269,6 +272,8 @@ textarea.a2ui-input {
 
 .a2ui-badge {
   align-self: flex-start;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 1px var(--sp-3);
   border-radius: 999px;
   font-size: var(--t-xs);

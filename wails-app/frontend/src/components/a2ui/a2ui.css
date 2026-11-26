@@ -12,9 +12,11 @@
 .a2ui-text-caption { font-size: 11px; color: var(--text-secondary); }
 .a2ui-divider-h { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
 .a2ui-divider-v { align-self: stretch; border: 0; border-left: 1px solid var(--border); margin: 0 4px; }
-.a2ui-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.a2ui-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); overflow-wrap: anywhere; }
 .a2ui-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 140px; }
-.a2ui-input { background: var(--base); border: 1px solid var(--text-dim); border-radius: var(--radius); padding: 6px 8px; color: var(--text); font: 12.5px var(--font-body); resize: vertical; }
+.a2ui-input { box-sizing: border-box; width: 100%; background: var(--base); border: 1px solid var(--text-dim); border-radius: var(--radius); padding: 6px 8px; color: var(--text); font: 12.5px/1.4 var(--font-body); }
+/* A text box is as tall as its text (A2UIInputs.jsx): no limit on its height and no handle to shrink it. */
+textarea.a2ui-input { resize: none; flex-shrink: 0; overflow-wrap: anywhere; }
 .a2ui-input::placeholder { color: var(--text-muted); }
 .a2ui-input:focus-visible, .a2ui-btn:focus-visible, .a2ui-check input:focus-visible, .a2ui-choice input:focus-visible { outline: 2px solid var(--cyan-bright); outline-offset: 2px; }
 .a2ui-choices-chips .a2ui-choice:focus-within { border-color: var(--cyan-bright); }
@@ -22,7 +24,7 @@
 .a2ui-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .a2ui-mark { margin-right: 4px; }
 .a2ui-reason { margin: 6px 0 0; font-size: 11px; color: var(--text-secondary); }
-.a2ui-check, .a2ui-choice { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
+.a2ui-check, .a2ui-choice { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
 .a2ui-choices { display: flex; gap: 6px; }
 .a2ui-choices-list { flex-direction: column; }
 .a2ui-choices-chips { flex-wrap: wrap; }
@@ -35,7 +37,7 @@
 .a2ui-btn-primary { background: var(--cyan); color: #04262b; border-color: var(--cyan); }
 .a2ui-btn-danger { background: transparent; color: var(--a2ui-red); border-color: var(--danger-border); }
 .a2ui-btn-borderless { background: transparent; border-color: transparent; color: var(--cyan); }
-.a2ui-badge { font: 600 10px var(--font-mono); padding: 2px 8px; border-radius: 99px; background: var(--elevated); color: var(--text-secondary); border: 1px solid var(--border); }
+.a2ui-badge { max-width: 100%; overflow-wrap: anywhere; font: 600 10px var(--font-mono); padding: 2px 8px; border-radius: 99px; background: var(--elevated); color: var(--text-secondary); border: 1px solid var(--border); }
 .a2ui-badge-info { color: var(--cyan); } .a2ui-badge-success { color: var(--green); } .a2ui-badge-warning { color: var(--orange); } .a2ui-badge-danger { color: var(--a2ui-red); }
 .a2ui-progress { display: flex; flex-direction: column; gap: 3px; min-width: 120px; flex: 1; }
 .a2ui-bar { height: 6px; border-radius: 99px; background: var(--base); box-shadow: inset 0 0 0 1px var(--text-dim); overflow: hidden; }

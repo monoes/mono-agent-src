@@ -1,6 +1,6 @@
 // The input components of the A2UI catalog. Each writes to the surface's local
 // data model only; a settled card disables them.
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getPointer } from '../../lib/a2uiModel.js'
 
@@ -9,17 +9,67 @@ export const isBinding = v => v && typeof v === 'object' && typeof v['@path'] ==
 const bound = v => (isBinding(v) ? v['@path'] : null)
 const current = (v, ctx) => (isBinding(v) ? getPointer(ctx.model, v['@path']) : v)
 
+// The core caps one string sent back with an action at this many bytes.
+const MAX_TYPED = 24 * 1024
+
+// fitHeight makes a text box as tall as its text. The field keeps its height
+// while the box is measured, so the transcript does not jump on each key.
+function fitHeight(el) {
+  const holder = el.parentElement
+  const held = holder.style.minHeight
+  holder.style.minHeight = `${holder.offsetHeight}px`
+  el.style.height = 'auto'
+  // 0 while the card is hidden: the width observer measures it once it shows.
+  if (el.scrollHeight) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight + 1}px`
+  holder.style.minHeight = held
+}
+
+// A text field shows its whole text, never scrolled or clipped: a person must
+// see all of what a button would send. It is measured after every draw (first
+// one, edit, data update), when its width changes and when a font arrives.
+function GrowingText(props) {
+  const ref = useRef(null)
+  useLayoutEffect(() => { fitHeight(ref.current) })
+  useLayoutEffect(() => {
+    const el = ref.current
+    let width = el.clientWidth
+    let frame = 0
+    // A frame later: resizing inside the observer's callback is a loop error.
+    const again = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => fitHeight(el)) }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      again()
+    })
+    observer?.observe(el)
+    document.fonts?.addEventListener?.('loadingdone', again)
+    return () => {
+      observer?.disconnect()
+      document.fonts?.removeEventListener?.('loadingdone', again)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+  return <textarea ref={ref} {...props} />
+}
+
+// A one-line field wraps like any other but takes no line break from the keyboard.
+const noNewline = e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault() }
+
 export function Field({ comp, ctx, str }) {
   const { t } = useTranslation()
   const uid = useId()
   const path = bound(comp.value)
   const num = comp.variant === 'number'
   const onChange = e => path && ctx.write(path, num ? (e.target.value === '' || !Number.isFinite(Number(e.target.value)) ? '' : Number(e.target.value)) : e.target.value)
-  const props = { id: uid, className: 'a2ui-input', value: str(comp.value), onChange, readOnly: !path || ctx.resolved, placeholder: str(comp.placeholder), maxLength: 4000 }
+  // The value is never shortened for display: the whole of it is what is sent.
+  const held = current(comp.value, ctx)
+  const value = held == null || typeof held === 'object' ? '' : String(held)
+  const long = comp.variant === 'longText'
+  const props = { id: uid, className: 'a2ui-input', value, onChange, readOnly: !path || ctx.resolved, placeholder: str(comp.placeholder), maxLength: MAX_TYPED }
   return (
     <div className="a2ui-field">
       <label htmlFor={uid} className="a2ui-label">{str(comp.label) || t('a2ui.textField')}</label>
-      {comp.variant === 'longText' ? <textarea rows={3} {...props} /> : <input type={num ? 'number' : 'text'} {...props} />}
+      {num ? <input type="number" {...props} /> : <GrowingText rows={long ? 3 : 1} onKeyDown={long ? undefined : noNewline} {...props} />}
     </div>
   )
 }

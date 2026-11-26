@@ -94,7 +94,7 @@ test("a TextField edits the local model only and bound Text follows; nothing is 
   const { s } = surfaceOf(approve, { title: "Send DM?", draft: "Hi" });
   const sent = [];
   const m = R.mount(fakeDoc(), s, { onAction: (e) => sent.push(e) });
-  const input = find(m.el, "input")[0];
+  const input = find(m.el, "textarea")[0];
   assert.equal(input.value, "Hi");
   input.value = "Hello there";
   input.fire("input");
@@ -107,8 +107,8 @@ test("a Button click sends the A2UI action envelope with the context resolved, t
   const sent = [];
   const timers = [];
   const m = R.mount(fakeDoc(), s, { onAction: (e) => sent.push(e), now: () => "2026-01-01T00:00:00Z", setTimeout: (fn, ms) => (timers.push({ fn, ms }), timers.length), clearTimeout: () => {} });
-  find(m.el, "input")[0].value = "Edited";
-  find(m.el, "input")[0].fire("input");
+  find(m.el, "textarea")[0].value = "Edited";
+  find(m.el, "textarea")[0].fire("input");
   const btn = find(m.el, "button")[0];
   btn.fire("click");
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ version: "1.0", action: { name: "hil.approve", surfaceId: "s", sourceComponentId: "go", timestamp: "2026-01-01T00:00:00Z", context: { id: "482", text: "Edited" } } }]);
@@ -125,8 +125,8 @@ test("the surface changing re-enables the button; the person's own typing does n
   const m = R.mount(fakeDoc(), s, { onAction() {}, setTimeout: () => 1, clearTimeout() {} });
   const btn = find(m.el, "button")[0];
   btn.fire("click");
-  find(m.el, "input")[0].value = "x";
-  find(m.el, "input")[0].fire("input");
+  find(m.el, "textarea")[0].value = "x";
+  find(m.el, "textarea")[0].fire("input");
   assert.equal(btn.getAttribute("aria-disabled"), "true");
   M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { message: { version: "1.0", updateDataModel: { surfaceId: "s", path: "/title", value: "Changed" } } } });
   m.sync(s);
@@ -138,10 +138,10 @@ test("updateComponents rebuilds; updateDataModel refreshes bindings without rebu
   const { st, s } = surfaceOf(approve, { title: "A", draft: "" });
   const doc = fakeDoc();
   const m = R.mount(doc, s, {});
-  const input = find(m.el, "input")[0];
+  const input = find(m.el, "textarea")[0];
   M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { message: { version: "1.0", updateDataModel: { surfaceId: "s", path: "/draft", value: "from agent" } } } });
   m.sync(s);
-  assert.equal(find(m.el, "input")[0], input, "same element: focus and caret survive");
+  assert.equal(find(m.el, "textarea")[0], input, "same element: focus and caret survive");
   assert.equal(input.value, "from agent");
   M.apply(st, { seq: 3, turn: "t", type: "ui.surface", payload: { message: { version: "1.0", updateComponents: { surfaceId: "s", components: [{ id: "gl", component: "Text", text: "Go" }] } } } });
   m.sync(s);
@@ -298,7 +298,7 @@ test("a11y: choices are a fieldset with a legend, described by the question abov
   assert.equal(find(set, "legend")[0].textContent, "Choose one");
   const q = byClass(m.el, "a2ui-text")[0];
   assert.equal(set.getAttribute("aria-describedby"), q.id);
-  assert.equal(find(m.el, "input").at(-1).getAttribute("aria-label"), "Note");
+  assert.equal(find(m.el, "textarea").at(-1).getAttribute("aria-label"), "Note");
 });
 
 test("a11y: progress has a name and values; badge tones carry a word and a mark", () => {
@@ -363,7 +363,7 @@ test("a11y: the note under a surface is a status region that exists before it ha
 test("a TextField card renders on a document whose label.control is read-only", () => {
   const m = R.mount(fakeDoc(), surfaceOf(approve, { title: "T", draft: "d" }).s, {});
   assert.doesNotMatch(m.el.textContent, /could not be shown/);
-  assert.equal(find(m.el, "input").length, 1);
+  assert.equal(find(m.el, "textarea").length, 1);
 });
 
 // Repeated child references make a naive tree walk exponential (9 components, each listing the
@@ -432,4 +432,122 @@ test("the fold reads one message up to the component cap", () => {
   M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { message: msg } });
   assert.equal(Object.keys(st.surfaces.get("s").components).length, 500);
   assert.ok(read < 5000, `${read} id reads`);
+});
+
+// The fake document lays nothing out: a text box here is `size.width`
+// characters wide, 20px a line.
+function layOut(doc, size) {
+  const make = doc.createElement;
+  doc.createElement = (tag) => {
+    const n = make(tag);
+    if (tag === "textarea") {
+      const lines = () => String(n.value).split("\n").reduce((c, l) => c + Math.max(1, Math.ceil(l.length / size.width)), 0);
+      Object.defineProperties(n, {
+        scrollHeight: { get: () => (size.width ? Math.max(lines(), n.rows || 1) * 20 : 0) },
+        offsetHeight: { get: () => 22 },
+        clientHeight: { get: () => 20 },
+        clientWidth: { get: () => size.width },
+      });
+    }
+    return n;
+  };
+  return doc;
+}
+function observed() {
+  const seen = { all: [], frames: [] };
+  seen.opts = {
+    requestAnimationFrame: (fn) => seen.frames.push(fn),
+    ResizeObserver: class {
+      constructor(callback) { this.callback = callback; this.targets = []; seen.all.push(this); }
+      observe(t) { this.targets.push(t); }
+      disconnect() { this.targets = []; }
+    },
+  };
+  /** report delivers what a browser would: the observed boxes changed size. */
+  seen.report = () => {
+    for (const ob of seen.all) if (ob.targets.length) ob.callback(ob.targets.map((target) => ({ target })));
+    seen.frames.splice(0).forEach((f) => f());
+  };
+  return seen;
+}
+const tall = (lines) => `${lines * 20 + 3}px`; // the lines, the 2px border and 1px for rounding
+const textCard = (variant) => [{ id: "root", component: "TextField", label: "Message", value: { "@path": "/v" }, ...(variant ? { variant } : {}) }];
+
+test("a text field holds its whole value: nothing a button would send is clipped", () => {
+  const value = `${"word ".repeat(4000)}THE END: $499`;
+  for (const variant of ["longText", "shortText", undefined]) {
+    const { s } = surfaceOf(textCard(variant), { v: value });
+    const m = R.mount(fakeDoc(), s, {});
+    assert.equal(find(m.el, "textarea")[0].value, value, String(variant));
+    assert.equal(find(m.el, "input").length, 0);
+  }
+});
+
+test("a text box grows on first layout, edit, data update, width change and font load", () => {
+  const size = { width: 0 }; // drawn before it is in the panel
+  const doc = layOut(fakeDoc(), size);
+  const fontListeners = new Set();
+  doc.fonts = { addEventListener: (_, fn) => fontListeners.add(fn), removeEventListener: (_, fn) => fontListeners.delete(fn) };
+  const seen = observed();
+  const { st, s } = surfaceOf(textCard("longText"), { v: "x".repeat(200) });
+  const m = R.mount(doc, s, seen.opts);
+  const box = find(m.el, "textarea")[0];
+  seen.report();
+  assert.equal(box.style.height, "auto", "not shown yet");
+  size.width = 50;
+  seen.report();
+  assert.equal(box.style.height, tall(4), "first layout");
+  box.value = "y".repeat(500);
+  box.fire("input");
+  assert.equal(box.style.height, tall(10), "edit");
+  M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { surfaceId: "s", message: { version: "1.0", updateDataModel: { surfaceId: "s", path: "/v", value: "z".repeat(1000) } } } });
+  m.sync(st.surfaces.get("s"));
+  assert.equal(box.style.height, tall(20), "data update");
+  size.width = 20;
+  seen.report();
+  assert.equal(box.style.height, tall(50), "width change");
+  box.style.height = "1px";
+  seen.report();
+  assert.equal(box.style.height, "1px", "the same width again (our own resize reports it) measures nothing");
+  for (const fn of fontListeners) fn();
+  assert.equal(box.style.height, tall(50), "font load");
+  m.destroy();
+  assert.equal(fontListeners.size, 0);
+  assert.equal(seen.all.every((ob) => !ob.targets.length), true);
+});
+
+test("a rebuilt card watches its new boxes only", () => {
+  const seen = observed();
+  const { st, s } = surfaceOf(textCard("longText"), { v: "a" });
+  const m = R.mount(layOut(fakeDoc(), { width: 50 }), s, seen.opts);
+  M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { surfaceId: "s", message: { version: "1.0", updateComponents: { surfaceId: "s", components: textCard("shortText") } } } });
+  m.sync(st.surfaces.get("s"));
+  assert.deepEqual(seen.all.flatMap((ob) => ob.targets), find(m.el, "textarea"));
+});
+
+test("a one-line field takes no line break from the keyboard; number fields stay inputs", () => {
+  const enter = (variant) => {
+    const { s } = surfaceOf(textCard(variant), { v: "a" });
+    const box = find(R.mount(fakeDoc(), s, {}).el, "textarea")[0];
+    let stopped = false;
+    (box.listeners.keydown || []).forEach((fn) => fn({ key: "Enter", preventDefault: () => (stopped = true) }));
+    return [box.rows, stopped];
+  };
+  assert.deepEqual(enter("shortText"), [1, true]);
+  assert.deepEqual(enter("longText"), [3, false]);
+  const { s } = surfaceOf(textCard("number"), { v: 5 });
+  const m = R.mount(fakeDoc(), s, {});
+  assert.equal(find(m.el, "textarea").length, 0);
+  assert.equal(find(m.el, "input")[0].type, "number");
+});
+
+test("no style rule hides or cuts a card's text", () => {
+  const css = readFileSync(join(HERE, "a2ui.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((r) => [r[1].trim(), r[2]]);
+  assert.ok(rules.length > 30);
+  // The progress bar holds no text.
+  for (const [selector, body] of rules) {
+    if (selector === ".a2ui-bar") continue;
+    assert.doesNotMatch(body, /line-clamp|text-overflow|nowrap|max-height|overflow(-[xy])?:\s*(hidden|clip)|resize:\s*(vertical|both)/, selector);
+  }
 });
