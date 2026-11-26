@@ -230,6 +230,10 @@ export function CancelWorkflow(arg1) {
   return window['go']['main']['App']['CancelWorkflow'](arg1);
 }
 
+export function ChatSpendCap(arg1) {
+  return window['go']['main']['App']['ChatSpendCap'](arg1);
+}
+
 export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }

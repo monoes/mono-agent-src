@@ -29,20 +29,30 @@ export function useBrowserLevel(kind, active) {
   return level
 }
 
-// useCostVsCap: { spentUsd, capUsd, scope } for a conversation bound to a task
-// (that task's cap), else the global cap from the budget list; null when none
-// is set or it cannot be read.
-export function useCostVsCap(taskId, active, version = 0) {
+// useSpendCap: the CLI's cap on the conversation's next message (`chat
+// history spend-cap`), or null when it cannot be read.
+export function useSpendCap(conversationId, active, version = '') {
+  const [cap, setCap] = useState(undefined)
+  useEffect(() => {
+    if (!active) return undefined
+    let live = true
+    const read = conversationId ? aitaskBudgetApi.spendCap(conversationId) : Promise.resolve(null)
+    read.then(v => { if (live) setCap(v || null) }).catch(() => { if (live) setCap(null) })
+    return () => { live = false }
+  }, [conversationId, active, version])
+  return cap
+}
+
+// useTaskCap: { spentUsd, capUsd, scope } of a task's own AI-task cap, which
+// the pane can lower; null for no task, no cap, or one that cannot be read.
+export function useTaskCap(taskId, active, version = 0) {
   const [cap, setCap] = useState(undefined)
   useEffect(() => {
     if (!active) return undefined
     let live = true
     const read = taskId
       ? aitaskBudgetApi.forTask(taskId).then(b => (b?.capUsd > 0 ? { spentUsd: b.reported ? b.spentUsd : null, capUsd: b.capUsd, scope: 'task' } : null))
-      : aitaskBudgetApi.list().then(b => {
-        const global = (b?.caps || []).find(c => c.scope === 'global')
-        return global && global.capUsd > 0 ? { spentUsd: global.usedUsd ?? b.spentUsd ?? null, capUsd: global.capUsd, scope: 'global' } : null
-      })
+      : Promise.resolve(null)
     read.then(v => { if (live) setCap(v) }).catch(() => { if (live) setCap(null) })
     return () => { live = false }
   }, [taskId, active, version])

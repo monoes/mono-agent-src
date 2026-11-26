@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -19,7 +20,7 @@ import (
 
 // operatorCoderFlags are the `coder set` flags only the operator changes:
 // where a full-access chat works and the caps on how far it goes.
-var operatorCoderFlags = []string{"workspace-root", "max-turns", "timeout", "budget-usd", "org-max-agents", "org-max-concurrent", "org-budget-usd", "default-access", "box", "peercred-binding"}
+var operatorCoderFlags = []string{"workspace-root", "max-turns", "timeout", "startup-timeout", "budget-usd", "org-max-agents", "org-max-concurrent", "org-budget-usd", "default-access", "box", "peercred-binding"}
 
 // operatorOrgFlags are the dynamic-org `coder set` flags only the operator
 // changes, and why: what Jev (TypeSafe) is asked about the workers' briefs,
@@ -37,6 +38,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 		root     string
 		maxTurns int
 		timeout  string
+		startup  string
 		budget   float64
 		orgMax   int
 		orgConc  int
@@ -89,6 +91,13 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 				return clicore.InvalidInput("--timeout must be a positive duration (e.g. 30m, 2h)")
 			}
 			s.Timeout = d.String()
+		}
+		if f.Changed("startup-timeout") {
+			v, err := parseStartupTimeout(startup)
+			if err != nil {
+				return err
+			}
+			s.StartupTimeout = v
 		}
 		if f.Changed("budget-usd") {
 			if budget < 0 {
@@ -220,6 +229,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&root, "workspace-root", "", "Folder new test workspaces are created in (operator only)")
 	c.Flags().IntVar(&maxTurns, "max-turns", 0, "Agent turn cap per message (operator only)")
 	c.Flags().StringVar(&timeout, "timeout", "", "Wall-clock cap per message (e.g. 60m; operator only)")
+	c.Flags().StringVar(&startup, "startup-timeout", "", "How long claude may take to initialize (its SessionStart hooks and MCP servers) in a coder turn, e.g. 3m (default 2m; at most 1h; 0 = the default again; "+monomind.StartupTimeoutEnv+" overrides it; operator only)")
 	c.Flags().Float64Var(&budget, "budget-usd", 0, "Spend cap per message in USD (0 = none; operator only)")
 	c.Flags().IntVar(&orgMax, "org-max-agents", 0, "Dynamic org: workers the lead may spawn per message (default 6; operator only)")
 	c.Flags().IntVar(&orgConc, "org-max-concurrent", 0, "Dynamic org: workers running at once (default 3; operator only)")

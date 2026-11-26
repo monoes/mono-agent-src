@@ -47,6 +47,20 @@ func TestApp_AITaskBudgets_ShellOutAndReturnTheCLIJSON(t *testing.T) {
 	}
 }
 
+// The pane's Spend row reads the CLI's effective cap of one chat (#1766).
+func TestApp_ChatSpendCap_ShellsOutAndReturnsTheCLIJSON(t *testing.T) {
+	const capJSON = `{"v":1,"conversationId":"c1","bounded":true,"capUsd":0.5,"source":"message"}`
+	bin, argsLog := chatFakeCLI(t, fakeChatReply{match: "chat history spend-cap", stdout: capJSON + "\n"})
+	a, _ := newCLIChatApp(t, bin)
+	if got := a.ChatSpendCap("--c1"); got != capJSON {
+		t.Errorf("ChatSpendCap = %s, want the CLI JSON verbatim", got)
+	}
+	want := "--profile default --json chat history spend-cap -- --c1"
+	if got := readArgsLog(t, argsLog); len(got) != 1 || got[0] != want {
+		t.Errorf("CLI calls = %q, want %q", got, want)
+	}
+}
+
 // A refusal (an agent shell, a raise) keeps its message and code.
 func TestApp_AITaskBudgets_RefusalKeepsTheCode(t *testing.T) {
 	bin, _ := chatFakeCLI(t, fakeChatReply{match: "aitask budget set", code: 3, stderr: "refused\n",

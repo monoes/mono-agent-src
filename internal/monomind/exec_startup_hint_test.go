@@ -13,4 +13,7 @@ func TestInitFailureNamesTheSetting(t *testing.T) {
 	if res.Err == nil || !strings.Contains(res.Err.Message, StartupTimeoutEnv) {
 		t.Errorf("failure does not name %s: %+v", StartupTimeoutEnv, res.Err)
 	}
+	if res.Err != nil && !strings.Contains(res.Err.Message, "coder set --startup-timeout") {
+		t.Errorf("failure does not name the coder setting: %s", res.Err.Message)
+	}
 }

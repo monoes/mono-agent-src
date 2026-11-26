@@ -33,6 +33,13 @@ const REFRESH_EVENT = 'org-signature:refresh'
 export function requestSignatureRefresh(orgName) {
   window.dispatchEvent(new CustomEvent(REFRESH_EVENT, { detail: { orgName } }))
 }
+// onSignatureRefresh calls cb when orgName's signature should be read again;
+// it returns the unsubscribe.
+export function onSignatureRefresh(orgName, cb) {
+  const listen = (e) => { if (!e.detail?.orgName || e.detail.orgName === orgName) cb() }
+  window.addEventListener(REFRESH_EVENT, listen)
+  return () => window.removeEventListener(REFRESH_EVENT, listen)
+}
 
 // useOrgSignature loads `org sign --status`, again when refreshKey changes
 // (debounced: the designer passes its config stamp) or a refresh is
@@ -51,11 +58,7 @@ export function useOrgSignature(orgName, refreshKey = '') {
     const id = setTimeout(refresh, refreshKey ? 800 : 0)
     return () => clearTimeout(id)
   }, [refresh, refreshKey])
-  useEffect(() => {
-    const onRefresh = (e) => { if (!e.detail?.orgName || e.detail.orgName === orgName) refresh() }
-    window.addEventListener(REFRESH_EVENT, onRefresh)
-    return () => window.removeEventListener(REFRESH_EVENT, onRefresh)
-  }, [orgName, refresh])
+  useEffect(() => onSignatureRefresh(orgName, refresh), [orgName, refresh])
   return { status, refresh }
 }
 
@@ -86,6 +89,7 @@ export async function reviewAndSign(orgName) {
   })
   if (!ok) return false
   await api.orgSign(orgName, review.hash)
+  requestSignatureRefresh(orgName) // other views of this org read it again
   return true
 }
 

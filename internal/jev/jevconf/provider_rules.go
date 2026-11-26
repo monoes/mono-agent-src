@@ -49,6 +49,19 @@ func keylessRemote(p Provider) error {
 		ErrKeylessRemote, p.Name, origin(p.BaseURL), p.Name, p.Kind, p.BaseURL)
 }
 
+// ErrKeyNeeded is wrapped by the refusal of a provider without a key whose
+// kind always needs one (KindSpec.NeedsKey).
+var ErrKeyNeeded = errors.New("jev: a provider of this kind needs a key")
+
+// keylessKind refuses a provider with no key whose kind needs one.
+func keylessKind(p Provider) error {
+	if p.SecretName != "" || !specFor(p.Kind).NeedsKey {
+		return nil
+	}
+	return fmt.Errorf("%w: provider %q (%s) has none; add it with `monoagentcli jev provider add %s --kind %s --base-url %s --key-stdin`",
+		ErrKeyNeeded, p.Name, p.Kind, p.Name, p.Kind, p.BaseURL)
+}
+
 // sharedKeyElsewhere refuses p when another record names p's vault entry at
 // another origin, or when the records hold p's name twice: one vault entry,
 // one host.
@@ -79,7 +92,7 @@ func PutProviderKey(ctx context.Context, db *sql.DB, p Provider, key, notes stri
 	if !MayNameHost(ctx) {
 		return false, ErrOperatorOnly
 	}
-	p = normaliseProvider(p)
+	p = WithKindDefaults(p)
 	if p.SecretName == "" {
 		return false, fmt.Errorf("jev: provider %q names no vault entry for its key", p.Name)
 	}

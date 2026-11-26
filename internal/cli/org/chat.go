@@ -155,7 +155,11 @@ func newOrgChatHistoryCmd(env *orgEnv) *cobra.Command {
 			h := fetchOrgChat(cmd.Context(), root, org, run)
 			items := orgchat.BuildThread(org, boss, h.events, h.human, limit)
 			pending := map[string]int{"questions": 0, "approvals": 0, "gates": 0}
-			for _, it := range items {
+			folder := roleFolders(root, org)
+			for i, it := range items {
+				if it.Command != "" {
+					items[i].Cwd = folder(it.Role)
+				}
 				if it.Pending {
 					pending[it.Kind+"s"]++
 				}

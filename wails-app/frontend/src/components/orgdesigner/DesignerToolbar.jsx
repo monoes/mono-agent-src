@@ -118,7 +118,8 @@ export default function DesignerToolbar({
           </select>
           {live?.loading && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)' }}>Loading…</span>}
           {live?.error && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: '#f87171' }}>{live.error}</span>}
-          <LiveSummary state={live?.state} />
+          {live?.noRun && <span data-testid="live-no-run" style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)' }}>No run yet</span>}
+          {!live?.loading && !live?.noRun && <LiveSummary state={live?.state} />}
         </>
       )}
 
