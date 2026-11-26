@@ -6401,6 +6401,26 @@
     "artifact_image": "la imagen",
     "chart_role": "gráfico",
     "sparkline_label": "{{label}}. Último: {{latest}}; de {{lo}} a {{hi}}",
-    "default_model": "predeterminado"
+    "default_model": "predeterminado",
+    "item_unknown": "elemento desconocido",
+    "item_other_session": "el elemento pertenece a otra sesión",
+    "item_not_loaded": "no se pudo cargar el texto completo",
+    "item_plan_changed": "el plan cambió desde que se mostró",
+    "item_not_shown": "parte del plan no se ha mostrado completa",
+    "item_unknown_answer": "respuesta desconocida",
+    "scan_failed": "falló la detección de entornos de ejecución de agentes",
+    "compact_empty": "No se pudo compactar: no llegó ningún resumen",
+    "not_attached": "Sin adjuntar: {{files}}",
+    "workflows_tab": "Flujos de trabajo",
+    "fallback_label": "{{name}}: alternativa",
+    "task_section": "Tarea de Coder",
+    "task_spent": "Gastado del límite de gasto de esta tarea",
+    "task_open_in": "Abrir en {{tab}}",
+    "task_queued": "en cola",
+    "task_running": "en ejecución",
+    "task_needs_user": "necesita tu respuesta",
+    "task_complete": "completada",
+    "task_failed": "con error",
+    "task_cancelled": "cancelada"
   }
 }

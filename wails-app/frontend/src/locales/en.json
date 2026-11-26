@@ -6401,6 +6401,26 @@
     "artifact_image": "image",
     "chart_role": "chart",
     "sparkline_label": "{{label}}. {{latest}} latest, {{lo}} to {{hi}}",
-    "default_model": "default"
+    "default_model": "default",
+    "item_unknown": "unknown item",
+    "item_other_session": "the item belongs to another session",
+    "item_not_loaded": "the full text could not be loaded",
+    "item_plan_changed": "the plan changed since it was shown",
+    "item_not_shown": "part of the plan has not been shown in full",
+    "item_unknown_answer": "unknown answer",
+    "scan_failed": "the agent runtime scan failed",
+    "compact_empty": "Could not compact: no summary came back",
+    "not_attached": "Not attached: {{files}}",
+    "workflows_tab": "Workflows",
+    "fallback_label": "{{name}} – fallback",
+    "task_section": "Coder task",
+    "task_spent": "Spent of this task's spend cap",
+    "task_open_in": "Open in {{tab}}",
+    "task_queued": "queued",
+    "task_running": "running",
+    "task_needs_user": "needs_user",
+    "task_complete": "complete",
+    "task_failed": "failed",
+    "task_cancelled": "cancelled"
   }
 }

@@ -33,6 +33,7 @@ import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
 import { isModalOpenAbove } from './modalAbove.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 const mono = 'var(--font-mono)'
 const chip = { fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }
@@ -199,7 +200,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
     compactPending.current = false
     const summary = compactSummary(lastMsg.state)
     if (summary && startFresh()) setSeed(summary)
-    else notify('chat', 'Could not compact: no summary came back')
+    else notify('chat', i18nOr('ui7Chat.compact_empty'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv.streaming, lastMsg])
   useEffect(() => {

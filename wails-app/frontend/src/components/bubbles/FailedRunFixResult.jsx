@@ -5,6 +5,7 @@ import { confirm } from '../ConfirmDialog.jsx'
 import SendToCoderButton from '../SendToCoderButton.jsx'
 import { selectionText } from '../SendToCoderApi.js'
 import { Chip, text, isObj, lineStyle, wrapText, mutedText } from './resultText.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 const YELLOW = 'var(--yellow, #fbbf24)'
 const VALUE_CAP = 120
@@ -217,7 +218,7 @@ export default function FailedRunFixResult({ taskId, result, onNavigate }) {
       {(applyErr?.code === 'stale_proposal' || applyErr?.code === 'too_large') && (
         <SendToCoderButton kind="failed-run-fix" label={t('taskResult.askAgain')} goal="Work out why this workflow run failed and propose a fix."
           context={[selectionText(`workflow: ${text(result.workflowId, 200)}\nexecution: ${text(result.executionId, 200)}`)]}
-          origin={{ page: 'noderunner', label: 'Workflows' }} />
+          origin={{ page: 'noderunner', label: i18nOr('ui7Chat.workflows_tab') }} />
       )}
     </div>
   )
