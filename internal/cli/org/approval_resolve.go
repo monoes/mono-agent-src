@@ -50,6 +50,6 @@ func newOrgApprovalCmd(env *orgEnv, verb, short string, refuse func(ctx context.
 			return printOrgJSON(out)
 		},
 	}
-	c.Flags().StringVar(&request, "request", "", "Resolve only this approval request (a requestId of `org approvals`)")
+	c.Flags().StringVar(&request, "request", "", "Resolve only this approval request (a requestId from org approvals)")
 	return c
 }
