@@ -2,26 +2,30 @@
 // …) from the Connections page's API section. Browser logins are not here:
 // they are an automation's Session (AutomationDrawer).
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 import { RefreshCw, X, CheckCircle, Loader, Trash2, HelpCircle, ArrowLeft, ExternalLink } from 'lucide-react'
 import { api, onConnectionProgress, onConnectionDone } from '../../services/api.js'
 import { HELP_GUIDES } from '../../lib/helpGuides.js'
 import OAuthFields, { oauthFormFields, missingRequired, oauthFieldArgs } from './OAuthFields.jsx'
+import { dateLocale } from './ui.jsx'
 
 function fmtDate(s) {
   if (!s) return '—'
-  try { return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
+  try { return new Date(s).toLocaleDateString(dateLocale(), { month: 'short', day: 'numeric', year: 'numeric' }) }
   catch { return s.slice(0, 10) }
 }
 
 // ── HelpModal ─────────────────────────────────────────────────────────────────
 
 function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
+  const { t } = useTranslation()
   return (
     <div
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div role="dialog" aria-modal="true" aria-label={guide.title} style={{ width: '100%', maxWidth: 460, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
+      <div role="dialog" aria-modal="true" aria-label={t(guide.title)} style={{ width: '100%', maxWidth: 460, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px 12px', borderBottom: '1px solid var(--border)' }}>
@@ -31,7 +35,7 @@ function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
             </button>
             <span style={{ fontSize: 18 }}>{emoji}</span>
             <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{guide.title}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{t(guide.title)}</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 1 }}>
                 {platformName} · {methodLabel}
               </div>
@@ -45,7 +49,7 @@ function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
         {/* Steps */}
         <div style={{ padding: '16px 18px 6px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {guide.steps.map((step, i) => {
-            const text = typeof step === 'string' ? step : step.text
+            const text = t(typeof step === 'string' ? step : step.text)
             const url  = typeof step === 'string' ? null  : step.url
             return (
               <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -57,7 +61,7 @@ function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
                       onClick={() => api.openURL(url)}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 9.5, padding: 0, verticalAlign: 'middle' }}
                     >
-                      Open <ExternalLink size={9} />
+                      {t('ui6Conn.help_open')} <ExternalLink size={9} />
                     </button>
                   )}
                 </div>
@@ -73,9 +77,9 @@ function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
             onClick={() => api.openURL(guide.getKeyURL)}
             style={{ gap: 5, flex: 1, justifyContent: 'center' }}
           >
-            <ExternalLink size={11} /> Get credentials →
+            <ExternalLink size={11} /> {t('ui6Conn.help_get_credentials')}
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>Done</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>{t('ui6Conn.done')}</button>
         </div>
       </div>
     </div>
@@ -83,6 +87,7 @@ function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
 }
 
 export default function ApiConnectionModal({ platform, conn, onClose, onRefresh, onDisconnect }) {
+  const { t } = useTranslation()
   const [testing, setTesting]   = useState(false)
   const [testMsg, setTestMsg]   = useState(null)
   const [removing, setRemoving] = useState(false)
@@ -142,7 +147,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
           const c = JSON.parse(json)
           setOauthCreds({ clientID: c.clientID || '', clientSecret: c.clientSecret || '' })
           setOauthCredsNeeded(false)
-        } catch { setLoadErr('Could not read the stored OAuth credentials') }
+        } catch { setLoadErr(i18n.t('ui6Conn.oauth_read_failed')) }
       }
       setOauthCredsLoaded(true)
     }).catch(e => { if (live) { setLoadErr(e?.message || String(e)); setOauthCredsLoaded(true) } })
@@ -164,7 +169,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
         await onRefresh()
         closeSoon()
       } else {
-        setFlowSteps(prev => [...prev, { message: data.error || 'Flow failed', kind: 'error' }])
+        setFlowSteps(prev => [...prev, { message: data.error || i18n.t('ui6Conn.flow_failed'), kind: 'error' }])
         setFlowRunning(false)
       }
     })
@@ -206,7 +211,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
         setSaveOk(true)
         await onRefresh()
         closeSoon()
-      } else { setSaveErr(r ? r.replace('error:', '').trim() : 'Unknown error') }
+      } else { setSaveErr(r ? r.replace('error:', '').trim() : i18n.t('ui6Conn.unknown_error')) }
     } finally { setSaving(false) }
   }, [pid, selMethod, fields, onRefresh, closeSoon])
 
@@ -252,7 +257,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: conn ? 'var(--green-neon)' : 'var(--text-muted)', boxShadow: conn ? '0 0 5px var(--green-neon)' : 'none' }} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: conn ? 'var(--green-neon)' : 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {conn ? 'Connected' : 'Not Connected'}
+                  {conn ? t('ui6Conn.connected') : t('ui6Conn.not_connected')}
                 </span>
               </div>
             </div>
@@ -268,21 +273,21 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
             /* ── Connected state ── */
             <>
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {[['Account', conn.account], ['Method', conn.method], ['Status', conn.status], ['Last Tested', fmtDate(conn.lastTested)]].map(([lbl, val]) => (
+                {[['ui6Conn.account', conn.account], ['ui6Conn.method', conn.method], ['ui6Conn.status', t(`ui6Conn.conn_status_value_${conn.status}`, { defaultValue: conn.status })], ['ui6Conn.last_tested', fmtDate(conn.lastTested)]].map(([lbl, val]) => (
                   <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{lbl}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: lbl === 'Status' ? (conn.status === 'active' ? 'var(--green-neon)' : 'var(--red)') : 'var(--text-secondary)' }}>{val}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{t(lbl)}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: lbl === 'ui6Conn.status' ? (conn.status === 'active' ? 'var(--green-neon)' : 'var(--red)') : 'var(--text-secondary)' }}>{val}</span>
                   </div>
                 ))}
               </div>
               {testMsg && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '7px 12px', borderRadius: 'var(--radius)', background: testMsg === 'ok' ? 'rgba(74,222,128,.08)' : 'rgba(239,68,68,.08)', border: `1px solid ${testMsg === 'ok' ? 'rgba(74,222,128,.25)' : 'rgba(239,68,68,.25)'}`, color: testMsg === 'ok' ? 'var(--green-neon)' : 'var(--red)' }}>
-                  {testMsg === 'ok' ? '✓ Connection OK' : (
+                  {testMsg === 'ok' ? t('ui6Conn.connection_ok') : (
                     <div>
                       <div>✗ {testMsg.replace('error: ', '')}</div>
                       {conn.method === 'oauth' && (
                         <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-muted)' }}>
-                          Your access token has expired. Click <strong style={{ color: 'var(--cyan)' }}>Reconnect</strong> below to re-authorize.
+                          {t('ui6Conn.token_expired_before')} <strong style={{ color: 'var(--cyan)' }}>{t('ui6Conn.reconnect')}</strong> {t('ui6Conn.token_expired_after')}
                         </div>
                       )}
                     </div>
@@ -293,28 +298,28 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button className="btn btn-secondary btn-sm" onClick={test} disabled={testing || flowRunning} style={{ gap: 5 }}>
                   {testing ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <CheckCircle size={11} />}
-                  {testing ? 'Testing…' : 'Test'}
+                  {testing ? t('ui6Conn.testing') : t('ui6Conn.test')}
                 </button>
                 {conn.method === 'oauth' && testMsg && testMsg !== 'ok' && (
                   <button className="btn btn-primary btn-sm" onClick={startOAuthFlow} disabled={flowRunning} style={{ gap: 5 }}>
                     {flowRunning ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <RefreshCw size={11} />}
-                    {flowRunning ? 'Reconnecting…' : 'Reconnect'}
+                    {flowRunning ? t('ui6Conn.reconnecting') : t('ui6Conn.reconnect')}
                   </button>
                 )}
                 {!confirmDisconnect ? (
                   <button className="btn btn-danger btn-sm" onClick={() => setConfirmDisconnect(true)} disabled={removing} style={{ gap: 5 }}>
-                    <Trash2 size={11} /> Disconnect
+                    <Trash2 size={11} /> {t('ui6Conn.disconnect')}
                   </button>
                 ) : (
                   <>
                     <button className="btn btn-danger btn-sm" onClick={disconnect} disabled={removing} style={{ gap: 5 }}>
                       {removing ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <Trash2 size={11} />}
-                      {removing ? 'Removing…' : 'Yes, disconnect'}
+                      {removing ? t('ui6Conn.removing') : t('ui6Conn.yes_disconnect')}
                     </button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDisconnect(false)}>Cancel</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDisconnect(false)}>{t('ui6Conn.cancel')}</button>
                   </>
                 )}
-                {!confirmDisconnect && <button className="btn btn-ghost btn-sm" onClick={onClose}>Close</button>}
+                {!confirmDisconnect && <button className="btn btn-ghost btn-sm" onClick={onClose}>{t('ui6Conn.close')}</button>}
               </div>
               {flowSteps.length > 0 && (
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 10px', maxHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -350,11 +355,11 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
-                          OAuth App Credentials
+                          {t('ui6Conn.oauth_app_credentials')}
                         </div>
                         {guide && (
                           <button onClick={() => setShowHelp(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 10, padding: 0 }}>
-                            <HelpCircle size={11} /> How to get these
+                            <HelpCircle size={11} /> {t('ui6Conn.how_to_get_these')}
                           </button>
                         )}
                       </div>
@@ -367,7 +372,7 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                       />
                       <input
                         type="password"
-                        placeholder="Client Secret (optional — leave blank for public/native app registrations)"
+                        placeholder={t('ui6Conn.client_secret_placeholder')}
                         value={oauthCreds.clientSecret}
                         onChange={e => setOauthCreds(p => ({ ...p, clientSecret: e.target.value }))}
                         style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '6px 10px', outline: 'none' }}
@@ -383,15 +388,15 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                           }}
                           style={{ gap: 5 }}
                         >
-                          <CheckCircle size={11} /> Save credentials
+                          <CheckCircle size={11} /> {t('ui6Conn.save_credentials')}
                         </button>
-                        {oauthCredsSaved && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--green-neon)' }}>Saved ✓</span>}
+                        {oauthCredsSaved && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--green-neon)' }}>{t('ui6Conn.saved_check')}</span>}
                       </div>
                     </div>
                   )}
 
                   {!flowRunning && (
-                    <OAuthFields title={selMethod === 'oauth1' ? 'OAuth 1.0a app' : 'Account details'}
+                    <OAuthFields title={selMethod === 'oauth1' ? t('ui6Conn.oauth1_app') : t('ui6Conn.account_details')}
                       fields={oauthFields} values={oauthValues} onChange={setOauthValues} />
                   )}
 
@@ -402,13 +407,13 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                         disabled={!canStart}
                         onClick={startOAuthFlow}
                         style={{ gap: 5, alignSelf: 'flex-start' }}
-                        title={canStart ? '' : (needsClient && !oauthCreds.clientID ? 'Save your OAuth credentials first' : 'Fill in the required fields first')}
+                        title={canStart ? '' : (needsClient && !oauthCreds.clientID ? t('ui6Conn.save_oauth_first') : t('ui6Conn.fill_required_first'))}
                       >
-                        <CheckCircle size={11} /> Connect with {name}
+                        <CheckCircle size={11} /> {t('ui6Conn.connect_with', { name })}
                       </button>
                       {!canStart && (
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-                          {needsClient && !oauthCreds.clientID ? 'Save your OAuth credentials above first' : 'Fill in the required fields above first'}
+                          {needsClient && !oauthCreds.clientID ? t('ui6Conn.save_oauth_above_first') : t('ui6Conn.fill_required_above_first')}
                         </span>
                       )}
                     </>
@@ -427,25 +432,25 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                   {flowRunning && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Loader size={11} style={{ animation: 'spin .7s linear infinite', color: 'var(--text-muted)' }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>Running…</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Conn.running')}</span>
                       <button className="btn btn-ghost btn-sm" onClick={() => api.cancelPlatformOAuth(pid)} style={{ gap: 5 }}>
-                        <X size={11} /> Cancel
+                        <X size={11} /> {t('ui6Conn.cancel')}
                       </button>
                     </div>
                   )}
                   {!flowRunning && flowSteps.some(s => s.kind === 'error') && (
                     <button className="btn btn-primary btn-sm" onClick={startOAuthFlow} disabled={!canStart} style={{ gap: 5, alignSelf: 'flex-start' }}>
-                      <RefreshCw size={11} /> Retry
+                      <RefreshCw size={11} /> {t('ui6Conn.retry')}
                     </button>
                   )}
                 </div>
               ) : selMethod === 'connstring' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <label style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>Connection String <span style={{ color: 'var(--red)' }}>*</span></label>
+                    <label style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>{t('ui6Conn.connection_string')} <span style={{ color: 'var(--red)' }}>*</span></label>
                     {guide && (
                       <button onClick={() => setShowHelp(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 10, padding: 0 }}>
-                        <HelpCircle size={11} /> How to get this
+                        <HelpCircle size={11} /> {t('ui6Conn.how_to_get_this')}
                       </button>
                     )}
                   </div>
@@ -457,11 +462,11 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {guide && (
                     <button onClick={() => setShowHelp(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--cyan)', fontFamily: 'var(--font-mono)', fontSize: 10, padding: '4px 0', alignSelf: 'flex-start' }}>
-                      <HelpCircle size={12} /> How to get your credentials
+                      <HelpCircle size={12} /> {t('ui6Conn.how_to_get_credentials')}
                     </button>
                   )}
                   {mFields.length === 0 ? (
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>No configuration required.</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6Conn.no_config')}</div>
                   ) : mFields.map(f => (
                     <div key={f.Key || f.key}>
                       <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>
@@ -479,17 +484,17 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
               )}
 
               {saveErr && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '7px 12px', borderRadius: 'var(--radius)', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: 'var(--red)' }}>{saveErr}</div>}
-              {saveOk  && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '7px 12px', borderRadius: 'var(--radius)', background: 'rgba(74,222,128,.08)', border: '1px solid rgba(74,222,128,.25)', color: 'var(--green-neon)' }}>Connected!</div>}
+              {saveOk  && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '7px 12px', borderRadius: 'var(--radius)', background: 'rgba(74,222,128,.08)', border: '1px solid rgba(74,222,128,.25)', color: 'var(--green-neon)' }}>{t('ui6Conn.connected_bang')}</div>}
 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {!isOAuth && (mFields.length > 0 || selMethod === 'connstring') && (
                   <button className="btn btn-primary btn-sm" onClick={connect} disabled={saving || saveOk} style={{ gap: 5 }}>
                     {saving ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <CheckCircle size={11} />}
-                    {saving ? 'Connecting…' : 'Connect'}
+                    {saving ? t('ui6Conn.connecting') : t('ui6Conn.connect')}
                   </button>
                 )}
-                <button className="btn btn-secondary btn-sm" onClick={onRefresh} style={{ gap: 5 }}><RefreshCw size={11} /> Refresh</button>
-                <button className="btn btn-ghost btn-sm" onClick={onClose}>Close</button>
+                <button className="btn btn-secondary btn-sm" onClick={onRefresh} style={{ gap: 5 }}><RefreshCw size={11} /> {t('ui6Conn.refresh')}</button>
+                <button className="btn btn-ghost btn-sm" onClick={onClose}>{t('ui6Conn.close')}</button>
               </div>
             </>
           )}

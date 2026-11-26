@@ -4,10 +4,11 @@
 // automation (e.g. Product Hunt) shows here and in Browser Automations —
 // they are different things with different nodes.
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SectionHeader } from './ui.jsx'
 
 const CATEGORY_ORDER = ['social', 'service', 'communication', 'database', 'infrastructure', 'ai', 'app', 'custom']
-const CATEGORY_LABELS = { social: 'Social', service: 'Services & APIs', communication: 'Communication', database: 'Databases', infrastructure: 'Infrastructure', ai: 'AI', app: 'Apps', custom: 'Custom' }
+const CATEGORY_LABELS = { social: 'ui6Conn.cat_social', service: 'ui6Conn.cat_service', communication: 'ui6Conn.cat_communication', database: 'ui6Conn.cat_database', infrastructure: 'ui6Conn.cat_infrastructure', ai: 'ui6Conn.cat_ai', app: 'ui6Conn.cat_app', custom: 'ui6Conn.cat_custom' }
 
 // apiPlatforms keeps platforms that can be connected without the browser.
 export function apiPlatforms(platforms) {
@@ -23,6 +24,7 @@ export function resolveConn(platform, connections) {
 }
 
 function Tile({ platform, conn, onClick }) {
+  const { t } = useTranslation()
   const [hov, setHov] = useState(false)
   const connected = conn && conn.status === 'active'
   const expired = conn && conn.status !== 'active'
@@ -30,7 +32,7 @@ function Tile({ platform, conn, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      aria-label={`${platform.name}${connected ? ' (connected)' : expired ? ' (expired)' : ''}`}
+      aria-label={connected ? t('ui6Conn.tile_connected', { name: platform.name }) : expired ? t('ui6Conn.tile_expired', { name: platform.name }) : `${platform.name}`}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -67,6 +69,7 @@ export function matchesQuery(platform, q) {
 }
 
 export default function ApiConnections({ platforms, connections, onSelect }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const list = apiPlatforms(platforms)
   const groups = {}
@@ -83,9 +86,9 @@ export default function ApiConnections({ platforms, connections, onSelect }) {
     .filter(cat => groups[cat] && groups[cat].length > 0)
 
   return (
-    <section aria-label="API connections">
-      <SectionHeader title="API Connections" hint="OAuth, API keys, connection strings" count={`${total} / ${list.length} connected`} />
-      <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter platforms…" aria-label="Filter API platforms"
+    <section aria-label={t('ui6Conn.api_section_label')}>
+      <SectionHeader title={t('ui6Conn.api_section_title')} hint={t('ui6Conn.api_section_hint')} count={t('ui6Conn.api_section_count', { connected: total, total: list.length })} />
+      <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder={t('ui6Conn.filter_placeholder')} aria-label={t('ui6Conn.filter_label')}
         style={{ width: '100%', maxWidth: 320, marginBottom: 14, fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--surface)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '6px 10px', outline: 'none', boxSizing: 'border-box' }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
         {cats.map(cat => {
@@ -95,7 +98,7 @@ export default function ApiConnections({ platforms, connections, onSelect }) {
             <div key={cat}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 2 }}>
-                  {CATEGORY_LABELS[cat] || cat}
+                  {CATEGORY_LABELS[cat] ? t(CATEGORY_LABELS[cat]) : cat}
                 </span>
                 <div style={{ flex: 1, height: 1, background: 'var(--border-dim)' }} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)' }}>{catConn}/{items.length}</span>
