@@ -68,3 +68,45 @@ func TestAgentCardsCannotCrowdOutHostCards(t *testing.T) {
 		t.Fatal("agent panels are not bounded")
 	}
 }
+
+// A surface is its author's: another agent, or an agent against a host surface
+// of any id, can neither change nor delete it. The host may delete any.
+func TestOnlyTheAuthorChangesOrDeletesASurface(t *testing.T) {
+	changes := []string{
+		`{"version":"1.0","updateComponents":{"surfaceId":"c","components":[{"id":"root","component":"Text","text":"x"}]}}`,
+		`{"version":"1.0","updateDataModel":{"surfaceId":"c","path":"/n","value":1}}`,
+		`{"version":"1.0","deleteSurface":{"surfaceId":"c"}}`,
+	}
+	for _, c := range []struct {
+		owner     Provenance
+		ownerName string
+		other     string
+	}{{FromSystem, "", ""}, {FromSystem, "", "w1"}, {FromAgent, "w1", "w2"}, {FromAgent, "w1", ""}, {FromAgent, "", "w1"}} {
+		r := NewRegistry(DefaultLimits)
+		if _, err := r.HandleFrom([]byte(card("c", true)), c.owner, c.ownerName); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range changes {
+			if _, err := r.HandleFrom([]byte(m), FromAgent, c.other); err == nil {
+				t.Errorf("%s %q surface: agent %q got through: %s", c.owner, c.ownerName, c.other, m)
+			}
+		}
+		if s := r.Surface("c"); s == nil || s.Components["root"]["component"] != "Button" || s.Author != c.ownerName {
+			t.Errorf("the surface changed: %+v", s)
+		}
+		if c.owner == FromAgent {
+			for _, m := range changes {
+				if _, err := r.HandleFrom([]byte(m), FromAgent, c.ownerName); err != nil {
+					t.Errorf("the author was refused: %v", err)
+				}
+			}
+		}
+	}
+	r := NewRegistry(DefaultLimits)
+	if _, err := r.HandleFrom([]byte(card("c", true)), FromAgent, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Handle([]byte(changes[2]), FromSystem); err != nil || r.Surface("c") != nil {
+		t.Fatalf("the host may delete any surface: %v", err)
+	}
+}

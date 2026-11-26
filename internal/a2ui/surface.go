@@ -23,8 +23,11 @@ const MaxKeptSurfaces = 200
 // list and the data model. It exists to validate updates and to answer "did
 // this surface declare that action".
 type Surface struct {
-	ID            string
-	Prov          Provenance
+	ID   string
+	Prov Provenance
+	// Author is the agent that created the surface ("" for the lead and for the
+	// host). Only it changes or deletes an agent surface.
+	Author        string
 	SendDataModel bool
 	Components    map[string]map[string]any
 	Data          any
@@ -60,9 +63,15 @@ func NewRegistry(lim Limits) *Registry {
 	return &Registry{lim: lim, surf: map[string]*Surface{}}
 }
 
-// Handle validates one raw message from an author of the given provenance and
-// applies it. On any error the registry is unchanged.
+// Handle is HandleFrom for the host, or for the lead agent.
 func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
+	return r.HandleFrom(raw, prov, "")
+}
+
+// HandleFrom validates one raw message from an author of the given provenance
+// and applies it. Only a surface's author, with its provenance, may change it;
+// the host may also delete any surface. On any error the registry is unchanged.
+func (r *Registry) HandleFrom(raw []byte, prov Provenance, author string) (Message, error) {
 	m, err := ParseMessage(raw, r.lim)
 	if err != nil {
 		return Message{}, err
@@ -79,11 +88,16 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 			return Message{}, fmt.Errorf("a2ui: surface %q already exists", m.SurfaceID)
 		}
 		r.born++
-		s = &Surface{born: r.born, ID: m.SurfaceID, Prov: prov, SendDataModel: m.SendDataModel,
+		s = &Surface{born: r.born, ID: m.SurfaceID, Prov: prov, Author: author, SendDataModel: m.SendDataModel,
 			Components: map[string]map[string]any{}, Data: map[string]any{}}
 	case KindDeleteSurface:
 		if s == nil {
 			return Message{}, fmt.Errorf("a2ui: unknown surface %q", m.SurfaceID)
+		}
+		if prov != FromSystem {
+			if err := s.ownedBy(prov, author); err != nil {
+				return Message{}, err
+			}
 		}
 		delete(r.surf, m.SurfaceID)
 		return m, nil
@@ -91,8 +105,8 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 		if s == nil {
 			return Message{}, fmt.Errorf("a2ui: surface %q was not created", m.SurfaceID)
 		}
-		if s.Prov != prov {
-			return Message{}, fmt.Errorf("a2ui: surface %q belongs to the %s author", m.SurfaceID, s.Prov)
+		if err := s.ownedBy(prov, author); err != nil {
+			return Message{}, err
 		}
 		s = s.clone()
 	}
@@ -116,6 +130,17 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 	}
 	r.surf[s.ID] = s
 	return m, nil
+}
+
+// ownedBy says whether an author may change the surface. The host is one author.
+func (s *Surface) ownedBy(prov Provenance, author string) error {
+	if s.Prov != prov {
+		return fmt.Errorf("a2ui: surface %q belongs to the %s author", s.ID, s.Prov)
+	}
+	if prov != FromSystem && s.Author != author {
+		return fmt.Errorf("a2ui: surface %q belongs to another agent", s.ID)
+	}
+	return nil
 }
 
 // evictOldestClosed forgets the oldest surface of prov that cannot be acted on.

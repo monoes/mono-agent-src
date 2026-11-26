@@ -114,10 +114,19 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 	}
 	for _, it := range items {
 		id := surfaceOfItem(it)
-		if replay.Registry.Surface(id) != nil || replay.Closed[id] {
+		old := replay.Registry.Surface(id)
+		if old != nil && old.Prov == a2ui.FromSystem && hasButton(old) {
 			continue
 		}
+		// Its card was never drawn, is gone, or stands as a note although the
+		// item still waits: draw it (again).
 		ref, msgs, err := buildItemSurface(it)
+		if err == nil && old != nil {
+			var del [][]byte
+			if del, err = surfaces.Resolved(id); err == nil {
+				msgs = append(del, msgs...)
+			}
+		}
 		if err == nil && !add(ref, msgs) {
 			err = errors.New("the conversation holds as many live surfaces as it may")
 		}

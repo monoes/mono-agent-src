@@ -440,3 +440,29 @@ func TestSyncHILNeedsAConversationAndTheCLI(t *testing.T) {
 		t.Fatal("list failure swallowed")
 	}
 }
+
+// A pending item whose card is gone, or stands as a notice with no button, is
+// drawn again: nothing can hide an approval for good.
+func TestSyncHILRedrawsAGoneCardWhileItsItemIsPending(t *testing.T) {
+	r := newSysRig(t)
+	startChat(t, r)
+	r.cli.outputs["hil list"] = hilListJSON
+	syncHIL(t, r)
+	ref := chatevents.UIRef{Kind: surfaces.RefHIL, ID: "482"}
+	for name, gone := range map[string]func() ([][]byte, error){
+		"deleted": func() ([][]byte, error) { return surfaces.Resolved("hil-482") },
+		"notice":  func() ([][]byte, error) { return surfaces.ResolvedNotice("hil-482", "Approved by you", "success") },
+	} {
+		msgs, err := gone()
+		r.show(t, ref, msgs, err)
+		if res := syncHIL(t, r); fmt.Sprint(res.Surfaced) != "[hil-482]" {
+			t.Fatalf("%s: %+v", name, res)
+		}
+		if s := r.surfaceNow(t, "hil-482"); s == nil || !s.DeclaresAction("btn-approve", "hil.approve") {
+			t.Fatalf("%s: no approval card: %+v", name, s)
+		}
+		if res := syncHIL(t, r); len(res.Surfaced) != 0 {
+			t.Fatalf("%s: drawn twice: %+v", name, res)
+		}
+	}
+}

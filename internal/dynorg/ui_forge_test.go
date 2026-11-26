@@ -88,3 +88,24 @@ func TestLiveAcceptanceAndReplayAgreeWhenTheHostDrawsDuringATurn(t *testing.T) {
 		}
 	}
 }
+
+// A worker cannot remove or rewrite the lead's card, or another worker's.
+func TestAWorkerCannotTouchAnothersCard(t *testing.T) {
+	mk := func(agent, msg string) chatevents.UISurfacePayload {
+		return chatevents.UISurfacePayload{SurfaceID: "s1", Provenance: "agent", AgentID: agent, Message: []byte(msg)}
+	}
+	c, em := uiConductor(t, asEvents([]chatevents.UISurfacePayload{mk("w1", forged("s1"))}))
+	for _, m := range []string{`{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`, uiData} {
+		if _, err := render(c, m); err == nil { // the lead
+			t.Errorf("the lead changed a worker's card: %s", m)
+		}
+	}
+	if len(uiEvents(em)) != 0 {
+		t.Fatalf("journaled: %+v", uiEvents(em))
+	}
+	r := RebuildRegistry(asEvents([]chatevents.UISurfacePayload{
+		mk("w1", forged("s1")), mk("w2", `{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`), mk("", uiData)}))
+	if s := r.Registry.Surface("s1"); s == nil || r.Closed["s1"] || fmt.Sprint(s.Data) != "map[]" {
+		t.Fatalf("replay applied another author's events: %+v", s)
+	}
+}

@@ -135,7 +135,7 @@ func (c *Conductor) applyUI(st *uiState, author string, msgs []json.RawMessage) 
 	seen := map[string]bool{}
 	var failure error
 	for i, raw := range msgs {
-		m, err := st.reg.Handle(raw, a2ui.FromAgent)
+		m, err := st.reg.HandleFrom(raw, a2ui.FromAgent, author)
 		if err != nil {
 			failure = fmt.Errorf("messages[%d]: %v", i, err)
 			break
@@ -170,7 +170,7 @@ func (c *Conductor) applyUI(st *uiState, author string, msgs []json.RawMessage) 
 // dropSurface deletes a surface that failed its check, in the registry and the journal.
 func (c *Conductor) dropSurface(st *uiState, author, id string) {
 	raw, _ := json.Marshal(map[string]any{"version": a2ui.Version, string(a2ui.KindDeleteSurface): map[string]any{"surfaceId": id}})
-	if _, err := st.reg.Handle(raw, a2ui.FromAgent); err == nil {
+	if _, err := st.reg.HandleFrom(raw, a2ui.FromAgent, author); err == nil {
 		c.emitUI(author, id, raw)
 	}
 }
@@ -221,7 +221,7 @@ func RebuildRegistry(events []chatevents.Event) *UIReplay {
 		if p.Provenance == string(a2ui.FromSystem) {
 			prov = a2ui.FromSystem
 		}
-		m, err := r.Registry.Handle(p.Message, prov)
+		m, err := r.Registry.HandleFrom(p.Message, prov, p.AgentID)
 		if err != nil {
 			continue
 		}
