@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/monoes/mono-agent v0.0.0
 	github.com/wailsapp/wails/v2 v2.17.1
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 replace github.com/monoes/mono-agent => ..
