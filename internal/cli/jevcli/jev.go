@@ -156,6 +156,9 @@ func newJevEnableCmd(d Deps) *cobra.Command {
 			for _, e := range jevconf.Egress[s] {
 				fmt.Fprintf(notes, "  - %s\n", e)
 			}
+			if note := surfaceSampledNote(p, s); note != "" {
+				fmt.Fprintln(notes, note)
+			}
 			if !yes {
 				if d.JSONOutput() || !d.StdinIsTerminal() {
 					return clicore.InvalidInput("enabling %s needs --yes when stdin is not a terminal", s)
