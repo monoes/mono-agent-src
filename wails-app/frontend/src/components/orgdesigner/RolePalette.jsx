@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Search, ChevronDown, ChevronRight, LayoutGrid, List, Clock } from 'lucide-react'
 import { loadIconManifest, iconUrl, CAT_COLOR, getRecentIcons, pushRecentIcon } from './roleIcons.js'
+import { useTranslation } from 'react-i18next'
 
 const OPEN_KEY = 'od-palette-open'
 const VIEW_KEY = 'od-palette-view'
@@ -24,6 +25,7 @@ const VIEW_KEY = 'od-palette-view'
  *   default canvas location using this archetype's suggested icon/type.
  */
 export default function RolePalette({ onDragStart, onQuickAdd }) {
+  const { t } = useTranslation()
   const [manifest, setManifest] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -92,7 +94,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
       // events this ghost-drag effect needs once it starts.
       onMouseDown={e => { e.preventDefault(); handleDragStart(item, e) }}
       onClick={() => handleQuickAdd(item)}
-      title={`Click or drag to add ${item.label}`}
+      title={t('ui6OrgsCanvas.palette_add', { label: item.label })}
       style={view === 'grid' ? {
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
         padding: '6px 4px', cursor: 'grab', borderRadius: 6,
@@ -135,7 +137,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search roles…"
+            placeholder={t('ui6OrgsCanvas.search_roles')}
             style={{
               width: '100%', background: '#020509', border: '1px solid rgba(0,180,216,0.15)',
               borderRadius: 6, padding: '5px 8px 5px 26px', color: '#e2e8f0',
@@ -146,7 +148,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
         <div style={{ display: 'flex', gap: 4 }}>
           <button
             onClick={() => setViewPersist('grid')}
-            title="Grid view"
+            title={t('ui6OrgsCanvas.grid_view')}
             style={{
               flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
               padding: '4px 0', borderRadius: 5, cursor: 'pointer', fontSize: 10,
@@ -156,11 +158,11 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
               color: view === 'grid' ? '#00b4d8' : 'var(--text-muted, #8492a6)',
             }}
           >
-            <LayoutGrid size={11} /> Grid
+            <LayoutGrid size={11} /> {t('ui6OrgsCanvas.grid')}
           </button>
           <button
             onClick={() => setViewPersist('list')}
-            title="List view"
+            title={t('ui6OrgsCanvas.list_view')}
             style={{
               flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
               padding: '4px 0', borderRadius: 5, cursor: 'pointer', fontSize: 10,
@@ -170,7 +172,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
               color: view === 'list' ? '#00b4d8' : 'var(--text-muted, #8492a6)',
             }}
           >
-            <List size={11} /> List
+            <List size={11} /> {t('ui6OrgsCanvas.list')}
           </button>
         </div>
       </div>
@@ -178,7 +180,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0 12px' }}>
         {loading && (
           <div style={{ padding: 14, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted, #8492a6)' }}>
-            Loading icons…
+            {t('ui6OrgsCanvas.loading_icons')}
           </div>
         )}
 
@@ -187,7 +189,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px 5px' }}>
               <Clock size={9} color="var(--text-muted, #8492a6)" />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted, #8492a6)', letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                Recent
+                {t('ui6OrgsCanvas.recent')}
               </span>
             </div>
             <div style={view === 'grid' ? { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, padding: '0 6px 6px' } : { padding: '0 0 4px' }}>
@@ -222,7 +224,7 @@ export default function RolePalette({ onDragStart, onQuickAdd }) {
 
         {!loading && categories.length === 0 && recentItems.length === 0 && (
           <div style={{ padding: 14, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted, #8492a6)', textAlign: 'center' }}>
-            No matching roles
+            {t('ui6OrgsCanvas.no_roles')}
           </div>
         )}
       </div>

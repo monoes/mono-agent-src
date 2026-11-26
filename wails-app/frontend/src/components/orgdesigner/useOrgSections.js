@@ -8,6 +8,7 @@ import {
   parseSections, sectionsEnabled, sectionRects, sectionAtPoint, dropMembership,
   sectionErrors, placeNewRole, freeSectionName, freeSlotIn,
 } from './sectionsGraph.js'
+import i18n from '../../i18n.js'
 
 const NOTICE_MS = 8000
 
@@ -31,7 +32,7 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
   }, [])
 
   const selected = list.find(s => s.name === selectedName) || null
-  const issues = useMemo(() => [...sectionErrors(nodes, list), ...(notice ? [notice] : [])], [nodes, list, notice])
+  const issues = useMemo(() => [...sectionErrors(nodes, list), ...(notice ? [notice] : [])], [nodes, list, notice, i18n.language])
 
   const selectSection = useCallback((name) => {
     setSelectedName(name)
@@ -42,7 +43,7 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
   const run = useCallback(async (op, call) => {
     const res = await call()
     if (!res || res.error) {
-      const reason = res?.error || 'failed'
+      const reason = res?.error || i18n.t('ui6OrgsDesigner.failed')
       say(reason)
       notify(op, reason)
       return null
@@ -56,7 +57,7 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
     if (!on) return api.addOrgRole(orgName, role)
     const hit = point ? sectionAtPoint(sectionRects(nodesRef.current, list), point.x, point.y) : null
     const place = placeNewRole({ list, nodes: nodesRef.current, anchorId, pointRect: hit, selectedSection: selectedName })
-    if (!place) return { error: 'Pick a section first: select one, or drop the role inside a section.' }
+    if (!place) return { error: i18n.t('ui6OrgsDesigner.pick_section_first') }
     // Land in a free slot of the container, not on top of a neighbour.
     const box = sectionRects(nodesRef.current, list).find(r => r.name === place.section)
     const spot = box ? freeSlotIn(nodesRef.current, box, null, role.ui && typeof role.ui.x === 'number' ? role.ui : null) : null
@@ -81,7 +82,7 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
     if (verdict.kind === 'stay') return
     const snapBack = () => onNodesChange(nodesRef.current.map(x => (x.id === id ? { ...x, x: start.x, y: start.y } : x)))
     if (verdict.kind === 'refuse') { snapBack(); say(verdict.reason); return }
-    if (!(await run('move role to section', () => api.assignOrgRole(orgName, id, verdict.to)))) { snapBack(); return }
+    if (!(await run(i18n.t('ui6OrgsDesigner.op_move_role'), () => api.assignOrgRole(orgName, id, verdict.to)))) { snapBack(); return }
     // Keep the role where it was dropped only if that spot is free; else the nearest free slot.
     const box = start.rects.find(r => r.name === verdict.to)
     if (!box) return
@@ -95,7 +96,7 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
       ? () => api.addOrgSection(orgName, value, { members: selectedId ? [selectedId] : [] })
       : () => api.addOrgDocumentEdge(orgName, p.from, p.to, value)
     const res = await call()
-    if (!res || res.error) { setPrompt({ ...p, error: res?.error || 'failed' }); return }
+    if (!res || res.error) { setPrompt({ ...p, error: res?.error || i18n.t('ui6OrgsDesigner.failed') }); return }
     setPrompt(null)
     await refreshFromServer(res)
     if (p.kind === 'section') selectSection(value)
@@ -108,13 +109,13 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
     openAddSection: () => setPrompt({ kind: 'section' }),
     suggestName: () => freeSectionName(list, 'section'),
     openAddEdge: (from, to) => setPrompt({ kind: 'doc', from, to }),
-    removeEdge: (e) => run('remove document edge', () => api.removeOrgDocumentEdge(orgName, e.from, e.to, e.type)),
-    update: (name, patch) => run('update section', () => api.updateOrgSection(orgName, name, patch)),
+    removeEdge: (e) => run(i18n.t('ui6OrgsDesigner.op_remove_edge'), () => api.removeOrgDocumentEdge(orgName, e.from, e.to, e.type)),
+    update: (name, patch) => run(i18n.t('ui6OrgsDesigner.op_update_section'), () => api.updateOrgSection(orgName, name, patch)),
     remove: async (name, moveTo) => {
       // Roles that move to another section get free slots in it, not their old spots.
       const gone = list.find(s => s.name === name)?.roster || []
       const box = moveTo ? sectionRects(nodesRef.current, list).find(r => r.name === moveTo) : null
-      if (!(await run('delete section', () => api.deleteOrgSection(orgName, name, moveTo)))) return
+      if (!(await run(i18n.t('ui6OrgsDesigner.op_delete_section'), () => api.deleteOrgSection(orgName, name, moveTo)))) return
       setSelectedName(null)
       if (!box || !gone.length) return
       let placed = nodesRef.current
@@ -124,6 +125,6 @@ export default function useOrgSections({ orgName, orgMeta, nodes, nodesRef, sele
       }
       onNodesChange(placed)
     },
-    assign: (id, section) => run('move role to section', () => api.assignOrgRole(orgName, id, section)),
+    assign: (id, section) => run(i18n.t('ui6OrgsDesigner.op_move_role'), () => api.assignOrgRole(orgName, id, section)),
   }
 }

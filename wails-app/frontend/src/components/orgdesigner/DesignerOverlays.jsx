@@ -4,6 +4,7 @@ import IconPickerModal from './IconPickerModal.jsx'
 import DeleteRoleModal from './DeleteRoleModal.jsx'
 import GrantDialog from './GrantDialog.jsx'
 import { iconUrl } from './roleIcons.js'
+import { useTranslation } from 'react-i18next'
 
 // Prompts, modals, the grant dialog and the drag ghost layered over the designer.
 export default function DesignerOverlays({
@@ -11,17 +12,18 @@ export default function DesignerOverlays({
   nodes, handleDeleteConfirm, grantDialog, setGrantDialog, orgName, automationData, handleGrantSaved,
   handleDenyBash, ghost,
 }) {
+  const { t } = useTranslation()
   return (
     <>
       {sec.prompt && (
         <NamePrompt
           key={sec.prompt.kind + (sec.prompt.from || '')}
-          title={sec.prompt.kind === 'section' ? 'New section' : `Document from ${sec.prompt.from} to ${sec.prompt.to}`}
+          title={sec.prompt.kind === 'section' ? t('ui6OrgsCanvas.new_section') : t('ui6OrgsCanvas.doc_from_to', { from: sec.prompt.from, to: sec.prompt.to })}
           hint={sec.prompt.kind === 'section'
-            ? (sec.on ? 'The selected role moves into the new section.' : 'The first section takes every non-root role; the selected role leads it.')
-            : 'Document type: lowercase letters, digits and "-". The root routes it between the sections.'}
+            ? (sec.on ? t('ui6OrgsCanvas.hint_move_role') : t('ui6OrgsCanvas.hint_first_section'))
+            : t('ui6OrgsCanvas.hint_doc_type')}
           initial={sec.prompt.kind === 'section' ? sec.suggestName() : ''}
-          submitLabel={sec.prompt.kind === 'section' ? 'Create section' : 'Add edge'}
+          submitLabel={sec.prompt.kind === 'section' ? t('ui6OrgsCanvas.create_section') : t('ui6OrgsCanvas.add_edge')}
           error={sec.prompt.error || ''}
           onSubmit={sec.submitPrompt}
           onCancel={() => sec.setPrompt(null)}

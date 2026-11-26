@@ -6,6 +6,7 @@
 // color, x, y, rest }. `parentId` mirrors the wire field `reports_to`
 // (single-parent tree, unlike NodeRunner's arbitrary multi-edge workflow
 // graph) — see hydrate()/dehydrate() for the wire <-> canvas mapping.
+import i18n from '../../i18n.js'
 
 export const NODE_W = 180
 export const NODE_H = 72
@@ -83,6 +84,12 @@ export function descendantsOf(nodes, id) {
  */
 export function validateStructure(nodes) {
   const errors = []
+  // The CLI reports the same lines in English; mergeValidation needs both to skip them.
+  const english = []
+  const fail = (key, vars) => {
+    errors.push(i18n.t(key, vars))
+    english.push(i18n.t(key, { ...vars, lng: 'en' }))
+  }
 
   const idCounts = new Map()
   const byId = new Map()
@@ -92,28 +99,28 @@ export function validateStructure(nodes) {
   })
   const dupIds = [...idCounts.entries()].filter(([, c]) => c > 1).map(([id]) => id)
   if (dupIds.length) {
-    errors.push(`duplicate role id(s): ${dupIds.join(', ')}`)
+    fail('ui6OrgsDesigner.err_duplicate_ids', { ids: dupIds.join(', ') })
   }
 
   const selfReportIds = new Set()
   nodes.forEach(n => {
     if (n.parentId != null && n.parentId === n.id) {
-      errors.push(`role "${n.id}" reports to itself`)
+      fail('ui6OrgsDesigner.err_self_report', { id: n.id })
       selfReportIds.add(n.id)
     }
   })
 
   nodes.forEach(n => {
     if (n.parentId != null && n.parentId !== n.id && !byId.has(n.parentId)) {
-      errors.push(`role "${n.id}": reports_to "${n.parentId}" matches no role id`)
+      fail('ui6OrgsDesigner.err_unknown_parent', { id: n.id, parent: n.parentId })
     }
   })
 
   const roots = nodes.filter(n => n.parentId == null)
   if (roots.length === 0 && nodes.length > 0) {
-    errors.push('no root role — exactly one role must have reports_to: null')
+    fail('ui6OrgsDesigner.err_no_root')
   } else if (roots.length > 1) {
-    errors.push(`multiple root roles (${roots.map(r => r.id).join(', ')}) — exactly one may have reports_to: null`)
+    fail('ui6OrgsDesigner.err_many_roots', { ids: roots.map(r => r.id).join(', ') })
   }
 
   // Cycle detection — independent of root checks, so a cycle among non-root
@@ -130,7 +137,7 @@ export function validateStructure(nodes) {
       if (inPath.has(cur.id)) {
         const startIdx = path.indexOf(cur.id)
         const cyclePath = path.slice(startIdx).concat(cur.id)
-        errors.push(`circular reporting: ${cyclePath.join(' -> ')}`)
+        fail('ui6OrgsDesigner.err_cycle', { path: cyclePath.join(' -> ') })
         cyclePath.forEach(id => reported.add(id))
         break
       }
@@ -141,7 +148,7 @@ export function validateStructure(nodes) {
     }
   })
 
-  return { valid: errors.length === 0, errors }
+  return { valid: errors.length === 0, errors, ...(errors.length > 0 && { english }) }
 }
 
 // ── Layout ────────────────────────────────────────────────────────────────

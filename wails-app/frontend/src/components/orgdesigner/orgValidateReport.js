@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../services/api.js'
+import i18n from '../../i18n.js'
 
 // `org validate`'s report for the designer (#205): monomind's own checks,
 // including full-access taint problems (a full-access role that reads
@@ -25,7 +26,7 @@ export function unacknowledgedRoles(report) {
 export function reportProblems(report) {
   const unacknowledged = unacknowledgedRoles(report)
   if (!report || report.valid !== false) return { errors: [], warnings: report?.warnings || [], unacknowledged }
-  const errors = String(report.error || 'invalid org config')
+  const errors = String(report.error || i18n.t('ui6OrgsDesigner.invalid_config'))
     .split('\n').map(l => l.trim().replace(/^[-•]\s*/, '')).filter(Boolean)
   return { errors, warnings: report.warnings || [], unacknowledged }
 }
@@ -56,7 +57,8 @@ export function useOrgValidateReport(orgName, stamp = '') {
 // mergeValidation adds the CLI's errors (not already reported by the
 // structural checks) to validateStructure's { valid, errors }.
 export function mergeValidation(structural, cli) {
-  const extra = (cli?.errors || []).filter(e => !structural.errors.includes(e))
+  const known = [...structural.errors, ...(structural.english || [])]
+  const extra = (cli?.errors || []).filter(e => !known.includes(e))
   return {
     ...structural,
     valid: structural.valid && extra.length === 0,

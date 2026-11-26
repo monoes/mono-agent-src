@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { notify } from '../../services/api.js'
 import { CATEGORY_TYPE } from './roleIcons.js'
+import i18n from '../../i18n.js'
 
 // Add-role flows: palette drop, quick add, and "define a new role directly".
 export default function useAddRoles({ orgName, selectedId, setSelectedId, nodesRef, sec, refreshFromServer }) {
@@ -16,7 +17,7 @@ export default function useAddRoles({ orgName, selectedId, setSelectedId, nodesR
       ui: { x: worldX, y: worldY, icon: item.id },
     }
     const res = await sec.createRole(role, droppedOnNodeId, { x: worldX, y: worldY })
-    if (!res || res.error) { notify('add role', res?.error || 'failed to add role'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_add_role'), res?.error || i18n.t('ui6OrgsDesigner.add_role_failed')); return }
     refreshFromServer(res)
   }, [orgName, refreshFromServer, sec.createRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -61,7 +62,7 @@ export default function useAddRoles({ orgName, selectedId, setSelectedId, nodesR
       ui: { x, y, icon: 'coder' },
     }
     const res = await sec.createRole(role, anchor?.id || null, null)
-    if (!res || res.error) { notify('add role', res?.error || 'failed to add role'); return }
+    if (!res || res.error) { notify(i18n.t('ui6OrgsDesigner.op_add_role'), res?.error || i18n.t('ui6OrgsDesigner.add_role_failed')); return }
     refreshFromServer(res)
     // Select the freshly created role so the inspector opens on it right
     // away — the whole point of "define a role directly" is to land in

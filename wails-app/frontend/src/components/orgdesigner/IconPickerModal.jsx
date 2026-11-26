@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { loadIconManifest, iconUrl, CAT_COLOR, pushRecentIcon } from './roleIcons.js'
+import { useTranslation } from 'react-i18next'
 
 const COLS = 8
 const TILE = 56
@@ -20,6 +21,7 @@ const TILE = 56
  * @param {() => void} onClose Called after a selection, or on Escape / backdrop click.
  */
 export default function IconPickerModal({ open, currentIconId, onSelect, onClose }) {
+  const { t } = useTranslation()
   const [manifest, setManifest] = useState([])
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState(null)
@@ -101,8 +103,8 @@ export default function IconPickerModal({ open, currentIconId, onSelect, onClose
       className="modal-overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Choose a role icon" className="modal" style={{ width: 640 }}>
-        <div className="modal-title">Choose an icon</div>
+      <div role="dialog" aria-modal="true" aria-label={t('ui6OrgsCanvas.choose_icon_label')} className="modal" style={{ width: 640 }}>
+        <div className="modal-title">{t('ui6OrgsCanvas.choose_icon')}</div>
 
         <div style={{ position: 'relative', marginBottom: 10 }}>
           <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
@@ -111,7 +113,7 @@ export default function IconPickerModal({ open, currentIconId, onSelect, onClose
             className="form-input"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search icons…"
+            placeholder={t('ui6OrgsCanvas.search_icons')}
             style={{ paddingLeft: 30 }}
           />
         </div>
@@ -171,7 +173,7 @@ export default function IconPickerModal({ open, currentIconId, onSelect, onClose
           })}
           {filtered.length === 0 && (
             <div style={{ gridColumn: `1 / -1`, textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-              No icons match
+              {t('ui6OrgsCanvas.no_icons')}
             </div>
           )}
         </div>
@@ -187,7 +189,7 @@ export default function IconPickerModal({ open, currentIconId, onSelect, onClose
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t('ui6OrgsCanvas.cancel')}</button>
         </div>
       </div>
     </div>

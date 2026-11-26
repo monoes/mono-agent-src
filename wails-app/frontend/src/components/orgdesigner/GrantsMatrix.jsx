@@ -8,6 +8,7 @@ import { confirm } from '../ConfirmDialog.jsx'
 import i18n from '../../i18n.js'
 import { defaultGrantSpec } from './GrantDialog.jsx'
 import { TierChip, mono, mutedText } from '../orgs/ui.jsx'
+import { useTranslation } from 'react-i18next'
 
 export function isAutomationRole(node) {
   return node?.rest?.kind === 'endpoint'
@@ -20,6 +21,7 @@ const cellBtn = {
 }
 
 export default function GrantsMatrix({ orgName, nodes, automations, grants, onChanged, onEditGrant }) {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState(null)
   const roles = (nodes || []).filter(n => !isAutomationRole(n))
   const byKey = new Map((grants || []).map(g => [`${g.role}|${g.alias}`, g]))
@@ -36,7 +38,7 @@ export default function GrantsMatrix({ orgName, nodes, automations, grants, onCh
       const res = existing
         ? await api.removeOrgGrant(orgName, role.id, automation.alias)
         : await api.setOrgGrant(orgName, defaultGrantSpec(role.id, automation))
-      if (!res || res.error) notify(existing ? 'revoke grant' : 'grant automation', res?.error || 'failed')
+      if (!res || res.error) notify(i18n.t(existing ? 'ui6OrgsDesigner.op_revoke_grant' : 'ui6OrgsDesigner.op_grant_automation'), res?.error || i18n.t('ui6OrgsDesigner.failed'))
       await onChanged?.()
     } finally {
       setBusy(null)
@@ -44,23 +46,23 @@ export default function GrantsMatrix({ orgName, nodes, automations, grants, onCh
   }
 
   if (!automations?.length) {
-    return <div style={{ ...mono, fontSize: 11, color: 'var(--text-muted)', padding: 16 }}>No automations in this org yet. Add one from the Automations drawer.</div>
+    return <div style={{ ...mono, fontSize: 11, color: 'var(--text-muted)', padding: 16 }}>{t('ui6OrgsDesigner.matrix_no_automations')}</div>
   }
   if (!roles.length) {
-    return <div style={{ ...mono, fontSize: 11, color: 'var(--text-muted)', padding: 16 }}>No agent roles to grant to.</div>
+    return <div style={{ ...mono, fontSize: 11, color: 'var(--text-muted)', padding: 16 }}>{t('ui6OrgsDesigner.matrix_no_roles')}</div>
   }
 
   return (
     <div style={{ overflow: 'auto', padding: 12, flex: 1, minHeight: 0 }}>
-      <table role="grid" aria-label="Grants matrix" style={{ borderCollapse: 'separate', borderSpacing: 0, ...mono, fontSize: 11 }}>
+      <table role="grid" aria-label={t('ui6OrgsDesigner.matrix_label')} style={{ borderCollapse: 'separate', borderSpacing: 0, ...mono, fontSize: 11 }}>
         <thead>
           <tr>
-            <th style={{ position: 'sticky', left: 0, background: 'var(--bg)', textAlign: 'left', padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 500 }}>Role</th>
+            <th style={{ position: 'sticky', left: 0, background: 'var(--bg)', textAlign: 'left', padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 500 }}>{t('ui6OrgsDesigner.matrix_role')}</th>
             {automations.map(a => (
               <th key={a.alias} scope="col" title={a.workflow_name} style={{ padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: 500, whiteSpace: 'nowrap', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   {a.alias}
-                  {a.has_outbound_nodes && <Send size={9} color="var(--red, #ef4444)" aria-label="outbound" />}
+                  {a.has_outbound_nodes && <Send size={9} color="var(--red, #ef4444)" aria-label={t('ui6OrgsDesigner.outbound')} />}
                 </span>
               </th>
             ))}
@@ -71,12 +73,12 @@ export default function GrantsMatrix({ orgName, nodes, automations, grants, onCh
             <tr key={role.id}>
               <th scope="row" style={{ position: 'sticky', left: 0, background: 'var(--bg)', textAlign: 'left', padding: '6px 10px', fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', borderRight: '1px solid var(--border)' }}>
                 {role.title || role.id}
-                {role.parentId == null && <span style={{ ...mutedText, marginLeft: 6 }}>boss</span>}
+                {role.parentId == null && <span style={{ ...mutedText, marginLeft: 6 }}>{t('ui6OrgsDesigner.boss')}</span>}
               </th>
               {automations.map(a => {
                 const key = `${role.id}|${a.alias}`
                 const g = byKey.get(key)
-                const label = `${g ? 'Revoke' : 'Grant'} ${a.alias} ${g ? 'from' : 'to'} ${role.id}`
+                const label = t(g ? 'ui6OrgsDesigner.matrix_revoke' : 'ui6OrgsDesigner.matrix_grant', { alias: a.alias, role: role.id })
                 return (
                   <td key={a.alias} style={{ padding: '4px 10px', textAlign: 'center', borderBottom: '1px solid var(--border-dim, var(--border))' }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -96,7 +98,7 @@ export default function GrantsMatrix({ orgName, nodes, automations, grants, onCh
                       </button>
                       {g && g.approval === 'required' && <TierChip tier={g.tier} />}
                       {g && (
-                        <button aria-label={`Edit grant ${a.alias} for ${role.id}`} onClick={() => onEditGrant?.(role, a, g)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2 }}>
+                        <button aria-label={t('ui6OrgsDesigner.matrix_edit', { alias: a.alias, role: role.id })} onClick={() => onEditGrant?.(role, a, g)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2 }}>
                           <Pencil size={10} />
                         </button>
                       )}

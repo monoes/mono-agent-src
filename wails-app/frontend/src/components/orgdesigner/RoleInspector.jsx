@@ -10,6 +10,7 @@ import { declaresFull } from './fullAccess.jsx'
 import RuntimeSelect from './RuntimeSelect.jsx'
 import { RUNTIME_OPTIONS, MODELED_REST_FIELDS, MODELED_POLICY_FIELDS, omit, cleanObj, numOrUndefined } from './roleInspectorModel.js'
 import { ModelBudgetsSection, ProviderOverrideSection, ToolPolicySection, InstructionsFileSection } from './RoleInspectorSections.jsx'
+import { useTranslation } from 'react-i18next'
 
 
 /**
@@ -50,6 +51,7 @@ export default function RoleInspector({
   // runs on.
   fullAccess = null, onAccessChanged, orgRuntime = '', sectionsOrg = false,
 }) {
+  const { t } = useTranslation()
   const [title, setTitle] = useState(node?.title || '')
   const [label, setLabel] = useState('')
   const [responsibilities, setResponsibilities] = useState(node?.responsibilities || [])
@@ -174,7 +176,7 @@ export default function RoleInspector({
         padding: 24, textAlign: 'center',
       }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted, #8492a6)' }}>
-          Select a role on the canvas to edit its details.
+          {t('ui6OrgsMore.select_role')}
         </span>
       </div>
     )
@@ -264,7 +266,7 @@ export default function RoleInspector({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <button
             onClick={onOpenIconPicker}
-            title="Change icon"
+            title={t('ui6OrgsMore.change_icon')}
             style={{ padding: 0, border: '2px solid rgba(0,180,216,0.3)', borderRadius: '50%', cursor: 'pointer', background: 'transparent', flexShrink: 0 }}
           >
             <img src={iconUrl(node.icon || 'coder')} alt="" style={{ width: 44, height: 44, borderRadius: '50%', display: 'block' }} />
@@ -276,7 +278,7 @@ export default function RoleInspector({
               onChange={e => setTitle(e.target.value)}
               onBlur={commitTitle}
               onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-              placeholder="Role title"
+              placeholder={t('ui6OrgsMore.role_title')}
               style={{ fontSize: 13, padding: '6px 8px' }}
             />
           </div>
@@ -286,13 +288,13 @@ export default function RoleInspector({
           {!renaming ? (
             <>
               <span style={{ fontSize: 10.5, color: 'var(--text-muted, #8492a6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                id: {node.id}
+                {t('ui6OrgsMore.role_id', { id: node.id })}
               </span>
               <button
                 onClick={() => setRenaming(true)}
                 style={{ background: 'none', border: 'none', color: '#00b4d8', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', padding: 0 }}
               >
-                Rename id...
+                {t('ui6OrgsMore.rename_id')}
               </button>
             </>
           ) : (
@@ -305,8 +307,8 @@ export default function RoleInspector({
                 onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(false) }}
                 style={{ fontSize: 11, padding: '4px 6px', flex: 1 }}
               />
-              <button className="btn btn-sm btn-primary" onClick={commitRename}>OK</button>
-              <button className="btn btn-sm btn-ghost" onClick={() => setRenaming(false)}>Cancel</button>
+              <button className="btn btn-sm btn-primary" onClick={commitRename}>{t('ui6OrgsMore.ok')}</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setRenaming(false)}>{t('ui6OrgsMore.cancel')}</button>
             </div>
           )}
         </div>
@@ -322,12 +324,12 @@ export default function RoleInspector({
             fontSize: 10.5, color: 'var(--yellow)',
           }}>
             <Crown size={12} color="var(--yellow)" fill="var(--yellow)" />
-            Org boss (entry point)
+            {t('ui6OrgsMore.boss_entry')}
           </div>
         ) : (
           <button
             onClick={onPromoteToRoot}
-            title="Make this role the org's entry point — the current boss becomes its direct report"
+            title={t('ui6OrgsMore.make_boss_title')}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', width: '100%',
               borderRadius: 6, background: 'transparent', border: '1px solid var(--border, rgba(255,255,255,0.12))',
@@ -335,7 +337,7 @@ export default function RoleInspector({
             }}
           >
             <Crown size={12} />
-            Set as org boss
+            {t('ui6OrgsMore.set_boss')}
           </button>
         )}
       </section>
@@ -346,14 +348,14 @@ export default function RoleInspector({
           handled structurally above, not here. */}
       {!isRoot && (
         <section>
-          <div className="form-label">Label</div>
+          <div className="form-label">{t('ui6OrgsMore.label')}</div>
           <input
             className="form-input"
             value={label}
             onChange={e => setLabel(e.target.value)}
             onBlur={commitLabel}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-            placeholder="specialist, researcher, reviewer, or anything descriptive"
+            placeholder={t('ui6OrgsMore.label_placeholder')}
             style={{ fontSize: 11 }}
           />
         </section>
@@ -361,12 +363,12 @@ export default function RoleInspector({
 
       {/* Responsibilities */}
       <StringListField
-        label="Responsibilities"
+        label={t('ui6OrgsMore.responsibilities')}
         values={responsibilities}
         onChange={commitResponsibilities}
         resetKey={syncedId}
-        placeholder='e.g. "Review pull requests for security issues"'
-        addLabel="+ Add responsibility"
+        placeholder={t('ui6OrgsMore.responsibility_placeholder')}
+        addLabel={t('ui6OrgsMore.add_responsibility')}
       />
 
       {showAutomations && (
@@ -398,7 +400,7 @@ export default function RoleInspector({
 
       {/* Runtime */}
       <section>
-        <div className="form-label">Runtime</div>
+        <div className="form-label">{t('ui6OrgsMore.runtime')}</div>
         <RuntimeSelect
           value={node.rest?.runtime ?? ''}
           options={RUNTIME_OPTIONS}
@@ -425,13 +427,13 @@ export default function RoleInspector({
 
       {/* Reports to */}
       <section>
-        <div className="form-label">Reports to</div>
+        <div className="form-label">{t('ui6OrgsMore.reports_to')}</div>
         <select
           className="form-select"
           value={node.parentId ?? ''}
           onChange={e => onSetReportsTo(e.target.value === '' ? null : e.target.value)}
         >
-          <option value="">— make this the root —</option>
+          <option value="">{t('ui6OrgsMore.make_root')}</option>
           {otherRoles.map(n => <option key={n.id} value={n.id}>{n.title || n.id}</option>)}
         </select>
       </section>
@@ -439,13 +441,13 @@ export default function RoleInspector({
       {/* Everything else */}
       {advancedRest && Object.keys(advancedRest).length > 0 && (
         <section>
-          <div className="form-label">Advanced (read-only)</div>
+          <div className="form-label">{t('ui6OrgsMore.advanced')}</div>
           <KVBlock obj={advancedRest} />
         </section>
       )}
 
       <button className="btn btn-danger" onClick={onDelete} style={{ marginTop: 4 }}>
-        Delete role
+        {t('ui6OrgsMore.delete_role')}
       </button>
     </div>
   )
