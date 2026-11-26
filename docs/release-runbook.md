@@ -25,7 +25,7 @@ Releases are hands-free apart from the `release` environment approval.
   reads it: where `openssl` cannot verify Ed25519 (stock macOS) it runs `ssh-keygen -Y verify`
   against `RELEASE_SSH_PUBKEY`. `monoagentcli` uses `manifest.json.sig`.
 - `install.sh`, committed to the releases repository's branch after the release's signed
-  files are uploaded.
+  files are uploaded and checked.
 
 Assets, `manifest.json` and both signature files are uploaded together, so an unsigned
 manifest never sits alone in the public release. Downloads are anonymous. The client pins
@@ -35,9 +35,48 @@ only the public key(s) and trusts nothing else.
 The opt-outs are `MONOAGENT_ALLOW_UNSIGNED=1` (checksum only, where the signature cannot be
 checked; never accepts a bad signature), `MONOAGENT_ALLOW_LEGACY_GITHUB=1` (unsigned GitHub
 API path) and `--no-verify`. Releases made before `manifest.json.sshsig` was published can only
-be verified with an `openssl` that does Ed25519. Between the `release` job (which creates the
-release) and `publish-releases-repo` (which attaches the manifest) the latest release has no
-manifest, so installs stop with "try again later"; approve the pending jobs promptly.
+be verified with an `openssl` that does Ed25519.
+
+## When a release becomes "latest"
+
+`install.sh` and `monoagentcli update` read the releases repository's latest release and accept
+only a signed one, so **a release becomes latest only once it is signed**:
+
+1. `release` creates it, with its binaries, as **not latest** (`make_latest` is false). The
+   previous release stays latest while `sign-manifest` and `publish-releases-repo` run or wait
+   for approval. The new release is already public and reachable by its tag.
+2. `publish-releases-repo` uploads the signed manifest, downloads the release again and compares
+   every file it verified, commits `install.sh`, and as its **last step** marks the release
+   latest (`scripts/release-latest.sh mark`) and reads it back.
+3. Where nothing is signed (no `RELEASES_REPO_TOKEN`, possible only while the code repository is
+   the releases repository) the `release` job marks it latest itself, as its last step.
+
+"Latest" never moves backwards: when a newer version already is latest, an older run leaves it,
+leaves `install.sh` alone too, stays green and prints a warning. If the current latest is not a
+`vX.Y.Z` tag the script fails instead of guessing. Check which release is latest with
+`gh release view --repo monoes/mono-agent --json tagName -q .tagName`.
+
+A failure anywhere leaves the previous release latest and the run red:
+
+| What failed | What you see | What to do |
+| --- | --- | --- |
+| `release` job | no release, a draft, or a release that is not latest | Re-run failed jobs. |
+| `sign-manifest` (key missing or unpinned, asset or signature mismatch, rejected approval) | red `sign-manifest`, publish skipped | Fix the cause, re-run failed jobs, or let the next release replace it. A re-run is refused once a higher version exists in the releases repository. |
+| Upload | red `Upload to the releases repo` | Re-run failed jobs. If `manifest.json.sig` is up but differs from this run's, or the next step finds files missing, delete `manifest.json.sig` from the release deliberately, then re-run. |
+| `Verify the published release` | error naming the missing or different file | As for the upload. |
+| `Publish install.sh` | red step; the signed release is complete but not latest | Re-run failed jobs: the upload is skipped (same signed manifest) and the rest runs. |
+| `Mark the release latest` | red step; `install.sh` is already published | Re-run failed jobs. Until then the new installer serves the previous release (it fails only if that release changed the pinned key). |
+
+Build artifacts are kept for one day, so "Re-run failed jobs" works only that long. After that,
+either ship the next release, or, **if the release already carries the signed manifest and its
+files** (check with `monoagentcli release verify` and `release-manifest check`, see
+"Break-glass"), mark it by hand from a checkout of the code repository:
+
+```bash
+TAG=vX.Y.Z RELEASES_REPO=monoes/mono-agent bash scripts/release-latest.sh mark
+```
+
+Never mark an unsigned release latest: every install and update would stop.
 
 ## How CI signs
 
@@ -83,11 +122,12 @@ GitHub environment. It exists nowhere else in CI.
    `manifest.json.sshsig` again with `verify-sshsig.sh`, on the files about to be uploaded; and
    it uploads only the files the manifest lists, plus the manifest, both signature files,
    `NOTICE` and a `SHA256SUMS` regenerated from those verified files (the unsigned `SHA256SUMS`
-   is never uploaded). Any mismatch aborts. Only after the upload does it commit `install.sh` to
-   the releases repository. It writes to `RELEASES_REPO` with the secret `RELEASES_REPO_TOKEN`
+   is never uploaded). Any mismatch aborts. Only after the upload, and the check of what the
+   release then serves, does it commit `install.sh` to the releases repository; marking the
+   release latest comes last (see "When a release becomes latest"). It writes to `RELEASES_REPO` with the secret `RELEASES_REPO_TOKEN`
    and fails rather than upload without the signatures. Both this job and `sign-manifest` are
    no-ops when the secret `RELEASES_REPO_TOKEN` does not exist; the release then has no signed
-   manifest, and `install.sh` refuses it.
+   manifest (the `release` job still marks it latest), and `install.sh` refuses it.
 
 What these checks do and do not prove: the pre-sign check proves the manifest **matches the
 build artifacts** that the workflow produced. It does not prove the build itself was not
@@ -96,12 +136,12 @@ matching manifest that pass every check. The real controls are the `release` env
 approval and branch protection on master with code-owner review (see "Code owners" below).
 Read the diff of `.github/`, `cmd/release-manifest/` and `internal/release/` before approving.
 
-CI never overwrites `manifest.json` once `manifest.json.sig` exists on the release: the
-upload step fails with a message instead. A new version always makes a new release, so this
-only matters for a re-run of the same tag. If the upload succeeded but committing `install.sh`
-failed, a re-run stops at that same refusal: the next release publishes the installer, or commit
-`install.sh` to the releases repository by hand. If an upload stopped halfway, delete
-`manifest.json.sig` from the release deliberately and re-run the job.
+CI never overwrites `manifest.json` once `manifest.json.sig` exists on the release. A new
+version always makes a new release, so this only matters for a re-run of the same tag: if the
+release carries exactly this run's `manifest.json` and both signatures, the upload is skipped and
+the later steps run; if any of the three differs or is missing, the step fails with a message. If
+an upload stopped halfway, delete `manifest.json.sig` from the release deliberately and re-run the
+job.
 
 The `-key-env NAME` flag reads the base64 private key (64-byte key or 32-byte seed) from the
 named environment variable. It is never accepted as a flag value, never printed, never written
@@ -246,7 +286,7 @@ revokes it. Move fast, in the same order as a rotation but pinning only the new 
 
 `.github/CODEOWNERS` assigns the release path (`/.github/`, `/cmd/release-manifest/`,
 `/internal/release/`, `/cmd/monoagentcli/release*.go`, `/internal/secrets/release_key.go`, `/scripts/check-release-tags*.sh`, `/scripts/release-flatten.sh`
-(`/scripts/verify-sshsig.sh` and `/install.sh` are not listed yet; add them),
+(`/scripts/verify-sshsig.sh`, `/scripts/release-latest.sh` and `/install.sh` are not listed yet; add them),
 `/docs/release-runbook.md`) to the owner. **It only takes effect when branch protection on
 master requires code-owner review**; without that rule it is a label. Enable it (owner runs
 this, it replaces the rule's review settings, so check Settings -> Branches afterwards):
@@ -279,10 +319,13 @@ go run ./cmd/release-manifest sign -manifest manifest.json -keyring     # or -ke
 monoagentcli release verify manifest.json manifest.json.sig   # add --pubkey "<id> <b64>" to try another key
 bash scripts/verify-sshsig.sh --installer install.sh manifest.json manifest.json.sshsig
 gh release upload vX.Y.Z manifest.json.sig manifest.json.sshsig --repo monoes/mono-agent
+TAG=vX.Y.Z RELEASES_REPO=monoes/mono-agent bash scripts/release-latest.sh mark   # only now
 ```
 
-`sign` writes both signature files; upload both. CI is also what commits `install.sh` to the
-releases repository, so after a release published by hand, commit it there by hand if it changed.
+`sign` writes both signature files; upload both, and `manifest.json` too if the release does
+not carry it yet. A release CI did not finish is not latest until you mark it. CI is also what
+commits `install.sh` to the releases repository, so after a release published by hand, commit it
+there by hand if it changed.
 
 `-key-file` is refused unless its mode is 0600 or tighter (a symlink is judged by its target;
 the check is skipped on Windows, which has no POSIX mode bits). `-keyring` reads the entry written by keygen (service `monoagent-release-signing`, account
