@@ -93,8 +93,9 @@
     if (!ui || !ev || (ev.type !== "ui.surface" && ev.type !== "ui.action")) return false;
     return ui.ingest(Object.assign({}, ev, { turn: ev.turn || chat.turn }), lastMessageId());
   }
-  // Messages a surface press asked to send as the next user message while a reply was still running: they go out, in order, when it ends.
-  const uiQueue = [];
+  // Messages a surface press asked to send as the next user message while a reply was still running, or after the
+  // person moved to another chat: each goes out, in order, in the chat it was pressed in, when that one is idle.
+  const uiQueue = []; // {message, profile, conversation}
   const UI_QUEUE_MAX = 5;
 
   /** pressSurface sends a button press to the backend and acts on the answer. */
@@ -102,9 +103,20 @@
     const act = envelope && envelope.action;
     if (!ui || !act || !chat.conversation) return;
     const sid = act.surfaceId;
+    const mine = loadSeq; // a profile or chat switched during the press changes it
+    const from = { profile, conversation: chat.conversation };
+    const here = () => mine === loadSeq && profile === from.profile && chat.conversation === from.conversation;
+    const queue = (message) => {
+      if (uiQueue.length < UI_QUEUE_MAX) uiQueue.push(Object.assign({ message }, from));
+    };
     let outcome = null; // {inProgress} keeps the card's buttons locked
     {
       const r = await ask({ type: "chat_ui_action", profile, conversationId: chat.conversation, action: envelope });
+      if (!here()) {
+        // Nothing of this press belongs on the chat now shown.
+        if (r && r.ok !== false && r.delivered === "next_turn" && typeof r.message === "string" && r.message) queue(r.message);
+        return r;
+      }
       if (!r || r.ok === false) {
         ui.setNote(sid, `${act.name}: ${(r && r.error) || "could not be sent"}`);
       } else if (r.outcome === "rejected" || r.outcome === "stale") {
@@ -114,7 +126,7 @@
         outcome = r;
         if (r.delivered === "next_turn" && typeof r.message === "string" && r.message) {
           if (!busy()) await send(r.message, false, { noPage: true, images: [] });
-          else if (uiQueue.length < UI_QUEUE_MAX) uiQueue.push(r.message);
+          else queue(r.message);
         } else sync(); // an answer to an open question: the turn goes on, pick up what it says
       }
     }
@@ -154,9 +166,10 @@
     }
   }
 
-  /** flushUiQueue sends the next queued press message once nothing is running. */
+  /** flushUiQueue sends the shown chat's next queued press message once nothing is running. */
   function flushUiQueue() {
-    if (uiQueue.length && !busy() && availability === "ready") send(uiQueue.shift(), false, { noPage: true, images: [] });
+    const i = uiQueue.findIndex((q) => q.profile === profile && q.conversation === chat.conversation);
+    if (i >= 0 && !busy() && availability === "ready") send(uiQueue.splice(i, 1)[0].message, false, { noPage: true, images: [] });
   }
 
   // Approvals waiting in this conversation become surfaces, answered ones resolve: asked when the chat opens
@@ -167,6 +180,7 @@
   const panelVisible = () => document.visibilityState !== "hidden";
   async function uiSyncTick() {
     if (!ui || uiSyncing || !panelVisible() || availability !== "ready" || !chat.conversation || active) return;
+    flushUiQueue(); // a press made here before another chat was shown
     uiSyncing = true;
     const mine = loadSeq;
     try {

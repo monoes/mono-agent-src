@@ -54,3 +54,43 @@ describe('a press in flight', () => {
     expect(notify).not.toHaveBeenCalled()
   })
 })
+
+// A press belongs to the chat it was made in.
+describe('a press and a chat switch', () => {
+  const mount = props => renderHook(p => useA2UIActions(p), { initialProps: props })
+  const base = { streaming: false, onChanged: vi.fn() }
+  const next = { outcome: 'accepted', delivered: 'next_turn', message: 'from chat A' }
+
+  it('an answer that arrives after a switch waits for its own chat', async () => {
+    let answer
+    api.chatUIAction.mockReturnValue(new Promise(r => { answer = r }))
+    const sendA = vi.fn()
+    const sendB = vi.fn()
+    const { result, rerender } = mount({ ...base, conversationId: 'a', send: sendA })
+    let done
+    act(() => { done = result.current.onA2UIAction({}) })
+    rerender({ ...base, conversationId: 'b', send: sendB })
+    await act(async () => { answer(next); await done })
+    expect(sendB).not.toHaveBeenCalled()
+    expect(sendA).not.toHaveBeenCalled()
+    rerender({ ...base, conversationId: 'a', send: sendA })
+    expect(sendA).toHaveBeenCalledWith('from chat A')
+    expect(sendB).not.toHaveBeenCalled()
+  })
+
+  it('a held message is not sent into another chat', async () => {
+    api.chatUIAction.mockResolvedValue(next)
+    const sendA = vi.fn()
+    const sendB = vi.fn()
+    const { result, rerender } = mount({ ...base, streaming: true, conversationId: 'a', send: sendA })
+    await act(() => result.current.onA2UIAction({}))
+    rerender({ ...base, conversationId: 'b', send: sendB })
+    expect(sendB).not.toHaveBeenCalled()
+    rerender({ ...base, streaming: true, conversationId: 'a', send: sendA })
+    expect(sendA).not.toHaveBeenCalled()
+    rerender({ ...base, conversationId: 'a', send: sendA })
+    expect(sendA).toHaveBeenCalledTimes(1)
+    expect(sendB).not.toHaveBeenCalled()
+  })
+})
+

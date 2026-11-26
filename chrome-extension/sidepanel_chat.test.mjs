@@ -1003,3 +1003,53 @@ test("a2ui: a press still in progress says so under the card and keeps its butto
   assert.equal(t.sent.filter((m) => m.type === "chat_send").length, 0);
 });
 
+// A press belongs to the chat it was made in: a profile or chat switched
+// before it is delivered must not receive it.
+const homeAndWork = { "chatConv:p-work": "c-1", "chatConv:p-home": "c-9" };
+const switchTo = async (t, id) => { t.sandbox.profiles.current = { id }; t.doc.fire("panel:profiles"); await settle(60); };
+const pressesSent = (t) => t.sent.filter((m) => m.type === "chat_send" && m.message === "press message").map((m) => [m.profile, m.conversation]);
+
+test("a2ui: an answer that arrives after a profile switch is not sent into the other profile's chat", async () => {
+  let answer;
+  const t = await openedWithSurface({ chat_ui_action: () => new Promise((r) => (answer = r)), chat_send: { ok: true, data: { conversation: "c-1", turn: "t2", text: "done" } } }, { stored: homeAndWork });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  buttonOf(t).fire("click");
+  await settle();
+  await switchTo(t, "p-home");
+  answer({ ok: true, outcome: "accepted", delivered: "next_turn", message: "press message" });
+  await settle(60);
+  assert.deepEqual(pressesSent(t), []);
+  await switchTo(t, "p-work");
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(80);
+  assert.deepEqual(pressesSent(t), [["p-work", "c-1"]], "it goes out in its own chat");
+});
+
+test("a2ui: a queued press message does not follow the person into another profile's chat", async () => {
+  let finish;
+  let held = true;
+  const t = await openedWithSurface({
+    chat_ui_action: { ok: true, outcome: "accepted", delivered: "next_turn", message: "press message" },
+    chat_send: () => (held ? new Promise((r) => (finish = r)) : { ok: true, data: { conversation: "c-1", turn: "t3", text: "ok" } }),
+  }, { stored: homeAndWork });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  t.type("first");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle();
+  buttonOf(t).fire("click");
+  await settle(40);
+  await switchTo(t, "p-home");
+  held = false;
+  finish({ ok: true, data: { conversation: "c-1", turn: "t2", text: "ok" } });
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(80);
+  assert.deepEqual(pressesSent(t), []);
+  await switchTo(t, "p-work");
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(80);
+  assert.deepEqual(pressesSent(t), [["p-work", "c-1"]]);
+});
+

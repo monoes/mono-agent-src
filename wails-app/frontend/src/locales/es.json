@@ -3649,7 +3649,8 @@
     "rejected": "Se rechazó esa acción.",
     "queued": "Tu elección está en cola y se enviará cuando termine el turno actual.",
     "pressFailed": "No se completó la acción de la tarjeta",
-    "queuedTitle": "Elección en espera"
+    "queuedTitle": "Elección en espera",
+    "queuedElsewhere": "Has cambiado de chat: tu elección se enviará cuando vuelvas a ese chat."
   },
   "chatWarnings": {
     "fullAccess": "Acceso completo: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",
@@ -5449,7 +5450,7 @@
     "cards_s2": "Una tarjeta marcada «de monoagent» la ha construido monoagent a partir de un registro real: una aprobación pendiente, la pregunta de un miembro del equipo o una misión. Una tarjeta marcada «del agente» la ha escrito la IA.",
     "cards_s3": "Solo las tarjetas «de monoagent» pueden aprobar o rechazar. Un agente puede poner cualquier texto en su propio botón, incluido «Approve», pero al pulsarlo solo se le dice al agente qué has pulsado. No aprueba nada.",
     "cards_s4": "En una tarjeta de aprobación, Approve y Reject ejecutan los mismos comandos que monoagentcli hil approve y hil reject, y Approve incluye lo que hayas editado en sus campos. Aprobar un envío lo envía de verdad; su tarjeta dice que se está enviando hasta que termina. Una tarjeta de plan de misión no tiene Approve: aprueba e inicia el plan desde su misión en la pestaña Tareas. Stop y Close en las tarjetas de misión ejecutan task session stop o close; Edit plan envía un mensaje al chat pidiendo cambiar el plan.",
-    "cards_s5": "Un botón de una tarjeta de agente responde a la pregunta que ese agente está esperando. Si no hay ninguna, tu pulsación se envía como tu siguiente mensaje del chat, después del turno actual si hay uno en marcha; solo se guarda tu última pulsación. Si una pulsación se rechaza, se te dice por qué.",
+    "cards_s5": "Un botón de una tarjeta de agente responde a la pregunta que ese agente está esperando. Si no hay ninguna, tu pulsación se envía como tu siguiente mensaje en ese chat, después del turno actual si hay uno en marcha y nunca a otro chat; de cada chat solo se guarda la última pulsación. Si una pulsación se rechaza, se te dice por qué.",
     "cards_s6": "Una tarjeta de aprobación de algo ya decidido se convierte en una nota sin botones: cuando la pulsas o, si lo decidiste en otro sitio, en la siguiente comprobación. Un elemento que ha cambiado desde que se dibujó su tarjeta recibe una nueva, y pulsar la antigua no decide nada. La app comprueba aproximadamente cada 10 segundos mientras el chat está abierto y su ventana tiene el foco.",
     "cards_s7": "Una tarjeta de aprobación de un flujo de trabajo o de un envío ofrece Approve solo cuando muestra todo su texto y sus detalles, y sus cuadros de texto crecen hasta que cabe; los archivos adjuntos aparecen por nombre y ubicación, sin vista previa. Si no cabe todo, contiene un enlace de respuesta que el chat no muestra, o el chat ya tiene todas las tarjetas de aprobación que admite, no hay tarjeta: decídelo en Comunicaciones. Un envío que monoagent no puede mostrar, como un borrador del buzón, recibe una tarjeta con solo Reject. Las tarjetas de misión y las ya resueltas pueden acortar textos largos. Desde una terminal, monoagentcli chat ui show <conversation> --profile <name> imprime como texto las tarjetas abiertas de un chat y no cambia nada.",
     "orgs_title": "Organizaciones",
