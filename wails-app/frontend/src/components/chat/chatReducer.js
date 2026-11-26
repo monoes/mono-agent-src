@@ -5,6 +5,7 @@
 // ascending-sequence order. Kept pure so it is directly unit-testable
 // without mocking Wails.
 import { stageReducer } from '../../lib/orgStage.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 export function initialChatState() {
   return {
@@ -112,7 +113,7 @@ function agentPatch(state, ev) {
       // confinement is per run and absent from other agents: kept once reported.
       return put({ status: p.to, statusDetail: p.detail || '', ...(p.confinement ? { confinement: p.confinement } : {}) })
     case 'agent.reassigned':
-      return put({ runtime: p.toRuntime, model: p.toModel, reassigned: `${p.fromRuntime}/${p.fromModel || 'default'}: ${p.reason}` })
+      return put({ runtime: p.toRuntime, model: p.toModel, reassigned: `${p.fromRuntime}/${p.fromModel || i18nOr('ui7Chat.default_model')}: ${p.reason}` })
     case 'agent.message':
       if (p.direction === 'result') return put({ report: p.text })
       // A worker's question for the user (#256), open until answered.

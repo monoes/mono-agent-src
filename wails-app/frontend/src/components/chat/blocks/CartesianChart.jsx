@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { SERIES_COLORS, SURFACE, GRID, AXIS_TEXT, niceTicks, fmtCompact, fmtFull, bandIndex, labelStep, barPath } from './chartScale.js'
 import { Tooltip, srOnly, useWidth } from './chartParts.jsx'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../../lib/i18nOr.js'
 
 const H = 190
 const M = { l: 40, r: 10, t: 10, b: 24 }
@@ -8,6 +10,7 @@ const M = { l: 40, r: 10, t: 10, b: 24 }
 // bar / line / area over category labels x. Hand-built SVG; one y axis;
 // hover or arrow keys pick a category and show every series' value.
 export function CartesianChart({ data, label }) {
+  useTranslation() // renders again on a language change
   const { type, x, series, unit } = data
   const wrap = useRef(null)
   const w = useWidth(wrap)
@@ -48,7 +51,7 @@ export function CartesianChart({ data, label }) {
 
   return (
     <div ref={wrap} style={{ position: 'relative' }}>
-      <div tabIndex={0} role="group" aria-roledescription="chart" aria-label={label}
+      <div tabIndex={0} role="group" aria-roledescription={i18nOr('ui7Chat.chart_role')} aria-label={label}
         onKeyDown={onKey} onFocus={() => setActive(a => a ?? 0)} onBlur={() => setActive(null)}
         style={{ outlineOffset: 2, borderRadius: 4 }}>
         <svg width={w} height={H} onPointerMove={pick} onPointerLeave={() => setActive(null)} aria-hidden="true" style={{ display: 'block', touchAction: 'pan-y' }}>

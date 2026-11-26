@@ -7,6 +7,7 @@ import { copyToClipboard } from './toolCardUtils.js'
 import { ChatModeSelector } from './ChatModeSelector.jsx'
 import { OpenEndedStop } from './OpenEndedStop.jsx'
 import ShowBossLink from '../agents/ShowBossLink.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Coder conversation header (#203): the CODER badge, the folder the agent
 // works in (full path), and Open folder / Copy path. With a `chatMode` (useChatMode)
@@ -61,6 +62,7 @@ export function sessionUsage(states) {
 // CoderUsageBar: how full the session's context window is, and the tokens
 // used across the whole session by all agents.
 export function CoderUsageBar({ states, model }) {
+  useTranslation() // renders again on a language change
   const { context, total, sum } = sessionUsage(states)
   if (!context && !sum) return null
   const window = contextWindowFor(model)
@@ -72,17 +74,17 @@ export function CoderUsageBar({ states, model }) {
       flexShrink: 0, fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', flexWrap: 'wrap', rowGap: 3,
     }}>
       <div style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
-        title={`Latest context sent in one call: ${context.toLocaleString()} of ~${window.toLocaleString()} tokens`}>
-        <span>Context</span>
-        <div role="progressbar" aria-label="Context window used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
+        title={i18nOr('ui7Chat.context_title', { used: context.toLocaleString(), size: window.toLocaleString() })}>
+        <span>{i18nOr('ui7Chat.context')}</span>
+        <div role="progressbar" aria-label={i18nOr('ui7Chat.context_used')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
           style={{ flex: 1, minWidth: 60, maxWidth: 220, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
           <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width .3s' }} />
         </div>
         <span data-testid="coder-usage-context" style={{ color: '#e2e8f0' }}>{fmtTokens(context)} / {fmtTokens(window)} · {pct}%</span>
       </div>
       <span data-testid="coder-usage-total" style={{ flexShrink: 0 }}
-        title={`Session total, all agents — input ${total.input.toLocaleString()}, output ${total.output.toLocaleString()}, cache read ${total.cacheRead.toLocaleString()}, cache write ${total.cacheCreation.toLocaleString()}`}>
-        Session <span style={{ color: '#e2e8f0' }}>{fmtTokens(sum)}</span> tokens
+        title={i18nOr('ui7Chat.session_title', { input: total.input.toLocaleString(), output: total.output.toLocaleString(), cacheRead: total.cacheRead.toLocaleString(), cacheWrite: total.cacheCreation.toLocaleString() })}>
+        {i18nOr('ui7Chat.session')} <span style={{ color: '#e2e8f0' }}>{fmtTokens(sum)}</span> {i18nOr('ui7Chat.tokens')}
       </span>
     </div>
   )
@@ -93,7 +95,7 @@ export function CoderHeader({ cwd, chatMode, openEnded }) {
   const [copied, setCopied] = useState(false)
   if (!cwd && !(chatMode && (chatMode.state || chatMode.error))) return null
   const openFolder = () => {
-    Promise.resolve(api.openPathWithOS(cwd)).catch(e => notify('coder', `Could not open ${cwd}: ${e}`))
+    Promise.resolve(api.openPathWithOS(cwd)).catch(e => notify('coder', i18nOr('ui7Chat.open_failed', { path: cwd, error: String(e) })))
   }
   const copy = () => {
     copyToClipboard(cwd)
@@ -122,10 +124,10 @@ export function CoderHeader({ cwd, chatMode, openEnded }) {
             bdi stops it from reordering the path's own characters. */}
         <bdi>{cwd}</bdi>
       </span>
-      <button type="button" onClick={openFolder} title="Open folder in the file manager" style={iconButton}>
-        <FolderOpen size={10} /> Open folder
+      <button type="button" onClick={openFolder} title={i18nOr('ui7Chat.open_folder_title')} style={iconButton}>
+        <FolderOpen size={10} /> {i18nOr('ui7Chat.open_folder')}
       </button>
-      <button type="button" onClick={copy} title="Copy path" aria-label="Copy path" style={iconButton}>
+      <button type="button" onClick={copy} title={i18nOr('ui7Chat.copy_path')} aria-label={i18nOr('ui7Chat.copy_path')} style={iconButton}>
         {copied ? <Check size={10} /> : <Copy size={10} />}
       </button></>}
     </div>
@@ -157,12 +159,13 @@ export function initSummary(created, runtime = 'claude') {
   const key = keyInitFiles(runtime).filter(f => created.includes(f))
   const shown = key.length ? key : created.slice(0, 3)
   const more = created.length - shown.length
-  return shown.join(', ') + (more > 0 ? ` and ${more} more` : '')
+  return shown.join(', ') + (more > 0 ? ` ${i18nOr('ui7Chat.init_more', { n: more })}` : '')
 }
 
 // CoderInitNote reports the coder root a coder chat was started in,
 // from `coder workspace root`'s JSON; runtime picks the files to name.
 export function CoderInitNote({ workspace, runtime = 'claude' }) {
+  useTranslation() // renders again on a language change
   const created = workspace?.init?.created || []
   return (
     <div data-testid="coder-init-note" style={{
@@ -172,13 +175,13 @@ export function CoderInitNote({ workspace, runtime = 'claude' }) {
     }}>
       <FolderRoot size={11} color="#00b4d8" style={{ flexShrink: 0, marginTop: 1 }} />
       <span>
-        {workspace?.created ? (workspace?.profile ? 'Created profile folder ' : 'Created coder root ') : 'Working in '}
+        {i18nOr(workspace?.created ? (workspace?.profile ? 'ui7Chat.created_profile_folder' : 'ui7Chat.created_coder_root') : 'ui7Chat.working_in')}{' '}
         <span style={{ color: '#e2e8f0' }}>{workspace?.path}</span>
-        {created.length > 0 && <> · created {initSummary(created, runtime)}</>}
-        {workspace?.git && <> · git repository</>}
+        {created.length > 0 && <>{' '}{i18nOr('ui7Chat.init_created', { files: initSummary(created, runtime) })}</>}
+        {workspace?.git && <>{' '}{i18nOr('ui7Chat.git_repo')}</>}
         {created.length > keyInitFiles(runtime).length && (
           <details style={{ marginTop: 3 }}>
-            <summary style={{ cursor: 'pointer' }}>show all {created.length}</summary>
+            <summary style={{ cursor: 'pointer' }}>{i18nOr('ui7Chat.show_all', { n: created.length })}</summary>
             <div data-testid="coder-init-all" style={{ maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{created.join('\n')}</div>
           </details>
         )}

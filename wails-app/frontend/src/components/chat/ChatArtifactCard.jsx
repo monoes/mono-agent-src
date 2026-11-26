@@ -1,4 +1,6 @@
 import { Workflow, Building2, FileText, Image as ImageIcon, Copy, ExternalLink } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../lib/i18nOr.js'
 
 function copyToClipboard(text) {
   try { navigator.clipboard?.writeText(text) } catch { /* clipboard unavailable — copy is a convenience, not required */ }
@@ -40,6 +42,7 @@ const actionBtnStyle = {
 // action beneath it (a workflow also keeps a local Copy ID).
 // `onOpenArtifact` is not invoked for Copy ID — a pure clipboard copy.
 export function ChatArtifactCard({ artifact, onOpenArtifact }) {
+  useTranslation() // renders again on a language change
   if (!artifact) return null
 
   if (artifact.type === 'workflow') {
@@ -53,20 +56,20 @@ export function ChatArtifactCard({ artifact, onOpenArtifact }) {
         <button
           type="button"
           onClick={() => onOpenArtifact?.(artifact)}
-          title="Open workflow"
-          aria-label="Open workflow"
+          title={i18nOr('ui7Chat.open_workflow')}
+          aria-label={i18nOr('ui7Chat.open_workflow')}
           style={actionBtnStyle}
         >
-          <ExternalLink size={11} /> Open
+          <ExternalLink size={11} /> {i18nOr('ui7Chat.open')}
         </button>
         <button
           type="button"
           onClick={() => copyToClipboard(artifact.id)}
-          title="Copy workflow ID"
-          aria-label="Copy workflow ID"
+          title={i18nOr('ui7Chat.copy_workflow_id')}
+          aria-label={i18nOr('ui7Chat.copy_workflow_id')}
           style={actionBtnStyle}
         >
-          <Copy size={11} /> Copy ID
+          <Copy size={11} /> {i18nOr('ui7Chat.copy_id')}
         </button>
       </div>
     )
@@ -82,11 +85,11 @@ export function ChatArtifactCard({ artifact, onOpenArtifact }) {
         <button
           type="button"
           onClick={() => onOpenArtifact?.(artifact)}
-          title="Open organization"
-          aria-label="Open organization"
+          title={i18nOr('ui7Chat.open_org')}
+          aria-label={i18nOr('ui7Chat.open_org')}
           style={actionBtnStyle}
         >
-          <ExternalLink size={11} /> Open
+          <ExternalLink size={11} /> {i18nOr('ui7Chat.open')}
         </button>
       </div>
     )
@@ -103,11 +106,11 @@ export function ChatArtifactCard({ artifact, onOpenArtifact }) {
         <button
           type="button"
           onClick={() => onOpenArtifact?.(artifact)}
-          title="Open document"
-          aria-label="Open document"
+          title={i18nOr('ui7Chat.open_document')}
+          aria-label={i18nOr('ui7Chat.open_document')}
           style={actionBtnStyle}
         >
-          <ExternalLink size={11} /> Open
+          <ExternalLink size={11} /> {i18nOr('ui7Chat.open')}
         </button>
       </div>
     )
@@ -124,11 +127,11 @@ export function ChatArtifactCard({ artifact, onOpenArtifact }) {
         <button
           type="button"
           onClick={() => onOpenArtifact?.(artifact)}
-          title="Open image in vault"
-          aria-label="Open image in vault"
+          title={i18nOr('ui7Chat.open_image')}
+          aria-label={i18nOr('ui7Chat.open_image')}
           style={actionBtnStyle}
         >
-          <ExternalLink size={11} /> Open
+          <ExternalLink size={11} /> {i18nOr('ui7Chat.open')}
         </button>
       </div>
     )

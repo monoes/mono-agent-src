@@ -2,6 +2,8 @@ import { flushSync } from 'react-dom'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Send, Square, Paperclip } from 'lucide-react'
 import { AttachmentChips } from './ChatAttachments.jsx'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../lib/i18nOr.js'
 
 // ChatComposer is the draft textarea + send/stop control, extracted from
 // the old assistant panel so its own interaction rules (IME composition, auto-resize)
@@ -21,6 +23,7 @@ import { AttachmentChips } from './ChatAttachments.jsx'
 const EMIT_MS = 250
 
 export function ChatComposer({ value, onChange, onSend, onStop, streaming, disabled, disabledReason, attachments = [], onAttach, onRemoveAttachment }) {
+  useTranslation() // renders again on a language change
   const textareaRef = useRef(null)
   const [text, setText] = useState(value)
   const textRef = useRef(value)
@@ -146,8 +149,8 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={!canAttach}
-              title="Attach images or files (or paste or drop them here)"
-              aria-label="Attach files"
+              title={i18nOr('ui7Chat.attach_title')}
+              aria-label={i18nOr('ui7Chat.attach_files')}
               style={{
                 background: 'transparent', border: '1px solid rgba(0,180,216,0.15)', borderRadius: 8,
                 padding: '0 9px', cursor: canAttach ? 'pointer' : 'default',
@@ -172,7 +175,7 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
           // accepts text while refusing to send it reads as a broken app
           // rather than an unavailable one.
           disabled={disabled}
-          placeholder="Type a message..."
+          placeholder={i18nOr('ui7Chat.type_message')}
           rows={1}
           style={{
             flex: 1,
@@ -192,8 +195,8 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
         {streaming ? (
           <button
             onClick={onStop}
-            title="Stop generating"
-            aria-label="Stop generating"
+            title={i18nOr('ui7Chat.stop_generating')}
+            aria-label={i18nOr('ui7Chat.stop_generating')}
             style={{
               background: 'rgba(239,68,68,0.15)',
               border: '1px solid rgba(239,68,68,0.35)',
@@ -214,8 +217,8 @@ export function ChatComposer({ value, onChange, onSend, onStop, streaming, disab
           <button
             onClick={send}
             disabled={!text.trim() || disabled}
-            title={disabled ? 'No backend selected — see the notice above' : 'Send message'}
-            aria-label="Send message"
+            title={i18nOr(disabled ? 'ui7Chat.no_backend' : 'ui7Chat.send_message')}
+            aria-label={i18nOr('ui7Chat.send_message')}
             style={{
               background: !text.trim() || disabled ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
               border: `1px solid ${!text.trim() || disabled ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,

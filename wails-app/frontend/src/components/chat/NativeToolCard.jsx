@@ -8,6 +8,7 @@ import { vaultRelated } from './toolLinks.js'
 import { maskArgs, maskCredentials } from './credentials.js'
 import { ToolLink } from './ToolLink.jsx'
 import { ToolResultImages } from './ChatAttachments.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 export { DiffView } from './nativeToolParts.jsx'
 
@@ -37,15 +38,15 @@ function parseArgs(args) {
 function callStatus(call, isLive) {
   if (call.status === 'started') {
     return isLive
-      ? { key: 'running', icon: <Loader size={11} className="chat-spin" style={{ color: CYAN }} />, text: 'Running' }
-      : { key: 'interrupted', icon: <X size={11} color="var(--text-muted)" />, text: 'Interrupted' }
+      ? { key: 'running', icon: <Loader size={11} className="chat-spin" style={{ color: CYAN }} />, text: i18nOr('ui7Chat.tool_running') }
+      : { key: 'interrupted', icon: <X size={11} color="var(--text-muted)" />, text: i18nOr('ui7Chat.tool_interrupted') }
   }
-  if (call.denied) return { key: 'denied', icon: <Ban size={11} color="#f59e0b" />, text: 'Denied' }
+  if (call.denied) return { key: 'denied', icon: <Ban size={11} color="#f59e0b" />, text: i18nOr('ui7Chat.tool_denied') }
   // A stopped turn closes its still-open calls as cancelled.
-  if (call.cancelled) return { key: 'cancelled', icon: <Square size={10} color="var(--text-muted)" />, text: 'Stopped' }
-  if (call.ok === false) return { key: 'failed', icon: <X size={11} color="#ef4444" />, text: 'Failed' }
-  if (call.ok === true) return { key: 'done', icon: <Check size={11} color="#10b981" />, text: 'Done' }
-  return { key: 'completed', icon: <Check size={11} color="#94a3b8" />, text: 'Completed' }
+  if (call.cancelled) return { key: 'cancelled', icon: <Square size={10} color="var(--text-muted)" />, text: i18nOr('ui7Chat.tool_stopped') }
+  if (call.ok === false) return { key: 'failed', icon: <X size={11} color="#ef4444" />, text: i18nOr('ui7Chat.tool_failed') }
+  if (call.ok === true) return { key: 'done', icon: <Check size={11} color="#10b981" />, text: i18nOr('ui7Chat.tool_done') }
+  return { key: 'completed', icon: <Check size={11} color="#94a3b8" />, text: i18nOr('ui7Chat.tool_completed') }
 }
 
 // NativeToolCard renders one native call. childCalls are the calls made
@@ -112,7 +113,7 @@ export function NativeToolCard({ call, turnId = '', isLive = true, childCalls = 
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, paddingTop: 1 }}>
           {d.tags}
-          {call.truncated && <Tag color="#fbbf24" testId="truncated">output truncated</Tag>}
+          {call.truncated && <Tag color="#fbbf24" testId="truncated">{i18nOr('ui7Chat.output_truncated')}</Tag>}
           <span style={{ fontFamily: mono, fontSize: 9, color: failed ? '#fca5a5' : status.key === 'denied' ? '#fbbf24' : 'var(--text-muted)' }}>{status.text}</span>
           {durationText && <span style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>{`· ${durationText}`}</span>}
         </span>
@@ -120,7 +121,7 @@ export function NativeToolCard({ call, turnId = '', isLive = true, childCalls = 
       {d.link && onNavigate && <div style={{ padding: '0 10px 6px' }}><ToolLink link={d.link} onNavigate={onNavigate} /></div>}
       <ToolResultImages call={call} />
       <div id={panelId} hidden={!open} style={{ padding: '0 10px 8px', display: open ? 'flex' : 'none', flexDirection: 'column', gap: 6 }}>
-        {raw != null && !withheld && <Section label="Input (truncated)" copyText={raw}><pre style={preStyle}>{raw}</pre></Section>}
+        {raw != null && !withheld && <Section label={i18nOr('ui7Chat.input_truncated')} copyText={raw}><pre style={preStyle}>{raw}</pre></Section>}
         {d.body}
       </div>
     </div>
