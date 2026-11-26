@@ -19,6 +19,7 @@ set -u
 S="$STUB_STATE"
 echo "$*" >>"$S/calls"
 if [ -n "${STUB_FAIL:-}" ] && [[ "$*" == *"$STUB_FAIL"* ]]; then echo "gh: Server Error (HTTP 500)" >&2; exit 1; fi
+if [ -n "${STUB_FAIL_ONCE:-}" ] && [[ "$*" == *"$STUB_FAIL_ONCE"* ]] && [ ! -e "$S/failed-once" ]; then : >"$S/failed-once"; echo "gh: Server Error (HTTP 502)" >&2; exit 1; fi
 cmd="$1 $2"
 if [ "$1" = api ]; then
   case "$*" in
@@ -308,6 +309,15 @@ func TestMarkLatestFailsClosed(t *testing.T) {
 		f := newFakeReleases(t, "v1.10.0")
 		f.setLatest("nightly")
 		if out, err := f.run(mark); err == nil || f.read("latest") != "nightly" {
+			t.Fatalf("err=%v latest=%q\n%s", err, f.read("latest"), out)
+		}
+	})
+	// One failed read must stop the step, not count as "nothing newer" before a second read succeeds.
+	t.Run("one read of latest fails", func(t *testing.T) {
+		f := newFakeReleases(t, "v1.9.0")
+		f.setLatest("v1.10.0")
+		out, err := f.run(mark, "STUB_FAIL_ONCE=releases/latest")
+		if err == nil || f.read("latest") != "v1.10.0" {
 			t.Fatalf("err=%v latest=%q\n%s", err, f.read("latest"), out)
 		}
 	})
