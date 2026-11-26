@@ -42,7 +42,7 @@ func (d Deps) hilSendError(err error) error {
 	case errors.Is(err, hilsend.ErrNotSend):
 		return d.InvalidInput("that Human-in-Loop item is not a send item")
 	case errors.Is(err, hilsend.ErrAlwaysLabel), errors.Is(err, hilsend.ErrNoText), errors.Is(err, hilsend.ErrNoSubject),
-		errors.Is(err, hilsend.ErrUnreviewable):
+		errors.Is(err, hilsend.ErrUnreviewable), errors.Is(err, hilsend.ErrChanged):
 		return d.InvalidInput(err.Error())
 	}
 	return err
@@ -448,6 +448,7 @@ func (deps Deps) delegateSendResolve(cmd *cobra.Command, db *sql.DB, id string, 
 		}
 		edit = hilsend.Edit{Text: d.Text, Subject: d.Subject}
 	}
+	edit.IfDigest = ifDigest(cmd)
 	return true, deps.resolveSend(cmd, st, id, approve, edit, false)
 }
 

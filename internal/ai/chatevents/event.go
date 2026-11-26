@@ -522,6 +522,9 @@ type UISurfacePayload struct {
 type UIRef struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`
+	// Digest is the record's content digest as the surface shows it (approval
+	// cards): a press decides the record only while it still has it.
+	Digest string `json:"digest,omitempty"`
 }
 
 // UIActionPayload is ui.action's payload: the user pressed a button on a

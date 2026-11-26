@@ -138,6 +138,9 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		return err
 	}
 	surfaceID, approve := a.SurfaceID, cmd.Kind == "hil.approve"
+	if ref.Digest == "" {
+		return errors.New("this card does not say what it showed: wait for it to be drawn again")
+	}
 	args := []string{"hil", "reject", cmd.ID}
 	if approve {
 		data, err := e.approveData(ctx, ref, cmd)
@@ -146,11 +149,15 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		}
 		args = []string{"hil", "approve", cmd.ID, "--data", data}
 	}
-	out, err := e.run(ctx, args...)
+	// The command decides the item only while it is what the card showed.
+	out, err := e.run(ctx, append(args, "--if-digest", ref.Digest)...)
 	if err != nil {
-		// The card stays live while the item still waits.
-		if _, gone := e.pendingItem(ctx, cmd.ID); errors.Is(gone, errNotPending) {
+		// The card stays live while the item still waits, drawn anew if it changed.
+		switch it, lerr := e.pendingItem(ctx, cmd.ID); {
+		case errors.Is(lerr, errNotPending):
 			e.finish(conv, ref, surfaceID, "No longer pending", "neutral")
+		case lerr == nil && it.Digest != ref.Digest:
+			e.redraw(conv, surfaceID, it)
 		}
 		return err
 	}
@@ -178,6 +185,30 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		e.finish(conv, ref, surfaceID, note, tone)
 	}
 	return errors.New(note)
+}
+
+// unshowable is the note that takes the place of a card whose item changed into
+// one no card can show whole.
+const unshowable = "This item changed and cannot be shown whole here: decide it in Communications"
+
+// redraw replaces a card with one of the item as it is now, best effort (sync
+// does the same at its next run).
+func (e *sysEnv) redraw(conv uiConv, surfaceID string, it listedHIL) {
+	ref, msgs, err := buildItemSurface(it)
+	if err != nil {
+		e.finish(conv, ref, surfaceID, unshowable, "warning")
+		return
+	}
+	del, err := surfaces.Resolved(surfaceID)
+	if err != nil {
+		return
+	}
+	store, _, closeDB, err := openChatHistory(e.cfg)
+	if err != nil {
+		return
+	}
+	defer closeDB()
+	_ = recordMessages(store, conv, ref, append(del, msgs...))
 }
 
 // outcomeNote says what really happened to an item whose state is not the one
@@ -255,8 +286,9 @@ func typedLike(orig any, s string) any {
 
 type listedHIL struct {
 	surfaces.HILItem
-	Kind string           `json:"kind"`
-	Send *hilsend.Payload `json:"send"`
+	Digest string           `json:"digest"`
+	Kind   string           `json:"kind"`
+	Send   *hilsend.Payload `json:"send"`
 }
 
 // listHIL is `hil list --json`.

@@ -48,6 +48,9 @@ var (
 	// ErrNoSubject: a subject edit of a card whose op names no subject
 	// field: the approved run would send none, while the record kept it.
 	ErrNoSubject = errors.New("this send has no subject field: there is no subject to edit; approve it as it is or reject it")
+	// ErrChanged: a decision named the digest of a card (Edit.IfDigest) and
+	// the item is no longer what that card showed.
+	ErrChanged = errors.New("this item changed since its card was drawn: look at it again, then decide")
 	// ErrUnreviewable: an approve (always-allow included) of a card that
 	// can't show all the step would send (too large, or a draft's). It can
 	// only be rejected, or the step changed and run again.

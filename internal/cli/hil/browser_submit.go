@@ -37,6 +37,13 @@ func (d Deps) decideIfBrowserSubmit(cmd *cobra.Command, id string, approve bool)
 		return false, nil
 	}
 	var itemID, status string
+	_, isPair := extension.IsPairCard(nc)
+	if ifDigest(cmd) != "" && (isPair || browserctl.IsSubmitItem(nc) || browserctl.IsSiteItem(nc)) {
+		// Checked before the decision: these items are written once, when asked.
+		if _, _, err := d.checkDigest(cmd, db.DB, id); err != nil {
+			return true, err
+		}
+	}
 	if claim, ok := extension.IsPairCard(nc); ok {
 		return d.decidePairCard(cmd, db.DB, id, claim, approve)
 	}

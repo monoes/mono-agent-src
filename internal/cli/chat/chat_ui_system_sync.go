@@ -115,16 +115,23 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 	for _, it := range items {
 		id := surfaceOfItem(it)
 		old := replay.Registry.Surface(id)
-		if old != nil && old.Prov == a2ui.FromSystem && hasButton(old) {
+		live := old != nil && old.Prov == a2ui.FromSystem && hasButton(old)
+		if live && refOfSurface(evs, id).Digest == it.Digest {
 			continue
 		}
-		// Its card was never drawn, is gone, or stands as a note although the
-		// item still waits: draw it (again).
+		// Its card was never drawn, is gone, stands as a note although the item
+		// still waits, or shows the item as it no longer is: draw it (again).
 		ref, msgs, err := buildItemSurface(it)
 		if err == nil && old != nil {
 			var del [][]byte
 			if del, err = surfaces.Resolved(id); err == nil {
 				msgs = append(del, msgs...)
+			}
+		}
+		if err != nil && live {
+			// The old card must not stay: it offers to approve what is not there.
+			if note, nerr := surfaces.ResolvedNotice(id, unshowable, "warning"); nerr == nil {
+				add(ref, note)
 			}
 		}
 		if err == nil && !add(ref, msgs) {
@@ -149,13 +156,15 @@ func surfaceOfItem(it listedHIL) string {
 	return surfaces.HILSurfaceID(it.ID)
 }
 
+// buildItemSurface is the card of a pending item and the ref that ties it to
+// the item as shown. The ref is set even when no card can be built.
 func buildItemSurface(it listedHIL) (chatevents.UIRef, [][]byte, error) {
 	if it.Kind == "send" && it.Send != nil {
 		msgs, err := surfaces.Send(*it.Send)
-		return chatevents.UIRef{Kind: surfaces.RefSend, ID: it.Send.ID}, msgs, err
+		return chatevents.UIRef{Kind: surfaces.RefSend, ID: it.Send.ID, Digest: it.Digest}, msgs, err
 	}
 	msgs, err := surfaces.HIL(it.HILItem)
-	return chatevents.UIRef{Kind: surfaces.RefHIL, ID: it.ID}, msgs, err
+	return chatevents.UIRef{Kind: surfaces.RefHIL, ID: it.ID, Digest: it.Digest}, msgs, err
 }
 
 // liveCardIDs are the live hil-/send- surfaces of the replay, sorted.
