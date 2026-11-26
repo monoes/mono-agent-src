@@ -9,6 +9,7 @@
 // AccountStatus to get past it).
 import * as GoApp from '../wailsjs/go/main/App'
 import { subscribeEvent } from './api.js'
+import i18nOr from '../lib/i18nOr.js'
 
 const STATES = ['ok', 'grace', 'locked']
 const CAUSES = ['cli_not_found', 'cli_too_old', 'cli_failed'] // wails-app/app_account.go
@@ -23,7 +24,7 @@ const unbound = (message) => failure('cli_failed', message)
 export function answerOf(raw) {
   let v = raw
   if (typeof raw === 'string') {
-    try { v = JSON.parse(raw) } catch { return failure('cli_failed', 'monoagentcli answered with something unreadable') }
+    try { v = JSON.parse(raw) } catch { return failure('cli_failed', i18nOr('ui6PagesMisc.cli_unreadable')) }
   }
   if (v && typeof v === 'object' && v.v === 1 && STATES.includes(v.state)) return { status: v }
   if (v && typeof v.error === 'string') {
@@ -38,7 +39,7 @@ const run = (call) => Promise.resolve().then(call).then(r => (typeof r === 'stri
 
 export const account = {
   status: () => Promise.resolve().then(() => GoApp.AccountStatus())
-    .then(raw => (typeof raw === 'string' || (raw && typeof raw === 'object') ? answerOf(raw) : unbound('no answer from the binding')))
+    .then(raw => (typeof raw === 'string' || (raw && typeof raw === 'object') ? answerOf(raw) : unbound(i18nOr('ui6PagesMisc.no_answer'))))
     .catch(e => unbound(e?.message || String(e))),
   login: () => run(() => GoApp.AccountLogin()),
   cancelLogin: () => run(() => GoApp.AccountLoginCancel()),

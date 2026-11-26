@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitBranch, Play, ChevronRight, ToggleLeft, ToggleRight, Loader, StopCircle, Clock } from 'lucide-react'
 import { execStatus } from '../../lib/execStatus.js'
-import { relTime, untilTime } from './format.js'
+import { relTime, untilTime, execStatusWord } from './format.js'
 import { ExecStatusDot } from './RecentRunsCard.jsx'
 import ProfileChip from './ProfileChip.jsx'
 import { ownRow } from './scope.js'
@@ -75,7 +75,7 @@ function WorkflowRow({ wf, last, sched, invalid, daemonRunning, onRun, onStop, o
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
               <ExecStatusDot status={last.status} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: st.tone, textTransform: 'uppercase' }}>{last.status}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: st.tone, textTransform: 'uppercase' }}>{execStatusWord(last.status)}</span>
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>{relTime(last.created_at, t)}</div>
           </>

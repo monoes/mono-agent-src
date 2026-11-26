@@ -3,6 +3,7 @@
 // filters read, and how a delete result splits into outcomes.
 
 import { orgBubbleKey } from './coderBubbles.js'
+import i18nOr from './i18nOr.js'
 
 export const PAGE_SIZE = 30
 export const ACCESS_LEVELS = ['scoped', 'coding', 'workspace', 'full']
@@ -33,10 +34,10 @@ export function relativeTime(iso, now = Date.now()) {
   const t = Date.parse(iso)
   if (!iso || Number.isNaN(t)) return ''
   const s = Math.max(0, Math.round((now - t) / 1000))
-  if (s < 45) return 'just now'
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`
-  if (s < 7 * 86400) return `${Math.round(s / 86400)}d ago`
+  if (s < 45) return i18nOr('ui6PagesMisc.just_now')
+  if (s < 3600) return i18nOr('ui6PagesMisc.minutes_ago', { n: Math.max(1, Math.round(s / 60)) })
+  if (s < 86400) return i18nOr('ui6PagesMisc.hours_ago', { n: Math.round(s / 3600) })
+  if (s < 7 * 86400) return i18nOr('ui6PagesMisc.days_ago', { n: Math.round(s / 86400) })
   return new Date(t).toISOString().slice(0, 10)
 }
 
@@ -85,7 +86,7 @@ export function deleteOutcome(res) {
 
 // survivorNames lists the processes a delete could not stop, by command and pid, as many as fit in a notice.
 export function survivorNames(survivors, max = 4) {
-  const names = (survivors || []).map(s => `${s.command || 'process'} (${s.pid})`)
+  const names = (survivors || []).map(s => `${s.command || i18nOr('ui6PagesMisc.process')} (${s.pid})`)
   return names.length > max ? `${names.slice(0, max).join(', ')}, +${names.length - max}` : names.join(', ')
 }
 
@@ -114,5 +115,5 @@ export function orgRunLabel(row) {
   const id = (row.runId || '').slice(0, 8)
   const t = Date.parse(row.updatedAt)
   const date = Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10)
-  return [id && `run ${id}`, date].filter(Boolean).join(' \u00b7 ')
+  return [id && i18nOr('ui6PagesMisc.run_id', { id }), date].filter(Boolean).join(' \u00b7 ')
 }

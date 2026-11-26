@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api, subscribeEvent } from '../../services/api.js'
 import { PAGE_SIZE, toFilter, mergePage, reconcileRefresh } from '../../lib/historyModel.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 const REFRESH_MS = 2000
 const QUERY_DEBOUNCE_MS = 300
@@ -54,7 +55,7 @@ export function useHistory({ open, kind, status, query, linked }) {
       setError('')
     } catch (e) {
       if (mine !== seq.current) return
-      if (!silent) setError(String(e?.message || e || 'unknown error'))
+      if (!silent) setError(String(e?.message || e || i18nOr('ui6PagesMisc.unknown_error')))
     } finally {
       if (mine === seq.current) setLoading(false)
     }
@@ -73,7 +74,7 @@ export function useHistory({ open, kind, status, query, linked }) {
       pages.current += 1
       if (page.warnings?.length) setWarnings(w => [...new Set([...w, ...page.warnings])])
     } catch (e) {
-      if (mine === seq.current) setError(String(e?.message || e || 'unknown error'))
+      if (mine === seq.current) setError(String(e?.message || e || i18nOr('ui6PagesMisc.unknown_error')))
     } finally {
       setLoadingMore(false)
     }
