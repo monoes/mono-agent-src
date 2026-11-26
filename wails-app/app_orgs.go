@@ -249,20 +249,6 @@ func (a *App) AnswerOrgQuestion(name, questionID, answer string) string {
 	return a.runOrgCLI("answer", name, questionID, answer)
 }
 
-func (a *App) ApproveOrgAction(name, role, action string) string {
-	if err := a.signedOut(); err != nil {
-		return loginRequiredJSON(err)
-	}
-	return a.runOrgCLI("approve", name, role, action)
-}
-
-func (a *App) DenyOrgAction(name, role, action string) string {
-	if err := a.signedOut(); err != nil {
-		return loginRequiredJSON(err)
-	}
-	return a.runOrgCLI("deny", name, role, action)
-}
-
 func (a *App) GateApproveOrgAction(name, gateID, resolution string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
