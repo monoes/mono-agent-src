@@ -168,7 +168,7 @@ describe('NeedsYouPanel', () => {
     const idless = items[3]
     expect(within(idless).queryByRole('button', { name: /Approve|Deny/ })).not.toBeInTheDocument()
     expect(within(idless).getByText(/has no request id/)).toBeInTheDocument()
-    expect(within(idless).getByText(/monoagentcli org approve\|deny growth dev Bash/)).toBeInTheDocument()
+    expect(within(idless).getByText(/monoagentcli --profile <profile> org approve\|deny growth dev Bash/)).toBeInTheDocument()
   })
 
   it('falls back to all pending items when needs-you fails', async () => {

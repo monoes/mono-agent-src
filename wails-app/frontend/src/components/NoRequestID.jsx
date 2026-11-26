@@ -6,8 +6,8 @@ export function NoRequestID({ org, role, action }) {
   return (
     <div role="note" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#fbbf24', overflowWrap: 'anywhere' }}>
       This request has no request id, so the app cannot resolve it on its own. Update monomind, or run{' '}
-      <code>monoagentcli org approve|deny {org} {role} {action}</code> in a terminal, which resolves every
-      waiting {action} call of {role}.
+      <code>monoagentcli --profile &lt;profile&gt; org approve|deny {org} {role} {action}</code> in a terminal,
+      which resolves every waiting {action} call of {role}.
     </div>
   )
 }
