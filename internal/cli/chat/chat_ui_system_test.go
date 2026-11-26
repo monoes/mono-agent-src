@@ -14,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // fakeCLI answers RunCLI: a canned output per command prefix, every call recorded.
@@ -598,4 +599,49 @@ func (r *sysRig) refNow(t *testing.T, id string) chatevents.UIRef {
 		t.Fatal(err)
 	}
 	return refOfSurface(evs, id)
+}
+
+// The journal is read by agents (`chat history events`), so it only ever holds
+// the redacted form: an item with a hidden reply link gets no card to approve
+// from, and an error that quotes a link is redacted too.
+func TestTheChatJournalNeverHoldsAReplyToken(t *testing.T) {
+	t.Setenv("MONOAGENT_PUBLIC_URL", "http://127.0.0.1:19724")
+	resume, err := workflow.ExecutionResumeURL("ex-r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := resume[strings.LastIndex(resume, "/")+1:]
+	r := newSysRig(t)
+	startChat(t, r)
+	r.showHIL(t) // a card drawn before the item held a link
+	r.cli.outputs["hil list"] = `[{"id":"482","node_name":"Send DM","digest":"d2","redacted":true,"readonly_data":{"link":"[hidden]"},"editable_data":{}}]`
+	res := syncHIL(t, r)
+	if len(res.Skipped) != 1 || !strings.Contains(res.Skipped[0].Reason, "decide it in Communications") || len(res.Surfaced) != 0 {
+		t.Fatalf("%+v", res)
+	}
+	if hasButton(r.surfaceNow(t, "hil-482")) {
+		t.Fatal("a card offers to approve what it does not show")
+	}
+	for _, c := range r.cli.calls {
+		if c[1] == "list" && strings.Join(c, " ") != "hil list --redact" {
+			t.Fatalf("listed without redaction: %v", c)
+		}
+	}
+
+	msgs, err := surfaces.Send(hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Text: "Hi"})
+	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, msgs, err)
+	r.cli.outputs["hil approve"] = fmt.Sprintf(`{"id":"7c1e","state":"failed","error":"POST %s refused"}`, resume)
+	press, _ := r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi"})
+	if press.Outcome != "rejected" || !strings.Contains(press.Reason, "refused") || strings.Contains(press.Reason, token) {
+		t.Fatalf("%+v", press)
+	}
+	evs, err := r.store.UIEvents("default", r.conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if strings.Contains(string(ev.Payload), token) {
+			t.Fatalf("the journal holds the token: %s", ev.Payload)
+		}
+	}
 }

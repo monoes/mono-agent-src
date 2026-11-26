@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // The handlers of the system surfaces (hil., system., mission.). Each one
@@ -107,10 +108,20 @@ func recordMessages(store *ai.AIStore, conv uiConv, ref chatevents.UIRef, msgs [
 	return err
 }
 
+// redact hides reply link tokens in text that goes into the journal.
+func (e *sysEnv) redact(ctx context.Context, s string) string {
+	db, err := e.cfg.OpenDB()
+	if err != nil {
+		return "(details withheld)"
+	}
+	defer db.Close()
+	return workflow.NewReplyRedactor(ctx, db.DB).String(s)
+}
+
 // finish replaces the surface with a notice. It is best effort: the decision
 // is already made, and `chat ui sync-hil` settles a card this missed.
 func (e *sysEnv) finish(conv uiConv, ref chatevents.UIRef, surfaceID, text, tone string) {
-	msgs, err := surfaces.ResolvedNotice(surfaceID, text, tone)
+	msgs, err := surfaces.ResolvedNotice(surfaceID, e.redact(context.Background(), text), tone)
 	if err != nil {
 		return
 	}
@@ -159,7 +170,7 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		case lerr == nil && it.Digest != ref.Digest:
 			e.redraw(conv, surfaceID, it)
 		}
-		return err
+		return errors.New(e.redact(ctx, err.Error()))
 	}
 	// A send prints its card ({state, error}), anything else {status}.
 	var res struct {
@@ -184,7 +195,7 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 	if state != hilsend.StatePending {
 		e.finish(conv, ref, surfaceID, note, tone)
 	}
-	return errors.New(note)
+	return errors.New(e.redact(ctx, note))
 }
 
 // unshowable is the note that takes the place of a card whose item changed into
@@ -286,14 +297,16 @@ func typedLike(orig any, s string) any {
 
 type listedHIL struct {
 	surfaces.HILItem
-	Digest string           `json:"digest"`
+	Digest   string         `json:"digest"`
+	Redacted bool           `json:"redacted"`
 	Kind   string           `json:"kind"`
 	Send   *hilsend.Payload `json:"send"`
 }
 
-// listHIL is `hil list --json`.
+// listHIL is `hil list --json --redact`: cards, and the journal that keeps
+// them, hold only what an agent may read.
 func (e *sysEnv) listHIL(ctx context.Context) ([]listedHIL, error) {
-	out, err := e.run(ctx, "hil", "list")
+	out, err := e.run(ctx, "hil", "list", "--redact")
 	if err != nil {
 		return nil, err
 	}

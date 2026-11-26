@@ -55,6 +55,9 @@ type hilItem struct {
 	// Digest fingerprints the item's content (hilsend.Digest), for `hil
 	// approve|reject --if-digest`.
 	Digest string `json:"digest,omitempty"`
+	// Redacted: a reply link's token was hidden in this item, so what is shown
+	// is not all there is.
+	Redacted bool `json:"redacted,omitempty"`
 	// PersonID, PersonName and HilRef are set when the item has a row in
 	// Communications (hil_ref is this item's id), so the GUI can link to both.
 	PersonID   string `json:"person_id,omitempty"`
@@ -72,7 +75,7 @@ type hilItem struct {
 }
 
 func (d Deps) newHILListCmd() *cobra.Command {
-	var suggest, resuggest bool
+	var suggest, resuggest, redact bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List pending Human-in-Loop items",
@@ -142,7 +145,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			if suggest || resuggest {
 				suggestHILItems(cmd.Context(), db.DB, d.ProfileID(), items, resuggest)
 			}
-			if opgate.Refusal() != "" {
+			if redact || opgate.Refusal() != "" {
 				hideReplyTokens(cmd.Context(), db.DB, items)
 			}
 
@@ -192,6 +195,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&redact, "redact", false, "Hide reply links' tokens as an agent sees the list, and mark those items (what chat cards are drawn from)")
 	cmd.Flags().BoolVar(&suggest, "suggest", false, "Add TypeSafe Jev's suggestion to each item (computed and stored when missing; needs 'jev enable hil')")
 	cmd.Flags().BoolVar(&resuggest, "resuggest", false, "Recompute and store every suggestion (implies --suggest)")
 	return cmd
@@ -207,7 +211,26 @@ func hideReplyTokens(ctx context.Context, db *sql.DB, items []hilItem) {
 	}
 	rr := workflow.NewReplyRedactor(ctx, db, ids...)
 	for i := range items {
-		items[i].ReadonlyData, items[i].EditableData = rr.Map(items[i].ReadonlyData), rr.Map(items[i].EditableData)
+		it := &items[i]
+		shown := func() string {
+			b, _ := json.Marshal([]any{it.ReadonlyData, it.EditableData, it.Send})
+			return string(b)
+		}
+		before := shown()
+		it.ReadonlyData, it.EditableData = rr.Map(it.ReadonlyData), rr.Map(it.EditableData)
+		if it.Send != nil {
+			// The card repeats the row's data: hide the same there.
+			var doc map[string]interface{}
+			var send hilsend.Payload
+			raw, _ := json.Marshal(it.Send)
+			if json.Unmarshal(raw, &doc) == nil {
+				raw, _ = json.Marshal(rr.Map(doc))
+				if json.Unmarshal(raw, &send) == nil {
+					it.Send = &send
+				}
+			}
+		}
+		it.Redacted = shown() != before
 	}
 }
 

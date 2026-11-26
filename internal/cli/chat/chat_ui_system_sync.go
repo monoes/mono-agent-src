@@ -116,7 +116,7 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		id := surfaceOfItem(it)
 		old := replay.Registry.Surface(id)
 		live := old != nil && old.Prov == a2ui.FromSystem && hasButton(old)
-		if live && refOfSurface(evs, id).Digest == it.Digest {
+		if live && !it.Redacted && refOfSurface(evs, id).Digest == it.Digest {
 			continue
 		}
 		// Its card was never drawn, is gone, stands as a note although the item
@@ -159,6 +159,14 @@ func surfaceOfItem(it listedHIL) string {
 // buildItemSurface is the card of a pending item and the ref that ties it to
 // the item as shown. The ref is set even when no card can be built.
 func buildItemSurface(it listedHIL) (chatevents.UIRef, [][]byte, error) {
+	if it.Redacted {
+		kind := surfaces.RefHIL
+		if it.Kind == "send" {
+			kind = surfaces.RefSend
+		}
+		return chatevents.UIRef{Kind: kind, ID: it.ID, Digest: it.Digest}, nil,
+			errors.New("it holds a reply link that chat does not show: decide it in Communications")
+	}
 	if it.Kind == "send" && it.Send != nil {
 		msgs, err := surfaces.Send(*it.Send)
 		return chatevents.UIRef{Kind: surfaces.RefSend, ID: it.Send.ID, Digest: it.Digest}, msgs, err
