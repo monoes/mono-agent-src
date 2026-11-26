@@ -66,6 +66,26 @@ func IsSend(nodeConfig string) bool {
 
 // create stores a pending item.
 func (s Store) create(ctx context.Context, p Payload, rp replay) (Payload, error) {
+	hilscrub.MarkCutoff(ctx, s.DB)
+	p, c, err := encodeCard(p, rp)
+	if err != nil {
+		return p, err
+	}
+	if err := s.insertCard(ctx, s.DB, p, c); err != nil {
+		return p, err
+	}
+	s.commsQueue(ctx, p, c.replay)
+	return p, nil
+}
+
+// card is a pending item as its row stores it.
+type cardRow struct {
+	replay     replay
+	ro, ed, nc string // readonly_data, editable_data, node_config
+}
+
+// encodeCard fills in what a new item gets and encodes its row.
+func encodeCard(p Payload, rp replay) (Payload, cardRow, error) {
 	if p.ID == "" {
 		p.ID = uuid.NewString()
 	}
@@ -74,27 +94,34 @@ func (s Store) create(ctx context.Context, p Payload, rp replay) (Payload, error
 		p.Attachments = []Attachment{}
 	}
 	rp.Kind = "send"
-	hilscrub.MarkCutoff(ctx, s.DB)
 	ro := p
 	ro.Text, ro.Subject = "", ""
 	roRaw, err := json.Marshal(ro)
 	if err != nil {
-		return p, err
+		return p, cardRow{}, err
 	}
 	edRaw, _ := json.Marshal(editable{Text: p.Text, Subject: p.Subject})
 	rpRaw, err := json.Marshal(rp)
 	if err != nil {
-		return p, err
+		return p, cardRow{}, err
 	}
-	_, err = s.DB.ExecContext(ctx,
+	return p, cardRow{replay: rp, ro: string(roRaw), ed: string(edRaw), nc: string(rpRaw)}, nil
+}
+
+// execer is the database, or the connection of a transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func (s Store) insertCard(ctx context.Context, db execer, p Payload, c cardRow) error {
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, readonly_data, editable_data, node_config, profile_id)
 		 VALUES (?, ?, '', ?, ?, 'pending', ?, ?, ?, ?)`,
-		p.ID, "send:"+p.ID, p.NodeType, "send:"+p.Action, string(roRaw), string(edRaw), string(rpRaw), s.Profile)
+		p.ID, "send:"+p.ID, p.NodeType, "send:"+p.Action, c.ro, c.ed, c.nc, s.Profile)
 	if err != nil {
-		return p, fmt.Errorf("storing send item: %w", err)
+		return fmt.Errorf("storing send item: %w", err)
 	}
-	s.commsQueue(ctx, p, rp)
-	return p, nil
+	return nil
 }
 
 type row struct {
