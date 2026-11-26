@@ -129,40 +129,84 @@ func (e *sysEnv) run(ctx context.Context, args ...string) ([]byte, error) {
 	return e.cfg.RunCLI(ctx, args...)
 }
 
-// hil runs hil.approve and hil.reject: `hil approve|reject <id>`.
+// hil runs hil.approve and hil.reject: `hil approve|reject <id>`. A press is
+// accepted only when the item ends in the state its button names; otherwise the
+// card shows what really happened and the press is journaled rejected.
 func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error {
 	cmd, ref, conv, err := e.route(ctx, a)
 	if err != nil {
 		return err
 	}
-	surfaceID := a.SurfaceID
-	if cmd.Kind == "hil.reject" {
-		if _, err := e.run(ctx, "hil", "reject", cmd.ID); err != nil {
+	surfaceID, approve := a.SurfaceID, cmd.Kind == "hil.approve"
+	args := []string{"hil", "reject", cmd.ID}
+	if approve {
+		data, err := e.approveData(ctx, ref, cmd)
+		if err != nil {
 			return err
 		}
-		e.finish(conv, ref, surfaceID, "Rejected by you", "neutral")
-		return nil
+		args = []string{"hil", "approve", cmd.ID, "--data", data}
 	}
-	data, err := e.approveData(ctx, ref, cmd)
+	out, err := e.run(ctx, args...)
 	if err != nil {
+		// The card stays live while the item still waits.
+		if _, gone := e.pendingItem(ctx, cmd.ID); errors.Is(gone, errNotPending) {
+			e.finish(conv, ref, surfaceID, "No longer pending", "neutral")
+		}
 		return err
 	}
-	out, err := e.run(ctx, "hil", "approve", cmd.ID, "--data", data)
-	if err != nil {
-		return err
-	}
+	// A send prints its card ({state, error}), anything else {status}.
 	var res struct {
 		Status string `json:"status"`
 		State  string `json:"state"`
 		Error  string `json:"error"`
 	}
 	_ = json.Unmarshal(out, &res)
-	if res.State == string(hilsend.StateFailed) {
-		e.finish(conv, ref, surfaceID, "Approved by you, but sending failed: "+res.Error, "danger")
-		return fmt.Errorf("the send failed: %s", res.Error)
+	state := hilsend.State(firstSet(res.State, res.Status))
+	switch {
+	case !approve && state == hilsend.StateRejected:
+		e.finish(conv, ref, surfaceID, "Rejected by you", "neutral")
+		return nil
+	case approve && (state == hilsend.StateSent || (state == hilsend.StateApproved && ref.Kind != surfaces.RefSend)):
+		e.finish(conv, ref, surfaceID, "Approved by you", "success")
+		return nil
+	case approve && state == hilsend.StateApproved:
+		e.finish(conv, ref, surfaceID, "Approved, being sent now", "info")
+		return nil
 	}
-	e.finish(conv, ref, surfaceID, "Approved by you", "success")
-	return nil
+	note, tone := outcomeNote(approve, state, res.Error)
+	if state != hilsend.StatePending {
+		e.finish(conv, ref, surfaceID, note, tone)
+	}
+	return errors.New(note)
+}
+
+// outcomeNote says what really happened to an item whose state is not the one
+// the pressed button names.
+func outcomeNote(approve bool, state hilsend.State, sendError string) (text, tone string) {
+	switch {
+	case approve && state == hilsend.StateFailed:
+		return "Approved by you, but sending failed: " + sendError, "danger"
+	case approve && state == hilsend.StateRejected:
+		return "Not sent: this send was rejected", "neutral"
+	case !approve && state == hilsend.StateSent:
+		return "Not rejected: it was already sent", "warning"
+	case !approve && state == hilsend.StateApproved:
+		return "Not rejected: it was already approved and is being sent", "warning"
+	case !approve && state == hilsend.StateFailed:
+		return "Not rejected: it was approved and sending failed: " + sendError, "warning"
+	case state == hilsend.StatePending:
+		return "The item is still waiting: nothing was decided", "warning"
+	}
+	return "No longer pending", "neutral"
+}
+
+func firstSet(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // approveData is the --data of the approval: the edited fields, as the item
@@ -238,5 +282,7 @@ func (e *sysEnv) pendingItem(ctx context.Context, id string) (listedHIL, error) 
 			return it, nil
 		}
 	}
-	return listedHIL{}, fmt.Errorf("HIL item %q is not pending any more", id)
+	return listedHIL{}, fmt.Errorf("HIL item %q is %w", id, errNotPending)
 }
+
+var errNotPending = errors.New("not pending any more")

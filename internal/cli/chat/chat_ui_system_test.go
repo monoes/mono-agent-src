@@ -150,15 +150,17 @@ func TestSecondPressIsRefusedAndRunsNothing(t *testing.T) {
 func TestHILRejectAndFailureLeavesTheCardLive(t *testing.T) {
 	r := newSysRig(t)
 	r.showHIL(t)
-	r.cli.errs["hil reject"] = errors.New(`HIL item "482" not found or already resolved`)
+	r.cli.errs["hil reject"] = errors.New("database is locked")
+	r.cli.outputs["hil list"] = hilListJSON
 	res, err := r.press(t, "hil.reject", "hil-482", "btn-reject", map[string]any{"id": "482"})
-	if err != nil || res.Outcome != "rejected" || !strings.Contains(res.Reason, "already resolved") {
+	if err != nil || res.Outcome != "rejected" || !strings.Contains(res.Reason, "database is locked") {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if s := r.surfaceNow(t, "hil-482"); s == nil || !s.DeclaresAction("btn-reject", "hil.reject") {
 		t.Fatal("a failed decision must leave the card live")
 	}
 	delete(r.cli.errs, "hil reject")
+	r.cli.outputs["hil reject"] = `{"id":"482","status":"rejected"}`
 	res, _ = r.press(t, "hil.reject", "hil-482", "btn-reject", map[string]any{"id": "482"})
 	if res.Outcome != "accepted" || r.surfaceNow(t, "hil-482").Components["note"]["text"] != "Rejected by you" {
 		t.Fatalf("%+v", res)
@@ -464,5 +466,56 @@ func TestSyncHILRedrawsAGoneCardWhileItsItemIsPending(t *testing.T) {
 		if res := syncHIL(t, r); len(res.Surfaced) != 0 {
 			t.Fatalf("%s: drawn twice: %+v", name, res)
 		}
+	}
+}
+
+// A press that did not do what its button says (the item was decided
+// elsewhere) is journaled rejected and the card shows the real state: never
+// "Approved by you" for a send somebody rejected, nor the other way round.
+func TestAPressThatDidNotHappenShowsTheRealState(t *testing.T) {
+	send := hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Channel: "instagram",
+		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada"}
+	for _, c := range []struct {
+		button, state, note string
+	}{
+		{"approve", "rejected", "Not sent: this send was rejected"},
+		{"reject", "sent", "Not rejected: it was already sent"},
+		{"reject", "approved", "Not rejected: it was already approved and is being sent"},
+		{"reject", "failed", "Not rejected: it was approved and sending failed: boom"},
+		{"approve", "", "No longer pending"},
+	} {
+		r := newSysRig(t)
+		msgs, err := surfaces.Send(send)
+		r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e"}, msgs, err)
+		r.cli.outputs["hil "+c.button] = fmt.Sprintf(`{"id":"7c1e","state":%q,"error":"boom"}`, c.state)
+		r.cli.outputs["hil list"] = `[]`
+		ctx := map[string]any{"id": "7c1e"}
+		if c.button == "approve" {
+			ctx["text"] = "Hi Ada"
+		}
+		res, err := r.press(t, "hil."+c.button, "send-7c1e", "btn-"+c.button, ctx)
+		if err != nil || res.Outcome != "rejected" || res.Reason == "" {
+			t.Fatalf("%s of a %q item: %+v %v", c.button, c.state, res, err)
+		}
+		s := r.surfaceNow(t, "send-7c1e")
+		if s == nil || hasButton(s) || s.Components["note"]["text"] != c.note {
+			t.Fatalf("%s of a %q item: card %+v, want %q", c.button, c.state, s.Components["note"], c.note)
+		}
+	}
+}
+
+// A refused command leaves the card live while the item still waits, and says
+// it is gone when it does not.
+func TestAFailedDecisionOfAGoneItemClosesItsCard(t *testing.T) {
+	r := newSysRig(t)
+	r.showHIL(t)
+	r.cli.errs["hil reject"] = errors.New(`HIL item "482" not found or already resolved`)
+	r.cli.outputs["hil list"] = `[]`
+	res, err := r.press(t, "hil.reject", "hil-482", "btn-reject", map[string]any{"id": "482"})
+	if err != nil || res.Outcome != "rejected" || !strings.Contains(res.Reason, "already resolved") {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if s := r.surfaceNow(t, "hil-482"); hasButton(s) || s.Components["note"]["text"] != "No longer pending" {
+		t.Fatalf("card %+v", s.Components)
 	}
 }
