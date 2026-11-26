@@ -51,7 +51,7 @@ func taskWorkers(db *sql.DB, cfg *Deps, conversationID, turnID string, settings 
 		// A run that reported no cost counts for everything it reserved.
 		spent := granted
 		if res != nil && res.HasCostUSD {
-			spent = res.CostUSD
+			spent = dynorg.RunCostUSD(ctx, *res)
 		}
 		_ = l.SettlePool(context.WithoutCancel(ctx), id, spent)
 		return res, err

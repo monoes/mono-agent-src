@@ -129,6 +129,8 @@ type worker struct {
 	report  string
 	errText string
 	session string
+	// billed is the cost its claude session had reached when its last run that reported one ended (sessioncost.go).
+	billed  sessionCost
 	cancel  context.CancelFunc
 	done    chan struct{}
 	changed map[string]bool

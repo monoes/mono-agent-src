@@ -2043,6 +2043,10 @@ registers nothing and runs on the cap as before. A run's cost is what THAT run r
 worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
 lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not
 recorded when a run enters reserve mode is recorded first (never inside the grant), and the run is refused until it is.
+A claude run that resumes its session (a follow-up, a veteran of an earlier turn, a compaction) reports the session's
+total (#1744), so its cost, in the mission's meter, the conversation's spend and an AI task's workers' pool, is what it
+added to the total the worker's last run of that session ended at (stored with the kept worker, migration 174); another
+session, no session reported, or a lower figure is charged whole. Other runtimes' figures are taken as reported.
 What a run costs when it fails, by how far it got: a start failure (no start or usage event, Exec returned an error and
 no result) is $0, so a broken start retried N times costs nothing; a run that started (a start or usage event) and reported
 no cost is charged its whole grant, one that reported a cost is charged that cost (its peak); an ambiguous start (a result

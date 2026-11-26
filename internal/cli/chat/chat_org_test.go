@@ -48,7 +48,7 @@ if [ "$1" = "agent" ] && [ "$2" = "exec" ]; then
     echo '{"v":1,"type":"assistant","text":"Checking the cache."}'
     echo '{"v":1,"type":"tool_activity","id":"r1","phase":"start","name":"Read","input":{"file_path":"/w/cache.go"}}'
     echo '{"v":1,"type":"tool_activity","id":"r1","phase":"end","name":"Read","ok":true,"output":"package cache"}'
-    echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"The cache is in cache.go.","cost_usd":0.002}'
+    echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"The cache is in cache.go.","cost_usd":'"${ORG_WORKER_COST:-0.002}"'}'
     echo '{"v":1,"type":"done","exit_code":0}'
     exit 0
   fi

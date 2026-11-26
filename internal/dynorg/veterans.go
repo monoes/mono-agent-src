@@ -39,6 +39,10 @@ type Veteran struct {
 	Report     string
 	Outcome    string
 	AllowSpawn bool
+	// CostSession and CostUSD are the claude session of the worker's last reported cost and the total that session
+	// had reached: a later turn that resumes it is charged only what it adds. "" = nothing to subtract.
+	CostSession string
+	CostUSD     float64
 	// Builtin and Purposes are what the purpose sets saw when it was staffed:
 	// whether the role was built-in, and the purposes whose sets limited it
 	// (comma-separated). A veteran kept without them is unmapped.
@@ -71,6 +75,7 @@ func (c *Conductor) keep(w *worker, force bool) {
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
 		Builtin: w.staff.Builtin, Purposes: strings.Join(w.staff.sides, ","),
+		CostSession: w.billed.session, CostUSD: w.billed.usd,
 	}
 	var gen int
 	v.MissionSession, v.MissionTask, gen, _ = w.missionIdentity()
@@ -133,6 +138,7 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			changed: map[string]bool{}, started: c.cfg.Now(), parent: parent, allowSpawn: v.AllowSpawn && parent == nil,
 			mustConfine: parent != nil && parent.staff.Access == ProfileResearch, veteran: true, cwd: v.Cwd,
 			notReady: !ready, missionSession: v.MissionSession, missionTask: v.MissionTask, missionGen: int(v.MissionClaims),
+			billed: sessionCost{session: v.CostSession, usd: v.CostUSD},
 		}
 		if err := c.veteranBlockedLocked(w); err != nil {
 			w.errText = err.Error()

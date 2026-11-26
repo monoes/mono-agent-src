@@ -145,7 +145,7 @@ func turnCosts(q Querier, profileID, conversationID string) (map[string]float64,
 			SessionID string   `json:"sessionId"`
 		}
 		if typ == "session.bound" {
-			if _, bound := sessions[turn]; !bound && json.Unmarshal([]byte(raw), &p) == nil && p.Runtime == cumulativeRuntime && p.SessionID != "" {
+			if _, bound := sessions[turn]; !bound && json.Unmarshal([]byte(raw), &p) == nil && p.Runtime == CumulativeRuntime && p.SessionID != "" {
 				sessions[turn] = p.SessionID
 			}
 			continue
@@ -168,15 +168,24 @@ func turnCosts(q Querier, profileID, conversationID string) (map[string]float64,
 	return lead, workers, nil
 }
 
-// cumulativeRuntime is the runtime whose reported cost is a running total for the whole runtime session, not for
-// the turn: every turn of a coder conversation resumes it (#1744).
-const cumulativeRuntime = "claude"
+// CumulativeRuntime is the runtime whose reported cost is a running total for the whole runtime session, not for
+// the turn or the run: every turn of a coder conversation resumes it, as a worker's follow-up does its own (#1744).
+const CumulativeRuntime = "claude"
+
+// Added is what a session of the cumulative runtime added when its total went from prev to total. A figure below the
+// previous one is not a running total (the session started over), so it is charged whole: a doubt charges more.
+func Added(prev, total float64) float64 {
+	if total >= prev {
+		return total - prev
+	}
+	return total
+}
 
 // deltaOfResumedSessions turns each turn's reported figure into what that turn added, for turns of the cumulative
 // runtime: the figure less the one the previous turn of the SAME runtime session ended at. The turns are taken in the
-// order they were created. A figure below the previous one is not a running total (the session started over), a turn
-// that bound no session has nothing to subtract, and a different session starts from zero: each of them keeps its
-// whole figure, so a doubt charges more, never less.
+// order they were created. A figure below the previous one is charged whole (Added), a turn that bound no session
+// has nothing to subtract, and a different session starts from zero: each of them keeps its whole figure, so a doubt
+// charges more, never less.
 func deltaOfResumedSessions(lead map[string]float64, sessions, started map[string]string) {
 	order := make([]string, 0, len(sessions))
 	for turn := range sessions {
@@ -193,8 +202,8 @@ func deltaOfResumedSessions(lead map[string]float64, sessions, started map[strin
 	last := map[string]float64{} // session -> the total its previous turn ended at
 	for _, turn := range order {
 		total := lead[turn]
-		if prev, seen := last[sessions[turn]]; seen && total >= prev {
-			lead[turn] = total - prev
+		if prev, seen := last[sessions[turn]]; seen {
+			lead[turn] = Added(prev, total)
 		}
 		last[sessions[turn]] = total
 	}
