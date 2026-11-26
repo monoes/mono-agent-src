@@ -109,157 +109,6 @@ func normalizeTool(t Tool) Tool {
 	return t
 }
 
-// UpsertGrant creates the live grant for (profile, org, role, alias), or
-// updates it in place when one exists — its id is kept so the provider args
-// already written into the org JSON stay valid.
-func (s *Store) UpsertGrant(ctx context.Context, in GrantInput) (*Grant, error) {
-	if in.ProfileID == "" || in.OrgName == "" || in.RoleID == "" || in.Tool.Alias == "" || in.Tool.WorkflowID == "" {
-		return nil, fmt.Errorf("orggrant: profile, org, role, alias, and workflow are required")
-	}
-	tool := normalizeTool(in.Tool)
-	toolsJSON, err := json.Marshal([]Tool{tool})
-	if err != nil {
-		return nil, err
-	}
-	now := nowString(s.now())
-	existing, err := s.findAutomationGrant(ctx, in.ProfileID, in.OrgName, in.RoleID, tool.Alias)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return nil, err
-	}
-	if existing != nil {
-		if _, err := s.db.ExecContext(ctx,
-			`UPDATE org_grants SET tools_json = ?, updated_at = ? WHERE id = ?`,
-			string(toolsJSON), now, existing.ID); err != nil {
-			return nil, fmt.Errorf("orggrant: update grant: %w", err)
-		}
-		return s.GetGrant(ctx, existing.ID)
-	}
-	id := NewGrantID()
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO org_grants (id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, '[]', ?, ?)`,
-		id, in.ProfileID, in.OrgName, in.RoleID, string(toolsJSON), now, now); err != nil {
-		return nil, fmt.Errorf("orggrant: insert grant: %w", err)
-	}
-	return s.GetGrant(ctx, id)
-}
-
-// SetOrgTools replaces the live org-tool grant for (profile, org, role);
-// an empty tools list revokes it.
-func (s *Store) SetOrgTools(ctx context.Context, profileID, org, role string, tools []OrgTool) (*Grant, error) {
-	now := nowString(s.now())
-	grants, err := s.ListGrants(ctx, profileID, org, role)
-	if err != nil {
-		return nil, err
-	}
-	var existing *Grant
-	for i := range grants {
-		if len(grants[i].Tools) == 0 {
-			existing = &grants[i]
-			break
-		}
-	}
-	if len(tools) == 0 {
-		if existing != nil {
-			_, err := s.db.ExecContext(ctx, `UPDATE org_grants SET revoked_at = ?, updated_at = ? WHERE id = ?`, now, now, existing.ID)
-			return nil, err
-		}
-		return nil, nil
-	}
-	b, err := json.Marshal(tools)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		if _, err := s.db.ExecContext(ctx, `UPDATE org_grants SET org_tools_json = ?, updated_at = ? WHERE id = ?`, string(b), now, existing.ID); err != nil {
-			return nil, err
-		}
-		return s.GetGrant(ctx, existing.ID)
-	}
-	id := NewGrantID()
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO org_grants (id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, '[]', ?, ?, ?)`,
-		id, profileID, org, role, string(b), now, now); err != nil {
-		return nil, err
-	}
-	return s.GetGrant(ctx, id)
-}
-
-// SetOrgToolScope sets the exact orgs each tool it names may act on,
-// leaving tools it does not name alone and dropping a named tool left with
-// no orgs. It is for callers that know a tool's whole current scope —
-// `org group init`, which passes every Initiator tool over the holding
-// org's children, so dropping a child takes the child back off the
-// Initiator. MergeOrgTools stays additive for callers that only ever know
-// one org at a time, such as a decider configured per child org.
-func (s *Store) SetOrgToolScope(ctx context.Context, profileID, org, role string, tools []OrgTool) (*Grant, error) {
-	grants, err := s.ListGrants(ctx, profileID, org, role)
-	if err != nil {
-		return nil, err
-	}
-	named := map[string]bool{}
-	for _, t := range tools {
-		named[t.Tool] = true
-	}
-	var out []OrgTool
-	for _, g := range grants {
-		if len(g.Tools) > 0 {
-			continue
-		}
-		for _, ot := range g.OrgTools {
-			if !named[ot.Tool] {
-				out = append(out, ot)
-			}
-		}
-	}
-	for _, t := range tools {
-		if len(t.Orgs) > 0 {
-			out = append(out, t)
-		}
-	}
-	return s.SetOrgTools(ctx, profileID, org, role, out)
-}
-
-// MergeOrgTools adds tools (and the orgs each may act on) to a role's
-// org-tool grant, keeping what it already holds.
-func (s *Store) MergeOrgTools(ctx context.Context, profileID, org, role string, add []OrgTool) (*Grant, error) {
-	grants, err := s.ListGrants(ctx, profileID, org, role)
-	if err != nil {
-		return nil, err
-	}
-	var tools []OrgTool
-	for _, g := range grants {
-		if len(g.Tools) == 0 {
-			tools = append(tools, g.OrgTools...)
-		}
-	}
-	for _, a := range add {
-		idx := -1
-		for i := range tools {
-			if tools[i].Tool == a.Tool {
-				idx = i
-			}
-		}
-		if idx < 0 {
-			tools = append(tools, OrgTool{Tool: a.Tool})
-			idx = len(tools) - 1
-		}
-		for _, o := range a.Orgs {
-			found := false
-			for _, have := range tools[idx].Orgs {
-				if have == o {
-					found = true
-				}
-			}
-			if !found {
-				tools[idx].Orgs = append(tools[idx].Orgs, o)
-			}
-		}
-	}
-	return s.SetOrgTools(ctx, profileID, org, role, tools)
-}
-
 const grantCols = `id, profile_id, org_name, role_id, tools_json, org_tools_json, created_at, updated_at, revoked_at`
 
 func scanGrant(sc interface{ Scan(...interface{}) error }) (*Grant, error) {
@@ -297,6 +146,15 @@ func (s *Store) GetGrant(ctx context.Context, id string) (*Grant, error) {
 // ListGrants returns live grants for (profile, org), narrowed to role when
 // role is non-empty, oldest first.
 func (s *Store) ListGrants(ctx context.Context, profileID, org, role string) ([]Grant, error) {
+	return listGrants(ctx, s.db, profileID, org, role)
+}
+
+// querier is the pool, or the connection of a write transaction.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func listGrants(ctx context.Context, db querier, profileID, org, role string) ([]Grant, error) {
 	q := `SELECT ` + grantCols + ` FROM org_grants WHERE profile_id = ? AND org_name = ? AND revoked_at IS NULL`
 	args := []interface{}{profileID, org}
 	if role != "" {
@@ -304,18 +162,18 @@ func (s *Store) ListGrants(ctx context.Context, profileID, org, role string) ([]
 		args = append(args, role)
 	}
 	q += ` ORDER BY created_at, id`
-	return s.queryGrants(ctx, q, args...)
+	return queryGrants(ctx, db, q, args...)
 }
 
 // ListProfileGrants returns every live grant in a profile.
 func (s *Store) ListProfileGrants(ctx context.Context, profileID string) ([]Grant, error) {
-	return s.queryGrants(ctx, `SELECT `+grantCols+` FROM org_grants WHERE profile_id = ? AND revoked_at IS NULL ORDER BY org_name, role_id, created_at, id`, profileID)
+	return queryGrants(ctx, s.db, `SELECT `+grantCols+` FROM org_grants WHERE profile_id = ? AND revoked_at IS NULL ORDER BY org_name, role_id, created_at, id`, profileID)
 }
 
 // GrantsForWorkflow returns every live automation grant (any profile) that
 // targets workflowID — used to refuse or cascade workflow deletion (C-20).
 func (s *Store) GrantsForWorkflow(ctx context.Context, workflowID string) ([]Grant, error) {
-	all, err := s.queryGrants(ctx, `SELECT `+grantCols+` FROM org_grants WHERE revoked_at IS NULL AND tools_json LIKE ? ORDER BY created_at`, "%"+workflowID+"%")
+	all, err := queryGrants(ctx, s.db, `SELECT `+grantCols+` FROM org_grants WHERE revoked_at IS NULL AND tools_json LIKE ? ORDER BY created_at`, "%"+workflowID+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -328,8 +186,8 @@ func (s *Store) GrantsForWorkflow(ctx context.Context, workflowID string) ([]Gra
 	return out, nil
 }
 
-func (s *Store) queryGrants(ctx context.Context, q string, args ...interface{}) ([]Grant, error) {
-	rows, err := s.db.QueryContext(ctx, q, args...)
+func queryGrants(ctx context.Context, db querier, q string, args ...interface{}) ([]Grant, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("orggrant: list grants: %w", err)
 	}
@@ -345,8 +203,8 @@ func (s *Store) queryGrants(ctx context.Context, q string, args ...interface{}) 
 	return out, rows.Err()
 }
 
-func (s *Store) findAutomationGrant(ctx context.Context, profileID, org, role, alias string) (*Grant, error) {
-	grants, err := s.ListGrants(ctx, profileID, org, role)
+func findAutomationGrant(ctx context.Context, db querier, profileID, org, role, alias string) (*Grant, error) {
+	grants, err := listGrants(ctx, db, profileID, org, role)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +218,7 @@ func (s *Store) findAutomationGrant(ctx context.Context, profileID, org, role, a
 
 // RevokeGrant revokes the live grant for (profile, org, role, alias).
 func (s *Store) RevokeGrant(ctx context.Context, profileID, org, role, alias string) error {
-	g, err := s.findAutomationGrant(ctx, profileID, org, role, alias)
+	g, err := findAutomationGrant(ctx, s.db, profileID, org, role, alias)
 	if err != nil {
 		return err
 	}

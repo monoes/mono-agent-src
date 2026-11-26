@@ -94,7 +94,7 @@ func selectInboxCandidates(db *sql.DB, profileID, personID string, since time.Du
 		       COALESCE(pm.metadata,''), pm.sent_at, pm.created_at, COALESCE(p.full_name,'')
 		FROM person_messages pm
 		JOIN people p ON p.id = pm.person_id
-		WHERE p.profile_id = ? AND pm.direction = 'inbound'`
+		WHERE pm.profile_id = ? AND p.profile_id = pm.profile_id AND pm.direction = 'inbound'`
 	args := []interface{}{profileID}
 	if personID != "" {
 		query += " AND pm.person_id = ?"

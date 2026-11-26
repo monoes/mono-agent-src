@@ -154,3 +154,5 @@
 168_mission_pursuit_judge.sql
 169_mission_goal_checks.sql
 170_jev_usage_provider.sql
+171_person_messages_profile.sql
+172_org_grants_live_unique.sql
