@@ -3611,5 +3611,9 @@
     "curlImporting": "Importando…",
     "curlImport": "Importar (reemplaza los ajustes de la solicitud)",
     "curlCancel": "Cancelar"
+  },
+  "chatWarnings": {
+    "fullAccess": "Acceso completo: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",
+    "unsandboxed": "Este turno no tiene sandbox: el agente no está limitado a una carpeta de trabajo."
   }
 }

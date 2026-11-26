@@ -180,7 +180,9 @@ function eventPatch(state, ev) {
 
     case 'notice': {
       // The CLI's verdict on the turn's sandbox: a badge, not a banner.
-      if (payload.code === 'agent.sandbox') return { sandbox: payload.message || null }
+      // A warning severity is the CLI saying the turn runs without a sandbox
+      // (sandboxMissing is absent until then).
+      if (payload.code === 'agent.sandbox') return { sandbox: payload.message || null, sandboxMissing: payload.severity === 'warning' }
       // Its words: the mode a restricted turn ran in, or why the fallback setting was ignored.
       // A coder turn's context size and per-model tokens: a header gauge, not a notice.
       if (payload.code === 'coder.usage') return { coderUsage: payload.coderUsage || null }

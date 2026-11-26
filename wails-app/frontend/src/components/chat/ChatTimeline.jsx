@@ -3,6 +3,7 @@ import { ChatMarkdown } from './ChatMarkdown.jsx'
 import { ToolActivityCard } from './ToolActivityCard.jsx'
 import { CoderBackgroundBanner } from './CoderBackgroundBanner.jsx'
 import { SandboxBadge } from './SandboxBadge.jsx'
+import { UnsandboxedWarning } from './ChatWarnings.jsx'
 import { AgentRow } from './AgentRow.jsx'
 import { ChatBlocksScope } from './blocks/context.js'
 
@@ -90,6 +91,7 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
   return (
     <div data-testid="chat-timeline" style={hasNative ? { alignSelf: 'stretch' } : undefined}>
       {state.sandbox && <SandboxBadge status={state.sandbox} detail={state.sandboxDetail} />}
+      {state.sandboxMissing && <UnsandboxedWarning />}
       {notices.filter(n => n.code === 'coder.workspace').slice(-1).map((notice, i) => (
         <div key={`ws-${i}`} data-testid="coder-workspace-line" style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', wordBreak: 'break-all' }}>
           <FolderOpen size={10} style={{ flexShrink: 0 }} />
