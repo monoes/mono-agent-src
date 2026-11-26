@@ -9,12 +9,14 @@ import (
 )
 
 // MaxSurfaces caps the surfaces of one Registry that can still be acted on (see
-// open). Decided notices, answered questions and button-less panels do not count,
-// or a long conversation would stop showing cards.
+// open), counted for the host's and the agents' separately: agent cards never
+// take an approval's place. Decided notices, answered questions and button-less
+// panels do not count, or a long conversation would stop showing cards.
 const MaxSurfaces = 8
 
-// MaxKeptSurfaces bounds all the surfaces one Registry holds; past it the oldest
-// one that cannot be acted on is forgotten.
+// MaxKeptSurfaces bounds all the surfaces one Registry holds of each
+// provenance; past it the oldest one of that provenance that cannot be acted on
+// is forgotten.
 const MaxKeptSurfaces = 200
 
 // Surface is the server-side state of one live surface: the merged component
@@ -65,6 +67,9 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
+	if prov != FromSystem && IsSystemSurfaceID(m.SurfaceID) {
+		return Message{}, fmt.Errorf("a2ui: surface id %q is reserved for system surfaces (%s)", m.SurfaceID, strings.Join(SystemSurfacePrefixes, " "))
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := r.surf[m.SurfaceID]
@@ -94,30 +99,31 @@ func (r *Registry) Handle(raw []byte, prov Provenance) (Message, error) {
 	if err := s.apply(m, r.lim); err != nil {
 		return Message{}, err
 	}
-	if s.open() {
-		n := 0
-		for id, other := range r.surf {
-			if id != s.ID && other.open() {
-				n++
+	opened, kept := 0, 0
+	for id, other := range r.surf {
+		if id != s.ID && other.Prov == s.Prov {
+			kept++
+			if other.open() {
+				opened++
 			}
 		}
-		if n >= MaxSurfaces {
-			return Message{}, fmt.Errorf("a2ui: more than %d live surfaces; delete one first", MaxSurfaces)
-		}
 	}
-	if r.surf[s.ID] == nil && len(r.surf) >= MaxKeptSurfaces {
-		r.evictOldestClosed()
+	if s.open() && opened >= MaxSurfaces {
+		return Message{}, fmt.Errorf("a2ui: more than %d live surfaces; delete one first", MaxSurfaces)
+	}
+	if r.surf[s.ID] == nil && kept >= MaxKeptSurfaces {
+		r.evictOldestClosed(s.Prov)
 	}
 	r.surf[s.ID] = s
 	return m, nil
 }
 
-// evictOldestClosed forgets the oldest surface that cannot be acted on. Open
-// surfaces are at most MaxSurfaces, so one always exists at the bound.
-func (r *Registry) evictOldestClosed() {
+// evictOldestClosed forgets the oldest surface of prov that cannot be acted on.
+// Open surfaces are at most MaxSurfaces, so one always exists at the bound.
+func (r *Registry) evictOldestClosed(prov Provenance) {
 	var oldest *Surface
 	for _, s := range r.surf {
-		if !s.open() && (oldest == nil || s.born < oldest.born) {
+		if s.Prov == prov && !s.open() && (oldest == nil || s.born < oldest.born) {
 			oldest = s
 		}
 	}

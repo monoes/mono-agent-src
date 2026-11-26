@@ -27,8 +27,8 @@ export const hilApproval = [
 ]
 
 export const structuredQuestion = [
-  { surfaceId: 'ask-17', provenance: 'agent', message: v({ createSurface: {
-    surfaceId: 'ask-17', dataModel: { audience: ['founders'], note: '' },
+  { surfaceId: 'q-17', provenance: 'agent', message: v({ createSurface: {
+    surfaceId: 'q-17', dataModel: { audience: ['founders'], note: '' },
     components: [
       { id: 'root', component: 'Column', children: ['q', 'pick', 'note', 'go'] },
       t('q', 'Which audience should the outreach target?'),

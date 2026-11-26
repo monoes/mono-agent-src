@@ -40,6 +40,9 @@ func TestOnlyCardsThatCanStillBeActedOnHoldASlot(t *testing.T) {
 		t.Fatalf("the cap on open cards is gone: %v", err)
 	}
 	// A card without a button cannot be given one past the cap.
+	for i := 0; i < MaxSurfaces; i++ {
+		mustHandle(t, r, card(fmt.Sprintf("host-%d", i), true), FromSystem)
+	}
 	add := `{"version":"1.0","updateComponents":{"surfaceId":"notice-23","components":[{"id":"root","component":"Button","child":"l","action":{"event":{"name":"go"}}},{"id":"l","component":"Text","text":"Go"}]}}`
 	if _, err := r.Handle([]byte(add), FromSystem); err == nil {
 		t.Fatal("an update opened a ninth card")
@@ -56,7 +59,7 @@ func TestKeptSurfacesAreBounded(t *testing.T) {
 	for i := 0; i < MaxKeptSurfaces+50; i++ {
 		mustHandle(t, r, card(fmt.Sprintf("n-%d", i), false), FromSystem)
 	}
-	if got := len(r.surf); got > MaxKeptSurfaces {
+	if got := len(r.surf); got > MaxKeptSurfaces+1 { // the agent's one card has a bound of its own
 		t.Fatalf("registry holds %d surfaces", got)
 	}
 	if r.Surface("open") == nil || r.Surface("n-0") != nil || r.Surface(fmt.Sprintf("n-%d", MaxKeptSurfaces+49)) == nil {

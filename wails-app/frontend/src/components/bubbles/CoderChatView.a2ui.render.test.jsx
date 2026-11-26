@@ -107,7 +107,7 @@ describe('CoderChatView A2UI wiring', () => {
 
   it('draws nothing for a press turn, and shows it on the agent card', () => {
     const q = { role: 'turn', turnId: 't1', state: turnState('t1', [['ui.surface', structuredQuestion[0]], done]) }
-    const ui = { role: 'turn', turnId: 'system-uiaction-ab', state: turnState('system-uiaction-ab', [['ui.action', { surfaceId: 'ask-17', name: 'answer', outcome: 'accepted' }], done]) }
+    const ui = { role: 'turn', turnId: 'system-uiaction-ab', state: turnState('system-uiaction-ab', [['ui.action', { surfaceId: 'q-17', name: 'answer', outcome: 'accepted' }], done]) }
     const { container } = render(view(conv({ messages: [q, ui] })))
     expect(container.querySelectorAll('.chat-assistant-turn')).toHaveLength(1)
     expect(screen.getByTestId('a2ui-surface')).toHaveAttribute('data-status', 'resolved')

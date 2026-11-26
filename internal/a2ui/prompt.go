@@ -22,6 +22,7 @@ func PromptSnippet() string {
 	b.WriteString("Plain answers, explanations, code and lists stay ordinary markdown; never use a surface for them.\n")
 	b.WriteString("ui_render takes {messages: [...]}, each an A2UI v1.0 envelope {\"version\":\"1.0\", \"<kind>\": {...}} with kind createSurface, updateComponents, updateDataModel or deleteSurface. ")
 	b.WriteString("createSurface needs a surfaceId (a short token, no spaces or slashes) and may carry components and a dataModel; surfaceId is repeated in every later message of that surface. ")
+	fmt.Fprintf(&b, "A surfaceId never starts with %s (reserved). ", strings.Join(SystemSurfacePrefixes, ", "))
 	b.WriteString("Payloads: createSurface {surfaceId, components?, dataModel?}; updateComponents {surfaceId, components}; updateDataModel {surfaceId, path, value}; deleteSurface {surfaceId}. No other fields. ")
 	b.WriteString("Components are flat objects {\"id\":..., \"component\":<Name>, ...props}; children are referenced by id, never nested, and each component has at most one parent (give every button its own label component). One component must have id \"root\". Keep a surface small.\n")
 	b.WriteString("Components (* = required; dyn = a literal or a binding):\n")

@@ -69,9 +69,9 @@ describe('journal turns across a conversation', () => {
   it('applies a later turn data update and removal to an earlier card', async () => {
     const { foldConversationSurfaces } = await import('../../lib/a2uiModel.js')
     const made = turn('t1', T(1), [['ui.surface', card('m', 'system', 'plan')]])
-    const upd = turn('t2', T(2), [['ui.surface', { surfaceId: 'm', message: msg({ updateDataModel: { surfaceId: 'm', path: '/n', value: 2 } }) }]])
+    const upd = turn('t2', T(2), [['ui.surface', { surfaceId: 'm', provenance: 'system', message: msg({ updateDataModel: { surfaceId: 'm', path: '/n', value: 2 } }) }]])
     expect(foldConversationSurfaces([made, upd]).t1[0].dataModel).toEqual({ n: 2 })
-    const gone = turn('t3', T(3), [['ui.surface', { surfaceId: 'm', message: msg({ deleteSurface: { surfaceId: 'm' } }) }]])
+    const gone = turn('t3', T(3), [['ui.surface', { surfaceId: 'm', provenance: 'system', message: msg({ deleteSurface: { surfaceId: 'm' } }) }]])
     expect(foldConversationSurfaces([made, upd, gone])).toEqual({})
   })
 })

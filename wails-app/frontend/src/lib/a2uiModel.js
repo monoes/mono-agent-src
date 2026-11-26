@@ -103,6 +103,19 @@ export function applyMessage(surface, msg, meta = {}) {
   return s
 }
 
+// The host's card ids (internal/a2ui SystemSurfacePrefixes): no agent may name one.
+const SYSTEM_ID = /^(hil|send|ask|mission)-/
+
+// May this event touch surface cur (null: none yet)? The host may replace
+// anything. An agent never names a host card, and touches only its own
+// surfaces: same provenance, same author. An event that does not say it is the
+// host's is an agent's.
+function allowed(cur, payload) {
+  if (payload.provenance === 'system') return true
+  if (SYSTEM_ID.test(payload.surfaceId)) return false
+  return !cur || (cur.provenance === 'agent' && cur.agentId === (payload.agentId || ''))
+}
+
 // applySurfaceEvent folds one ui.surface payload into a surfaces list,
 // ignoring seqs already applied to that surface (replay safe).
 export function applySurfaceEvent(surfaces, payload, seq, partIndex = 0) {
@@ -112,10 +125,12 @@ export function applySurfaceEvent(surfaces, payload, seq, partIndex = 0) {
   if (typeof msg === 'string') { try { msg = JSON.parse(msg) } catch { return surfaces } }
   const idx = surfaces.findIndex(s => s.surfaceId === id)
   const cur = idx === -1 ? null : surfaces[idx]
+  if (!allowed(cur, payload)) return surfaces
   if (cur && typeof seq === 'number' && seq <= cur.lastSeq) return surfaces
-  const meta = cur
+  // A createSurface starts the surface anew: it belongs to whoever sent it.
+  const meta = cur && !msg?.createSurface
     ? { provenance: cur.provenance, agentId: cur.agentId, ref: cur.ref, partIndex: cur.partIndex }
-    : { provenance: payload.provenance, agentId: payload.agentId, ref: payload.ref, partIndex }
+    : { provenance: payload.provenance, agentId: payload.agentId, ref: payload.ref, partIndex: cur ? cur.partIndex : partIndex }
   const next = applyMessage(cur, msg, meta)
   if (next === null) return idx === -1 ? surfaces : surfaces.filter((_, i) => i !== idx)
   if (next === cur) return surfaces

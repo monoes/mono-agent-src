@@ -135,3 +135,57 @@ test("a full store makes room from deleted or settled surfaces, never from one w
   assert.equal(st.surfaces.has("n0"), false);
   assert.equal(st.surfaces.size, 20);
 });
+
+// An agent plants, rewrites or removes the card an approval hangs on.
+const put = (st, seq, id, message, extra = {}) => M.apply(st, { seq, turn: `t${seq}`, type: "ui.surface", payload: { surfaceId: id, provenance: "agent", message, ...extra } });
+const attacks = (id) => [
+  { version: "1.0", createSurface: { surfaceId: id, components: [{ id: "root", component: "Text", text: "to Eve" }] } },
+  { version: "1.0", updateComponents: { surfaceId: id, components: [{ id: "root", component: "Text", text: "to Eve" }] } },
+  { version: "1.0", updateDataModel: { surfaceId: id, path: "/text", value: "forged" } },
+  { version: "1.0", deleteSurface: { surfaceId: id } },
+];
+const hostCard = (id) => ({ version: "1.0", createSurface: { surfaceId: id, components: [{ id: "root", component: "Button" }], dataModel: { text: "Hi" } } });
+const state = (s) => plain({ c: s.components, d: s.dataModel, p: s.provenance, x: s.deleted });
+
+test("every agent event on a host card id is dropped", () => {
+  for (const id of ["hil-1", "send-1", "ask-w.q", "mission-2", "mission-report-2"]) {
+    const st = M.newStore();
+    attacks(id).forEach((m, i) => assert.equal(put(st, i + 1, id, m), null));
+    assert.equal(st.surfaces.size, 0, id);
+    put(st, 10, id, hostCard(id), { provenance: "system" });
+    const before = state(st.surfaces.get(id));
+    attacks(id).forEach((m, i) => assert.equal(put(st, 20 + i, id, m), null));
+    attacks(id).forEach((m, i) => assert.equal(put(st, 30 + i, id, m, { provenance: undefined }), null, "no provenance is not the host's"));
+    assert.deepEqual(state(st.surfaces.get(id)), before, id);
+  }
+});
+
+test("an event whose provenance or author is not the surface's is dropped; the host may replace anything", () => {
+  const st = M.newStore();
+  put(st, 1, "card", hostCard("card"), { provenance: "system" });
+  attacks("card").forEach((m, i) => assert.equal(put(st, 2 + i, "card", m), null));
+  put(st, 10, "form", hostCard("form"), { agentId: "w1" });
+  const before = state(st.surfaces.get("form"));
+  attacks("form").forEach((m, i) => assert.equal(put(st, 11 + i, "form", m, { agentId: "w2" }), null));
+  attacks("form").forEach((m, i) => assert.equal(put(st, 21 + i, "form", m), null, "the lead's is another author"));
+  assert.deepEqual(state(st.surfaces.get("form")), before);
+  assert.ok(put(st, 30, "form", attacks("form")[2], { agentId: "w1" }));
+  assert.ok(put(st, 31, "form", hostCard("form"), { provenance: "system" }));
+  assert.equal(st.surfaces.get("form").provenance, "system");
+  assert.equal(put(st, 32, "form", attacks("form")[3], { agentId: "w1" }), null);
+  assert.ok(put(st, 33, "card", attacks("card")[3], { provenance: "system" }));
+  assert.ok(put(st, 34, "card", attacks("card")[0], { agentId: "w2" }), "a deleted id that is not the host's is free again");
+});
+
+test("agent surfaces never take a host card's place, whichever comes first", () => {
+  const st = M.newStore();
+  let seq = 0;
+  const agents = () => { for (let i = 0; i < 40; i++) put(st, ++seq, `a${seq}`, hostCard(`a${seq}`)); };
+  agents();
+  assert.ok(put(st, ++seq, "send-1", hostCard("send-1"), { provenance: "system" }), "a store full of agent cards");
+  put(st, ++seq, "hil-note", { version: "1.0", createSurface: { surfaceId: "hil-note", components: [{ id: "root", component: "Text", text: "settled" }] } }, { provenance: "system" });
+  for (let i = 0; i < 40; i++) put(st, ++seq, `n${seq}`, { version: "1.0", createSurface: { surfaceId: `n${seq}` } });
+  assert.ok(st.surfaces.has("send-1") && st.surfaces.has("hil-note"));
+  assert.ok(st.surfaces.size <= 40);
+});
+

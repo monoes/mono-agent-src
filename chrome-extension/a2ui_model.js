@@ -29,7 +29,8 @@
   const MAX_KEYS = 500; // keys per object kept
   const MAX_SEEN = 2000; // applied (turn, seq) keys remembered
   const MAX_COMPONENTS = 500; // components kept per surface (the renderer draws far fewer)
-  const MAX_SURFACES = 20;
+  const MAX_SURFACES = 20; // of the host's, and as many of the agents'
+  const SYSTEM_ID = /^(hil|send|ask|mission)-/; // the host's card ids (internal/a2ui SystemSurfacePrefixes)
 
   const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -168,13 +169,32 @@
     return isObj(m) ? m : null;
   }
 
-  /** evict makes room for a new surface: the oldest deleted one goes, else the oldest without a button (a settled notice). */
-  function evict(store) {
+  /**
+   * makeRoom keeps the surfaces of one provenance under their cap: past it the
+   * oldest deleted one of that provenance goes, else the oldest without a button
+   * (a settled notice). Agent surfaces never take a host card's place.
+   */
+  function makeRoom(store, provenance) {
+    const mine = [...store.surfaces].filter(([, s]) => s.provenance === provenance);
+    if (mine.length < MAX_SURFACES) return true;
     const settled = (s) => !Object.keys(s.components).some((k) => s.components[k].component === "Button");
     for (const test of [(s) => s.deleted, settled]) {
-      for (const [id, s] of store.surfaces) if (test(s)) return store.surfaces.delete(id);
+      for (const [id, s] of mine) if (test(s)) return store.surfaces.delete(id);
     }
     return false;
+  }
+
+  /**
+   * allowed says whether an event may touch surface s (undefined: none). The
+   * host may replace anything. An agent never names a host card, and touches
+   * only its own live surfaces: same provenance, same author. An event that does
+   * not say it is the host's is an agent's.
+   */
+  function allowed(s, id, payload) {
+    if (payload.provenance === "system") return true;
+    if (SYSTEM_ID.test(id)) return false;
+    if (!s || s.deleted) return true;
+    return s.provenance === "agent" && s.agentId === str(payload.agentId);
   }
 
   /**
@@ -208,12 +228,13 @@
       const id = str(body.surfaceId) || str(p.surfaceId);
       if (!id || BANNED.has(id)) return null;
       let s = store.surfaces.get(id);
+      if (!allowed(s, id, p)) return null;
       // Journal turns are read after the live stream: one older than what the surface
       // already shows must not take it back.
       const at = Date.parse(ev.at) || 0;
       if (s && at && s.at && at < s.at) return null;
       if (kind === "createSurface") {
-        if (!s && store.surfaces.size >= MAX_SURFACES && !evict(store)) return null;
+        if (!s && !makeRoom(store, p.provenance === "system" ? "system" : "agent")) return null;
         s = newSurface(id, p);
         s.at = at;
         store.surfaces.set(id, s);

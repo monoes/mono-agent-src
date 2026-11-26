@@ -231,6 +231,18 @@ test("timeline: a surface sits after its anchor message, replays from saved even
   assert.equal(tl3.has(), false, "another conversation's surfaces are not restored");
 });
 
+test("timeline: a flood of agent events never pushes a host card out of what is saved", () => {
+  const tl = R.timeline(fakeDoc(), {});
+  const ev = (seq, id, provenance, message) => ({ seq, turn: "t", type: "ui.surface", payload: { surfaceId: id, provenance, message } });
+  tl.ingest(ev(1, "send-1", "system", { version: "1.0", createSurface: { surfaceId: "send-1", components: [{ id: "root", component: "Text", text: "card" }] } }), "");
+  tl.ingest(ev(2, "a", "agent", { version: "1.0", createSurface: { surfaceId: "a" } }), "");
+  for (let i = 0; i < 400; i++) tl.ingest(ev(3 + i, "a", "agent", { version: "1.0", updateDataModel: { surfaceId: "a", path: "/n", value: i } }), "");
+  const again = R.timeline(fakeDoc(), {});
+  again.restore(JSON.parse(JSON.stringify(tl.dump("c1"))), "c1");
+  assert.ok(tl.dump("c1").events.length <= 300);
+  assert.ok(again.dump("c1").events.some((e) => e.payload.surfaceId === "send-1"), "the approval survives a reopen");
+});
+
 test("no markup path: none of the A2UI files uses innerHTML, insertAdjacentHTML, outerHTML, document.write or eval", () => {
   for (const f of ["a2ui_model.js", "a2ui_render.js", "a2ui_timeline.js"]) {
     const src = readFileSync(join(HERE, f), "utf8");
@@ -255,7 +267,7 @@ test("a11y: each surface is a named region that is not itself live", () => {
   assert.equal(m.el.getAttribute("role"), "region");
   assert.equal(m.el.getAttribute("aria-live"), "off");
   assert.equal(m.el.getAttribute("aria-label"), "Card from monoagent: Send DM?");
-  M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { message: { version: "1.0", updateDataModel: { surfaceId: "s", path: "/title", value: "Sent" } } } });
+  M.apply(st, { seq: 2, turn: "t", type: "ui.surface", payload: { provenance: "system", message: { version: "1.0", updateDataModel: { surfaceId: "s", path: "/title", value: "Sent" } } } });
   m.sync(s);
   assert.equal(m.el.getAttribute("aria-label"), "Card from monoagent: Sent");
 });

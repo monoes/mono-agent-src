@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -44,6 +45,16 @@ const (
 
 // ReservedActionPrefixes are action-name prefixes only system surfaces may declare.
 var ReservedActionPrefixes = []string{"hil.", "mission.", "system."}
+
+// SystemSurfacePrefixes start the ids of the cards the host builds
+// (internal/a2ui/surfaces: approvals, questions, missions). No agent message
+// may name one, so no agent can make, change or remove such a card.
+var SystemSurfacePrefixes = []string{"hil-", "send-", "ask-", "mission-"}
+
+// IsSystemSurfaceID says whether id is one of the host's card ids.
+func IsSystemSurfaceID(id string) bool {
+	return slices.ContainsFunc(SystemSurfacePrefixes, func(p string) bool { return strings.HasPrefix(id, p) })
+}
 
 // Limits bound everything an untrusted surface can make us hold or draw.
 type Limits struct {

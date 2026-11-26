@@ -57,7 +57,8 @@
       if (!s) return false;
       if (!anchors.has(s.id)) anchors.set(s.id, anchorId || "");
       saved.push({ turn: ev.turn || "", seq: ev.seq, at: ev.at, payload: ev.payload });
-      if (saved.length > MAX_SAVED) saved.shift();
+      // The oldest agent event goes first: agents cannot push a host card out.
+      if (saved.length > MAX_SAVED) saved.splice(Math.max(0, saved.findIndex((e) => !(e.payload && e.payload.provenance === "system"))), 1);
       return true;
     }
 
