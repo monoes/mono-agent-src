@@ -323,6 +323,8 @@ func (t *asker) ask(ctx context.Context, item workflow.Item) (workflow.Item, err
 	}
 	if res.SandboxStatus != "" {
 		outJSON["_agent_sandbox"] = res.SandboxStatus
+	} else {
+		delete(outJSON, "_agent_sandbox") // the incoming item's was another turn's
 	}
 	if cfg.auto {
 		outJSON["_agent_runtime"] = cfg.runtime

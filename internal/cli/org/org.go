@@ -123,6 +123,9 @@ func requireRootUnder(group *cobra.Command, env *orgEnv, path string) {
 			continue
 		}
 		c.RunE = func(cmd *cobra.Command, args []string) error {
+			if all, _ := cmd.Flags().GetBool(crossProfileFlag[p]); all {
+				return run(cmd, args)
+			}
 			if _, err := env.RootErr(); err != nil {
 				return err
 			}

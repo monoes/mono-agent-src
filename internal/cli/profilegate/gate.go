@@ -24,6 +24,8 @@ var globalWhenFlag = map[string]string{
 	// The user's cross-profile list of pending approvals; the command refuses
 	// whatever is not the operator.
 	"hil pending": "all",
+	// The same for what the organizations of every profile wait on.
+	"org pending": "all",
 }
 
 // Mode is what the gate does with a scoped command that names no profile.

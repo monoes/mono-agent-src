@@ -30,6 +30,7 @@ type CaptureSummaryStatus struct {
 	Runtime    string `json:"runtime"`
 	Error      string `json:"error"`
 	FinishedAt string `json:"finished_at"`
+	Sandbox    string `json:"sandbox,omitempty"` // set when the summary's turn ran without a sandbox
 }
 
 // GetCaptureView loads a capture document's parts, scoped to the active

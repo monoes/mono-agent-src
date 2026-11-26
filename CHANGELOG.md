@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A release becomes "latest" only once it is signed,** so installing or updating no longer stops while a new release is being published. A failed signing or upload leaves the previous release latest.
+- **The "All profiles" approvals view includes organization approvals, questions and gates** (`org pending --all`; you only, read-only).
+- **The sandbox warning also shows on workflow step output, fit results, capture summaries, recording review, the profile AI fill and organization research workers.** Page headers no longer squeeze their subtitle when the approvals panel is open.
 - **Security, behaviour change: `install.sh` installs only what it can verify.** Releases now also publish `manifest.json.sshsig`, which the installer checks with `ssh-keygen` where `openssl` cannot verify Ed25519 (stock macOS). A machine that can check neither now stops instead of installing on checksums alone; `MONOAGENT_ALLOW_UNSIGNED=1` opts out. While a new release is still being signed, an install may stop and ask you to try again.
 - **Removed: background removal.** The `image.remove_background` node, its editor control and the ONNX Runtime and model download are gone. A saved workflow that uses the node fails when run, with a message that says so.
 - **Coder chats warn about full access.** A new chat that starts with full access says so in the CLI and the app, as does a "coding" or "workspace" chat while the coder box is off, because that level is then not enforced. A turn that runs without a sandbox because none could be made now warns every time. No default changed.

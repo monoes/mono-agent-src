@@ -18,11 +18,17 @@ import (
 type pendingItem struct {
 	Org string `json:"org"`
 	orgchat.Item
+	// ProfileID and ProfileName say whose org it is (`--all` only).
+	ProfileID   string `json:"profile_id,omitempty"`
+	ProfileName string `json:"profile_name,omitempty"`
 }
 
 type pendingError struct {
 	Org   string `json:"org"`
 	Error string `json:"error"`
+	// ProfileID and ProfileName say whose it is (`--all` only).
+	ProfileID   string `json:"profile_id,omitempty"`
+	ProfileName string `json:"profile_name,omitempty"`
 }
 
 // Bounds of `org pending`: orgs read at once, and the time one org may take.
@@ -32,14 +38,23 @@ const (
 )
 
 func newOrgPendingCmd(env *orgEnv) *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	cmd := &cobra.Command{
 		Use:   "pending",
 		Short: "Every question, approval and gate the folder's orgs wait on a person for (JSON)",
 		Long: "Items of every org, oldest first per org. An approval carries request_id (for `org approve|deny " +
 			"--request`), input, and for a shell call command, command_truncated and cwd. An org that cannot " +
-			"be read is listed under errors.",
+			"be read is listed under errors.\n\nWith --all, and no --profile or --project, it lists the orgs of " +
+			"every profile, each read in its profile's own folder, and every item and error carries profile_id and " +
+			"profile_name; a profile that cannot be read is an error with an empty org. It only reads, and it is " +
+			"refused to an agent.",
+		Example: `  monoagentcli --profile work org pending
+  monoagentcli org pending --all`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if all {
+				return env.runPendingAll(cmd)
+			}
 			root := env.root()
 			names, err := orgdesign.ListOrgNames(root)
 			if err != nil {
@@ -69,6 +84,8 @@ func newOrgPendingCmd(env *orgEnv) *cobra.Command {
 			return printJSONValue(map[string]interface{}{"v": 1, "items": all, "errors": errs})
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "Every profile's orgs, each item with its profile (operator only; not with --profile or --project)")
+	return cmd
 }
 
 // orgPending reads one org's three item lists at once. A list that fails is

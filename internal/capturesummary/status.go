@@ -60,6 +60,7 @@ type Status struct {
 	InputChars  int     `json:"inputChars,omitempty"` // characters of it sent
 	Truncated   bool    `json:"truncated,omitempty"`  // whether it was cut to fit
 	CostUSD     float64 `json:"costUsd,omitempty"`
+	Sandbox     string  `json:"sandbox,omitempty"` // set when the turn ran without a sandbox
 }
 
 // Requested reports whether a capture's meta asks for a summary, and of

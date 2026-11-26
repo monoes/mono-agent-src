@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/recording"
 )
 
@@ -76,6 +77,8 @@ type AnalyzeOptions struct {
 type Result struct {
 	DraftDir string     `json:"draftDir"`
 	Draft    *DraftView `json:"draft"`
+	// SandboxStatus is set when a drafting turn ran without a sandbox.
+	SandboxStatus string `json:"sandboxStatus,omitempty"`
 }
 
 // Analyze runs normalize → detect → AI draft → lint and writes the draft.
@@ -119,7 +122,8 @@ func Analyze(ctx context.Context, rec *Recording, opts AnalyzeOptions) (*Result,
 	if err != nil {
 		return nil, err
 	}
-	out, err := Generate(ctx, opts.Runner, prompt, env)
+	turns, sandbox := monomind.WatchSandbox(ctx)
+	out, err := Generate(turns, opts.Runner, prompt, env)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +155,7 @@ func Analyze(ctx context.Context, rec *Recording, opts AnalyzeOptions) (*Result,
 	if err != nil {
 		return nil, err
 	}
-	return &Result{DraftDir: dir, Draft: view}, nil
+	return &Result{SandboxStatus: sandbox.Missing(), DraftDir: dir, Draft: view}, nil
 }
 
 func stampProvenance(out *Output, recID, goal string) {

@@ -108,6 +108,7 @@ type captureSummaryStatus struct {
 	Runtime    string `json:"runtime"`
 	Error      string `json:"error"`
 	FinishedAt string `json:"finished_at"`
+	Sandbox    string `json:"sandbox,omitempty"` // set when the summary's turn ran without a sandbox
 }
 
 const (
@@ -174,6 +175,7 @@ func readCaptureView(dir string) (*captureView, error) {
 	if st, err := capturesummary.ReadStatus(dir); err == nil {
 		v.SummaryStatus = &captureSummaryStatus{
 			Status: capturesummary.StateOf(dir, time.Now()), Runtime: st.Runtime, Error: st.Error, FinishedAt: st.FinishedAt,
+			Sandbox: st.Sandbox,
 		}
 	} else if v.Summary != "" {
 		v.SummaryStatus = &captureSummaryStatus{Status: capturesummary.StateDone}
