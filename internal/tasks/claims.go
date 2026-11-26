@@ -490,7 +490,7 @@ func (s *Store) handBack(ctx context.Context, profileID string, session, id int6
 			if err != nil {
 				return err
 			}
-			if err := writableBy(se, actor, "finish a task"); err != nil {
+			if err := s.handBackBy(ctx, x, se, actor, "finish a task"); err != nil {
 				return err
 			}
 		}
