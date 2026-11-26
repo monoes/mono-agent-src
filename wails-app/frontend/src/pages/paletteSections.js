@@ -3,7 +3,7 @@
 // from `node palette` (each node's `section`); the palette only groups.
 
 import { AI_KINDS, isAiHandle } from './aiSubNodes.js'
-import i18n from '../i18n.js'
+import i18nOr from '../lib/i18nOr.js'
 
 export const WEB_AUTOMATION = 'web_automation'
 
@@ -26,8 +26,8 @@ export function splitPaletteSections(categories) {
   for (const c of categories || []) (c.section === WEB_AUTOMATION ? web : rest).push(c)
   web.sort((a, b) => String(a.label).localeCompare(String(b.label)))
   return [
-    { id: WEB_AUTOMATION, label: i18n.t('ui6Node.webAutomations'), categories: web },
-    { id: 'nodes', label: i18n.t('ui6Node.nodes'), categories: rest },
+    { id: WEB_AUTOMATION, label: i18nOr('ui6Node.webAutomations'), categories: web },
+    { id: 'nodes', label: i18nOr('ui6Node.nodes'), categories: rest },
   ]
 }
 
@@ -54,7 +54,7 @@ function groupAiSubNodes(cats) {
   const order = Object.keys(AI_KINDS)
   const rank = k => { const i = order.indexOf(k); return i === -1 ? order.length : i }
   const ai = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map(kind => ({
-    id: AI_GROUP_PREFIX + kind, label: AI_KINDS[kind] || i18n.t('ui6Node.aiOther', { kind: kind.slice(3) }), section: 'nodes', nodes: groups.get(kind),
+    id: AI_GROUP_PREFIX + kind, label: AI_KINDS[kind] || i18nOr('ui6Node.aiOther', { kind: kind.slice(3) }), section: 'nodes', nodes: groups.get(kind),
   }))
   const at = kept.findIndex(c => c.id === 'ai')
   return at === -1 ? [...kept, ...ai] : [...kept.slice(0, at + 1), ...ai, ...kept.slice(at + 1)]
@@ -87,11 +87,11 @@ export function arrangePaletteCategories(categories) {
   for (const c of cats) if (c.id !== 'service') for (const n of c.nodes) otherLabels.add(String(n.label).toLowerCase())
   const named = cats.map(c => (c.id !== 'service' ? c : {
     ...c,
-    nodes: c.nodes.map(n => (otherLabels.has(String(n.label).toLowerCase()) ? { ...n, label: i18n.t('ui6Node.apiLabel', { label: n.label }) } : n)),
+    nodes: c.nodes.map(n => (otherLabels.has(String(n.label).toLowerCase()) ? { ...n, label: i18nOr('ui6Node.apiLabel', { label: n.label }) } : n)),
   }))
   const triggers = named.filter(c => c.id === 'triggers')
   const rest = groupAiSubNodes(named.filter(c => c.id !== 'triggers'))
   const out = [...triggers, ...rest]
-  if (deprecated.length) out.push({ id: DEPRECATED, label: i18n.t('ui6Node.deprecated'), section: 'nodes', collapsedByDefault: true, nodes: deprecated })
+  if (deprecated.length) out.push({ id: DEPRECATED, label: i18nOr('ui6Node.deprecated'), section: 'nodes', collapsedByDefault: true, nodes: deprecated })
   return out
 }

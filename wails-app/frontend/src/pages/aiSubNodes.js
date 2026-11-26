@@ -9,19 +9,19 @@
 // cycle check and auto-layout's ordering leave them out.
 
 // AI_KINDS names each kind's palette group, in palette order.
-import i18n from '../i18n.js'
+import i18nOr from '../lib/i18nOr.js'
 
 export const AI_KINDS = {
-  get ai_languageModel() { return i18n.t('ui6Node.kindModels') },
-  get ai_memory() { return i18n.t('ui6Node.kindMemory') },
-  get ai_tool() { return i18n.t('ui6Node.kindTools') },
-  get ai_outputParser() { return i18n.t('ui6Node.kindParsers') },
-  get ai_embedding() { return i18n.t('ui6Node.kindEmbeddings') },
-  get ai_vectorStore() { return i18n.t('ui6Node.kindVectors') },
-  get ai_document() { return i18n.t('ui6Node.kindDocuments') },
-  get ai_textSplitter() { return i18n.t('ui6Node.kindSplitters') },
-  get ai_retriever() { return i18n.t('ui6Node.kindRetrievers') },
-  get ai_reranker() { return i18n.t('ui6Node.kindRerankers') },
+  get ai_languageModel() { return i18nOr('ui6Node.kindModels') },
+  get ai_memory() { return i18nOr('ui6Node.kindMemory') },
+  get ai_tool() { return i18nOr('ui6Node.kindTools') },
+  get ai_outputParser() { return i18nOr('ui6Node.kindParsers') },
+  get ai_embedding() { return i18nOr('ui6Node.kindEmbeddings') },
+  get ai_vectorStore() { return i18nOr('ui6Node.kindVectors') },
+  get ai_document() { return i18nOr('ui6Node.kindDocuments') },
+  get ai_textSplitter() { return i18nOr('ui6Node.kindSplitters') },
+  get ai_retriever() { return i18nOr('ui6Node.kindRetrievers') },
+  get ai_reranker() { return i18nOr('ui6Node.kindRerankers') },
 }
 
 export const isAiHandle = h => typeof h === 'string' && h.startsWith('ai_')
@@ -63,19 +63,19 @@ export const attachedCount = (edges, targetId, handle) =>
 // sub-input `handle`: { ok: true } or { ok: false, reason, message }.
 export function checkSubConnection(source, target, handle, edges) {
   const fail = (reason, message) => ({ ok: false, reason, message })
-  if (!source || !target) return fail('missing', i18n.t('ui6Node.rejectMissing'))
-  if (source.id === target.id) return fail('self', i18n.t('ui6Node.rejectSelf'))
+  if (!source || !target) return fail('missing', i18nOr('ui6Node.rejectMissing'))
+  if (source.id === target.id) return fail('self', i18nOr('ui6Node.rejectSelf'))
   const input = (target.subInputs || []).find(s => s.handle === handle)
-  if (!input) return fail('kind', i18n.t('ui6Node.rejectKind', { target: target.label || target.id, handle }))
+  if (!input) return fail('kind', i18nOr('ui6Node.rejectKind', { target: target.label || target.id, handle }))
   if (source.subOutput !== handle) {
     const want = input.label
-    return fail('kind', i18n.t('ui6Node.rejectWrong', { source: source.label || source.id, want, target: target.label || target.id }))
+    return fail('kind', i18nOr('ui6Node.rejectWrong', { source: source.label || source.id, want, target: target.label || target.id }))
   }
   if ((edges || []).some(e => e.source === source.id && e.target === target.id && e.targetPortId === handle)) {
-    return fail('duplicate', i18n.t('ui6Node.alreadyConnected'))
+    return fail('duplicate', i18nOr('ui6Node.alreadyConnected'))
   }
   if (input.max && attachedCount(edges, target.id, handle) >= input.max) {
-    return fail('max', i18n.t('ui6Node.rejectMax', { count: input.max, target: target.label || target.id, label: input.label }))
+    return fail('max', i18nOr('ui6Node.rejectMax', { count: input.max, target: target.label || target.id, label: input.label }))
   }
   return { ok: true }
 }

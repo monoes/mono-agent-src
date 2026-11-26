@@ -6,7 +6,7 @@
 // all get the same answer. What is left below is presentation: validating
 // what the user typed, and remembering it between runs.
 
-import i18n from '../i18n.js';
+import i18nOr from '../lib/i18nOr.js';
 
 // parseTriggerInput validates what the user typed. Returns { ok, value } or
 // { ok: false, error } with a message worth showing.
@@ -17,10 +17,10 @@ export function parseTriggerInput(text) {
   try {
     parsed = JSON.parse(trimmed);
   } catch (err) {
-    return { ok: false, error: i18n.t('ui6Node.notJson', { error: err.message }) };
+    return { ok: false, error: i18nOr('ui6Node.notJson', { error: err.message }) };
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, error: i18n.t('ui6Node.triggerMustBeObject') };
+    return { ok: false, error: i18nOr('ui6Node.triggerMustBeObject') };
   }
   return { ok: true, value: JSON.stringify(parsed) };
 }
@@ -96,7 +96,7 @@ export function jsonFromForm(form, fields) {
     try {
       out[f.name] = JSON.parse(raw);
     } catch (err) {
-      return { ok: false, error: i18n.t('ui6Node.fieldNotJson', { name: f.name, error: err.message }) };
+      return { ok: false, error: i18nOr('ui6Node.fieldNotJson', { name: f.name, error: err.message }) };
     }
   }
   return { ok: true, text: JSON.stringify(out, null, 2) };

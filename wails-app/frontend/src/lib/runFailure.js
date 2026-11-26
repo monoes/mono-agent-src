@@ -2,7 +2,7 @@
 // only. The facts (status, the execution's error, each node's error) come
 // from `workflow execution <id> --json` via GetExecutionDetail.
 
-import i18n from '../i18n.js'
+import i18nOr from './i18nOr.js'
 
 const PROBLEM_STATUSES = new Set(['FAILED', 'SUCCESS_WITH_ERRORS'])
 
@@ -32,7 +32,7 @@ export function runProblem(detail, nodes = []) {
     for (const node of nodesNamedIn(error, nodes)) failed.push({ id: node.id, name: node.label, error, inferred: true })
   }
   if (!error && failed.length === 0) {
-    return { status, error: status === 'FAILED' ? i18n.t('ui6Node.runNoMessage') : '', failed }
+    return { status, error: status === 'FAILED' ? i18nOr('ui6Node.runNoMessage') : '', failed }
   }
   return { status, error, failed }
 }
