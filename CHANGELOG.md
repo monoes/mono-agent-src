@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Security, behaviour change: `install.sh` installs only what it can verify.** Releases now also publish `manifest.json.sshsig`, which the installer checks with `ssh-keygen` where `openssl` cannot verify Ed25519 (stock macOS). A machine that can check neither now stops instead of installing on checksums alone; `MONOAGENT_ALLOW_UNSIGNED=1` opts out. While a new release is still being signed, an install may stop and ask you to try again.
+- **Removed: background removal.** The `image.remove_background` node, its editor control and the ONNX Runtime and model download are gone. A saved workflow that uses the node fails when run, with a message that says so.
+- **Coder chats warn about full access.** A new chat that starts with full access says so in the CLI and the app, as does a "coding" or "workspace" chat while the coder box is off, because that level is then not enforced. A turn that runs without a sandbox because none could be made now warns every time. No default changed.
+- **Behaviour change: identical pending send approvals are one card,** approved and sent once.
+- **`hil pending --all` and a matching app view** list the pending approvals of every profile (you only, not agents).
+- **Database upgrade (automatic).** A message is now always filed under its person's profile (earlier mismatches are corrected and recorded), and an org role can hold only one live grant per slot (duplicates are revoked or narrowed, never widened, and recorded).
+- **The desktop app's Spanish translation covers far more of the interface,** including the settings fields of workflow steps.
+
 ## Archive: notes written under Unreleased before the changelog restart (releases up to v0.301.0)
 
 These entries were never bucketed by release; they are kept as written.

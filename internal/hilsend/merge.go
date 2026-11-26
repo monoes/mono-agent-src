@@ -37,7 +37,9 @@ func (s Store) createMerged(ctx context.Context, p Payload, rp replay) (Payload,
 		q, err := s.create(ctx, p, rp)
 		return q, false, err
 	}
-	hilscrub.MarkCutoff(ctx, s.DB)
+	// Waiting cards are compared and one may be returned: older rows are scrubbed
+	// first, as before any read of a card's text (outside the transaction below).
+	hilscrub.Ensure(ctx, s.DB, s.Profile)
 	p, c, err := encodeCard(p, rp)
 	if err != nil {
 		return p, false, err

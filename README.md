@@ -633,7 +633,7 @@ go build -o monoagentcli ./cmd/monoagentcli
 go build -tags nosocial -o monoagentcli ./cmd/monoagentcli   # without the social platform nodes
 ```
 
-About the prebuilt install: [install.sh](install.sh) (macOS arm64/amd64, Linux amd64/arm64; reads the signed release manifest from the latest GitHub release, verifies its Ed25519 signature against the pinned release key and each download's SHA256; installs into `~/.local/bin` unless `/usr/local/bin` is writable without sudo; `--app` adds the desktop app; `MONOAGENT_MANIFEST_URL` points it at a mirror, `scripts/install-test.sh` tests it), or download from [releases](https://github.com/monoes/mono-agent/releases/latest) — CLI binaries for macOS, Linux (amd64/arm64), and Windows, plus desktop-app builds for macOS (arm64), Linux (amd64), and Windows.
+About the prebuilt install: [install.sh](install.sh) (macOS arm64/amd64, Linux amd64/arm64; reads the signed release manifest from the latest GitHub release, verifies its Ed25519 signature against the pinned release key and each download's SHA256, and installs nothing it cannot verify: where `openssl` cannot check Ed25519, as on stock macOS, it uses `ssh-keygen` and `manifest.json.sshsig`, and `MONOAGENT_ALLOW_UNSIGNED=1` accepts a checksum-only install; installs into `~/.local/bin` unless `/usr/local/bin` is writable without sudo; `--app` adds the desktop app; `MONOAGENT_MANIFEST_URL` points it at a mirror, `scripts/install-test.sh` tests it), or download from [releases](https://github.com/monoes/mono-agent/releases/latest) — CLI binaries for macOS, Linux (amd64/arm64), and Windows, plus desktop-app builds for macOS (arm64), Linux (amd64), and Windows.
 
 ### Desktop GUI
 
