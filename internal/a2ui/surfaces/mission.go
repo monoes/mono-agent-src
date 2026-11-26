@@ -21,8 +21,9 @@ func MissionReportSurfaceID(sessionID int64) string {
 // MissionPlan builds the plan card. budgetUSD is the mission's budget (0 =
 // none set). The card binds its numbers to /mission/{done,total,spent,
 // budget,estimated,summary} from the start, so MissionProgressUpdate moves
-// its bars in place. Buttons: mission.approve, mission.edit, mission.stop,
-// each with context {sessionId}.
+// its bars in place. Buttons: mission.edit and mission.stop, each with context
+// {sessionId}. It offers no approval: approving also starts the mission's lead
+// and names the plan revision on screen, which only the app's own Approve does.
 func MissionPlan(p chatevents.MissionPlanPayload, budgetUSD float64) ([][]byte, error) {
 	return missionCard(p, budgetUSD, false)
 }
@@ -77,10 +78,11 @@ func missionCard(p chatevents.MissionPlanPayload, budgetUSD float64, running boo
 		b.button(btnStop, "Stop", "danger", "mission.stop", ctx())
 		b.row("actions", btnStop)
 	} else {
-		b.button(btnApprove, "Approve and start", "primary", "mission.approve", ctx())
+		b.text("how", "To approve and start this plan in the Tasks tab, open this mission there.", "body")
+		body = append(body, "how")
 		b.button(btnEdit, "Edit plan", "default", "mission.edit", ctx())
 		b.button(btnStop, "Stop", "danger", "mission.stop", ctx())
-		b.row("actions", btnApprove, btnEdit, btnStop)
+		b.row("actions", btnEdit, btnStop)
 	}
 	body = append(body, "actions")
 	b.column("body", body...)
@@ -92,7 +94,7 @@ func missionCard(p chatevents.MissionPlanPayload, budgetUSD float64, running boo
 // taskStates maps task id to its state; the card shows the count per state
 // (sorted by state name) in its summary line. Numbers that are negative or
 // not finite are sent as 0.
-func MissionProgressUpdate(sessionID int64, done, total int, spent, budget float64, taskStates map[int64]string) ([][]byte, error) {
+func MissionProgressUpdate(sessionID int64, done, total int, spent, budget, estimated float64, taskStates map[int64]string) ([][]byte, error) {
 	counts := map[string]int{}
 	for _, s := range taskStates {
 		counts[elide(strings.TrimSpace(s), 30)]++
@@ -113,7 +115,7 @@ func MissionProgressUpdate(sessionID int64, done, total int, spent, budget float
 	raw, err := marshal(map[string]any{"version": a2ui.Version, "updateDataModel": map[string]any{
 		"surfaceId": MissionSurfaceID(sessionID), "path": "/mission",
 		"value": map[string]any{"done": max(done, 0), "total": max(total, 0), "spent": money(spent),
-			"budget": money(budget), "estimated": 0, "summary": elide(summary, 300)}}})
+			"budget": money(budget), "estimated": money(estimated), "summary": elide(summary, 300)}}})
 	if err != nil {
 		return nil, fmt.Errorf("surfaces: %w", err)
 	}

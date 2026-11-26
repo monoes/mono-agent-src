@@ -22,7 +22,7 @@ const (
 // Command is what the host should do for a validated action. Route never
 // performs it.
 type Command struct {
-	Kind   string // the action name: hil.approve, hil.reject, mission.approve, mission.edit, mission.stop, mission.close, system.answer
+	Kind   string // the action name: hil.approve, hil.reject, mission.edit, mission.stop, mission.close, system.answer
 	ID     string // the record id, equal to the ref's
 	Fields map[string]string
 }
@@ -36,13 +36,12 @@ type route struct {
 var answerKey = regexp.MustCompile(`^q[0-2]$`)
 
 var routes = map[string]route{
-	"hil.approve":     {[]string{RefHIL, RefSend}, "id", func(string) bool { return true }},
-	"hil.reject":      {[]string{RefHIL, RefSend}, "id", nil},
-	"mission.approve": {[]string{RefMissionPlan}, "sessionId", nil},
-	"mission.edit":    {[]string{RefMissionPlan}, "sessionId", nil},
-	"mission.stop":    {[]string{RefMissionPlan}, "sessionId", nil},
-	"mission.close":   {[]string{RefMissionReport}, "sessionId", nil},
-	"system.answer":   {[]string{RefAsk}, "questionId", answerKey.MatchString},
+	"hil.approve":   {[]string{RefHIL, RefSend}, "id", func(string) bool { return true }},
+	"hil.reject":    {[]string{RefHIL, RefSend}, "id", nil},
+	"mission.edit":  {[]string{RefMissionPlan}, "sessionId", nil},
+	"mission.stop":  {[]string{RefMissionPlan}, "sessionId", nil},
+	"mission.close": {[]string{RefMissionReport}, "sessionId", nil},
+	"system.answer": {[]string{RefAsk}, "questionId", answerKey.MatchString},
 }
 
 func refSurface(kind, id string) string {

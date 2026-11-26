@@ -2,16 +2,13 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/a2ui/surfaces"
 	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/ai/chatevents"
 )
 
 // answer runs system.answer: it hands the card's answers to the worker that
@@ -97,12 +94,13 @@ func answerText(surf *a2ui.Surface, fields map[string]string) (string, error) {
 	return strings.Join(blocks, "\n\n"), nil
 }
 
-// mission runs the buttons of the mission cards. approve, stop and close run
-// `task session approve|stop|close <id>`, the commands the Mission cards of
-// the app call. edit has no command: it asks the caller to send the user
-// message "I want to change the plan of mission #<id>." as the conversation's
-// next turn (the plan stays as it is and the card stays).
-func (e *sysEnv) mission(ctx context.Context, a a2ui.Action, surf *a2ui.Surface) error {
+// mission runs the buttons of the mission cards. stop and close run `task
+// session stop|close <id>`, the commands the app's mission views call. edit has
+// no command: it asks the caller to send the user message "I want to change the
+// plan of mission #<id>." as the conversation's next turn (the plan stays as it
+// is and the card stays). A plan is approved in the app, which also starts the
+// mission's lead.
+func (e *sysEnv) mission(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error {
 	cmd, ref, conv, err := e.route(ctx, a)
 	if err != nil {
 		return err
@@ -116,40 +114,10 @@ func (e *sysEnv) mission(ctx context.Context, a a2ui.Action, surf *a2ui.Surface)
 		return err
 	}
 	switch cmd.Kind {
-	case "mission.approve":
-		e.runningCard(conv, ref, surf)
 	case "mission.stop":
 		e.finish(conv, ref, a.SurfaceID, "Mission stopped by you", "neutral")
 	case "mission.close":
 		e.finish(conv, ref, a.SurfaceID, "Mission closed by you", "success")
 	}
 	return nil
-}
-
-// runningCard replaces the approved plan card with the running mission's card,
-// built from what the plan card held.
-func (e *sysEnv) runningCard(conv uiConv, ref chatevents.UIRef, surf *a2ui.Surface) {
-	sid, err := strconv.ParseInt(ref.ID, 10, 64)
-	if err != nil {
-		return
-	}
-	str := func(id string) string { s, _ := surf.Components[id]["text"].(string); return s }
-	mission, _ := surf.Data.(map[string]any)["mission"].(map[string]any)
-	num := func(k string) float64 {
-		n, _ := json.Number(fmt.Sprint(mission[k])).Float64()
-		return n
-	}
-	p := chatevents.MissionPlanPayload{SessionID: sid, Title: str("title"), Goal: str("goal"),
-		TaskCount: int(num("total")), EstimatedBudgetUSD: num("estimated")}
-	msgs, err := surfaces.MissionRunning(p, num("budget"))
-	if err != nil {
-		e.finish(conv, ref, surfaces.MissionSurfaceID(sid), "Mission approved by you", "success")
-		return
-	}
-	store, _, closeDB, err := openChatHistory(e.cfg)
-	if err != nil {
-		return
-	}
-	defer closeDB()
-	_ = recordMessages(store, conv, ref, msgs)
 }

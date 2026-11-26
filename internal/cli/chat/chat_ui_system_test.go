@@ -284,16 +284,8 @@ func TestMissionButtons(t *testing.T) {
 		t.Fatalf("edit: %+v", res)
 	}
 	r.cli.outputs["task session"] = `{}`
-	res, _ = r.press(t, "mission.approve", "mission-17", "btn-approve", ctx)
-	if res.Outcome != "accepted" || strings.Join(r.cli.calls[0], " ") != "task session approve 17" {
-		t.Fatalf("approve: %+v %v", res, r.cli.calls)
-	}
-	s := r.surfaceNow(t, "mission-17")
-	if s == nil || s.DeclaresAction("btn-approve", "mission.approve") || !s.DeclaresAction("btn-stop", "mission.stop") || s.Components["round"]["text"] != "Running" {
-		t.Fatalf("running card: %+v", s)
-	}
-	if res, _ = r.press(t, "mission.approve", "mission-17", "btn-approve", ctx); res.Outcome == "accepted" {
-		t.Fatal("approve pressed twice")
+	if res, _ = r.press(t, "mission.approve", "mission-17", "btn-approve", ctx); res.Outcome == "accepted" || len(r.cli.calls) != 0 {
+		t.Fatalf("a plan card approved: %+v %v", res, r.cli.calls)
 	}
 	res, _ = r.press(t, "mission.stop", "mission-17", "btn-stop", ctx)
 	if res.Outcome != "accepted" || r.cli.called("task", "session", "stop") != 1 || hasButton(r.surfaceNow(t, "mission-17")) {
@@ -303,7 +295,7 @@ func TestMissionButtons(t *testing.T) {
 	n := len(r.cli.calls)
 	r2 := newSysRig(t)
 	r2.show(t, ref, msgs, nil)
-	if res, _ = r2.press(t, "mission.approve", "mission-17", "btn-approve", map[string]any{"sessionId": "18"}); res.Outcome != "rejected" || len(r2.cli.calls) != 0 {
+	if res, _ = r2.press(t, "mission.stop", "mission-17", "btn-stop", map[string]any{"sessionId": "18"}); res.Outcome != "rejected" || len(r2.cli.calls) != 0 {
 		t.Fatalf("forged: %+v", res)
 	}
 	_ = n

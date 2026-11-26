@@ -62,22 +62,9 @@
       },
       {
         "component": "Text",
-        "id": "btn-approve-l",
-        "text": "Approve and start"
-      },
-      {
-        "action": {
-          "event": {
-            "context": {
-              "sessionId": "17"
-            },
-            "name": "mission.approve"
-          }
-        },
-        "child": "btn-approve-l",
-        "component": "Button",
-        "id": "btn-approve",
-        "variant": "primary"
+        "id": "how",
+        "text": "To approve and start this plan in the Tasks tab, open this mission there.",
+        "variant": "body"
       },
       {
         "component": "Text",
@@ -119,7 +106,6 @@
       },
       {
         "children": [
-          "btn-approve",
           "btn-edit",
           "btn-stop"
         ],
@@ -136,6 +122,7 @@
           "prog",
           "summary",
           "div",
+          "how",
           "actions"
         ],
         "component": "Column",

@@ -83,7 +83,6 @@ func TestUIShowPrintsTheCommandsOfSystemSurfaces(t *testing.T) {
 	for _, c := range []struct{ surface, action, command string }{
 		{"hil-482", "hil.approve", "monoagentcli hil approve 482 --profile=default"},
 		{"hil-482", "hil.reject", "monoagentcli hil reject 482 --profile=default"},
-		{"mission-17", "mission.approve", "monoagentcli task session approve 17 --profile=default"},
 		{"mission-17", "mission.stop", "monoagentcli task session stop 17 --profile=default"},
 		{"mission-report-9", "mission.close", "monoagentcli task session close 9 --profile=default"},
 	} {

@@ -20,7 +20,7 @@ func TestRouteAcceptsGenuineActions(t *testing.T) {
 	}{
 		{act("hil.approve", "hil-482", map[string]any{"id": "482", "message": "edited"}), chatevents.UIRef{Kind: RefHIL, ID: "482"}, "hil.approve"},
 		{act("hil.reject", "send-7c1e", map[string]any{"id": "7c1e"}), chatevents.UIRef{Kind: RefSend, ID: "7c1e"}, "hil.reject"},
-		{act("mission.approve", "mission-17", map[string]any{"sessionId": "17"}), chatevents.UIRef{Kind: RefMissionPlan, ID: "17"}, "mission.approve"},
+		{act("mission.stop", "mission-17", map[string]any{"sessionId": "17"}), chatevents.UIRef{Kind: RefMissionPlan, ID: "17"}, "mission.stop"},
 		{act("mission.close", "mission-report-17", map[string]any{"sessionId": "17"}), chatevents.UIRef{Kind: RefMissionReport, ID: "17"}, "mission.close"},
 		{act("system.answer", "ask-q9", map[string]any{"questionId": "q9", "q0": []any{"eu"}, "q1": "note"}), chatevents.UIRef{Kind: RefAsk, ID: "q9"}, "system.answer"},
 	}
@@ -54,7 +54,7 @@ func TestRouteRefusals(t *testing.T) {
 		"id not a string":   {act("hil.approve", "hil-482", map[string]any{"id": 482}), hil, "forged or missing"},
 		"other surface":     {act("hil.approve", "hil-999", map[string]any{"id": "482"}), hil, "came from surface"},
 		"unknown action":    {act("hil.delete", "hil-482", map[string]any{"id": "482"}), hil, "not a host action"},
-		"wrong record kind": {act("mission.approve", "hil-482", map[string]any{"sessionId": "482"}), hil, "does not apply"},
+		"wrong record kind": {act("mission.stop", "hil-482", map[string]any{"sessionId": "482"}), hil, "does not apply"},
 		"reject with field": {act("hil.reject", "hil-482", map[string]any{"id": "482", "x": "y"}), hil, "takes no field"},
 		"object value":      {act("hil.approve", "hil-482", map[string]any{"id": "482", "m": map[string]any{"a": "b"}}), hil, "must be a string"},
 		"number value":      {act("hil.approve", "hil-482", map[string]any{"id": "482", "m": 5}), hil, "must be a string"},

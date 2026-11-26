@@ -322,7 +322,7 @@ func TestAskAndMissionShapes(t *testing.T) {
 		t.Fatal("four questions built")
 	}
 	plan := surfaceOf(t, allBuilt(t)["mission-17"], "mission-17")
-	for _, n := range []string{"mission.approve", "mission.edit", "mission.stop"} {
+	for _, n := range []string{"mission.edit", "mission.stop"} {
 		found := false
 		for id := range plan.Components {
 			found = found || plan.DeclaresAction(id, n)
@@ -353,7 +353,7 @@ func TestAskAndMissionShapes(t *testing.T) {
 func TestMissionProgressUpdatesInPlace(t *testing.T) {
 	plan, _ := MissionPlan(samplePlan(), 10)
 	reg := applyAll(t, a2ui.FromSystem, plan)
-	upd, err := MissionProgressUpdate(17, 2, 6, 1.5, 10, map[int64]string{1: "done", 2: "done", 3: "running", 4: "queued"})
+	upd, err := MissionProgressUpdate(17, 2, 6, 1.5, 10, 4.5, map[int64]string{1: "done", 2: "done", 3: "running", 4: "queued"})
 	if err != nil {
 		t.Fatal(err)
 	}

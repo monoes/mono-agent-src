@@ -1,6 +1,7 @@
 package dynorg
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -114,7 +115,7 @@ func TestMissionProgressMovesTheCardOnlyWhenTaskStatesChange(t *testing.T) {
 	if len(r.em.find(chatevents.EventUISurface)) != 0 {
 		t.Fatal("progress without a card")
 	}
-	c.missionPlanSurface(chatevents.MissionPlanPayload{SessionID: r.sid, Title: "m", TaskCount: 2}, 5)
+	c.missionPlanSurface(chatevents.MissionPlanPayload{SessionID: r.sid, Title: "m", TaskCount: 2, EstimatedBudgetUSD: 2.5}, 5)
 	n := len(systemSurfaces(r.em))
 	c.missionProgressSurface(tbg, r.mc, se)
 	c.missionProgressSurface(tbg, r.mc, se) // same states: no second update
@@ -122,13 +123,25 @@ func TestMissionProgressMovesTheCardOnlyWhenTaskStatesChange(t *testing.T) {
 	if len(ps) != n+1 || !strings.Contains(string(ps[n].Message), `"total":2`) || !strings.Contains(string(ps[n].Message), `"done":0`) {
 		t.Fatalf("%d events, last %s", len(ps), ps[len(ps)-1].Message)
 	}
+	if !strings.Contains(string(ps[n].Message), `"estimated":2.5`) {
+		t.Fatalf("the update dropped the estimate: %s", ps[n].Message)
+	}
+	// Approved in the app: the plan card becomes the running card, then moves.
 	r.approve()
 	r.done(a.ID)
 	c.missionProgressSurface(tbg, r.mc, r.session())
 	ps = systemSurfaces(r.em)
-	if len(ps) != n+2 || !strings.Contains(string(ps[n+1].Message), `"done":1`) {
-		t.Fatalf("after a task finished: %d events", len(ps))
+	if got := strings.Join(kinds(ps[n+1:]), " "); got != fmt.Sprintf("deleteSurface:mission-%[1]d createSurface:mission-%[1]d updateDataModel:mission-%[1]d", r.sid) {
+		t.Fatalf("after the approval: %s", got)
 	}
+	card := c.ui.reg.Surface(surfaces.MissionSurfaceID(r.sid))
+	if card.Components["btn-edit"] != nil || card.Components["round"]["text"] != "Running" || card.Components["title"]["text"] != "m" || estimateOf(card) != 2.5 {
+		t.Fatalf("running card %+v %v", card.Components, card.Data)
+	}
+	if !strings.Contains(string(ps[len(ps)-1].Message), `"done":1`) {
+		t.Fatalf("%s", ps[len(ps)-1].Message)
+	}
+	n = len(ps) - 2
 	// the debounce: inside the interval nothing more goes out, whatever changed
 	progressEvery = 3600e9
 	r.done(r.add(spec{title: "c"}).ID)

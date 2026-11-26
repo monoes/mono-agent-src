@@ -216,7 +216,7 @@ func decisionCommand(store *ai.AIStore, profileID, conversationID string, cmd su
 		return cliLine(profileID, []string{"hil", "approve"}, nil, cmd.ID), note
 	case "hil.reject":
 		return cliLine(profileID, []string{"hil", "reject"}, nil, cmd.ID), ""
-	case "mission.approve", "mission.stop", "mission.close":
+	case "mission.stop", "mission.close":
 		return cliLine(profileID, []string{"task", "session", strings.TrimPrefix(cmd.Kind, "mission.")}, nil, cmd.ID), ""
 	case "mission.edit":
 		return "", "no command: tell the mission's chat what to change in mission #" + a2ui.CleanLine(cmd.ID)

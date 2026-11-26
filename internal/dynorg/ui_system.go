@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,10 +143,17 @@ func (c *Conductor) missionProgressSurface(ctx context.Context, mc *MissionRun, 
 	st := c.uiStateFor()
 	st.mu.Lock()
 	err := c.uiSeed(st)
-	live := err == nil && st.reg.Surface(surfaces.MissionSurfaceID(se.ID)) != nil
+	var card *a2ui.Surface
+	if err == nil {
+		card = st.reg.Surface(surfaces.MissionSurfaceID(se.ID))
+	}
 	st.mu.Unlock()
-	if !live {
+	if card == nil {
 		return
+	}
+	// Approved (in the app): the plan card becomes the running mission's.
+	if se.State == tasks.SessionRunning && card.Components["btn-edit"] != nil {
+		c.missionRunningSurface(se, card)
 	}
 	plan, err := mc.Store.PlanOfSession(ctx, mc.ProfileID, se.ID, missionActor())
 	if err != nil {
@@ -169,10 +177,31 @@ func (c *Conductor) missionProgressSurface(ctx context.Context, mc *MissionRun, 
 	if !changed {
 		return
 	}
-	if msgs, err := surfaces.MissionProgressUpdate(se.ID, done, len(plan.Tasks), se.SpentUSD, se.BudgetUSD, states); err == nil {
+	if msgs, err := surfaces.MissionProgressUpdate(se.ID, done, len(plan.Tasks), se.SpentUSD, se.BudgetUSD, estimateOf(card), states); err == nil {
 		c.emitSystemUI(missionRef(surfaces.RefMissionPlan, se.ID), msgs)
 	}
 }
+
+// missionRunningSurface replaces a plan card with the running mission's card,
+// built from what the plan card held.
+func (c *Conductor) missionRunningSurface(se tasks.Session, card *a2ui.Surface) {
+	text := func(id string) string { s, _ := card.Components[id]["text"].(string); return s }
+	p := chatevents.MissionPlanPayload{SessionID: se.ID, Title: text("title"), Goal: text("goal"),
+		TaskCount: int(missionNumber(card, "total")), EstimatedBudgetUSD: estimateOf(card)}
+	if msgs, err := surfaces.MissionRunning(p, se.BudgetUSD); err == nil {
+		c.emitSystemUI(missionRef(surfaces.RefMissionPlan, se.ID), msgs)
+	}
+}
+
+// missionNumber reads /mission/<key> of a mission card's data; 0 when absent.
+func missionNumber(card *a2ui.Surface, key string) float64 {
+	data, _ := card.Data.(map[string]any)
+	mission, _ := data["mission"].(map[string]any)
+	n, _ := strconv.ParseFloat(fmt.Sprint(mission[key]), 64)
+	return n
+}
+
+func estimateOf(card *a2ui.Surface) float64 { return missionNumber(card, "estimated") }
 
 // progressTracker remembers, per mission, what the last progress update said.
 type progressTracker struct {
