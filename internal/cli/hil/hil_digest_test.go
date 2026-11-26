@@ -79,6 +79,10 @@ func TestHILListRedactHidesReplyTokensAndMarksTheItem(t *testing.T) {
 	insert("h1", `{"link":"`+resume+`"}`, `{}`, `{"outbound":false}`)
 	insert("h2", `{"kind":"send","action":"dm","recipient":{"name":"Ada"}}`, `{"text":"Answer at `+resume+`"}`, `{"kind":"send","textField":"text"}`)
 	insert("h3", `{"note":"plain"}`, `{}`, `{"outbound":false}`)
+	// A send with nothing to hide is not marked, whatever else its card holds.
+	insert("h4", `{"kind":"send","action":"email","recipient":{"name":"ada@example.test","profileUrl":"https://example.test/ada"},"account":{"platform":"email"},`+
+		`"attachments":[{"kind":"file","name":"a.pdf","path":"/tmp/a.pdf","size":12345678}],"details":[{"key":"cc","value":"bob@example.test"}],"createdAt":"2026-11-27T10:00:00Z"}`,
+		`{"text":"See https://example.test/offer/6f1b2c3d4e5f60718293a4b5c6d7e8f9","subject":"Offer"}`, `{"kind":"send","textField":"body","subjectKey":"subject"}`)
 
 	list := func(args ...string) string {
 		var err error
@@ -101,11 +105,11 @@ func TestHILListRedactHidesReplyTokensAndMarksTheItem(t *testing.T) {
 		t.Fatalf("the token is in the redacted list:\n%s", out)
 	}
 	var items []hilItem
-	if err := json.Unmarshal([]byte(out), &items); err != nil || len(items) != 3 {
+	if err := json.Unmarshal([]byte(out), &items); err != nil || len(items) != 4 {
 		t.Fatalf("%v: %s", err, out)
 	}
 	for _, it := range items {
-		if it.Redacted != (it.ID != "h3") {
+		if it.Redacted != (it.ID == "h1" || it.ID == "h2") {
 			t.Errorf("%s: redacted = %v", it.ID, it.Redacted)
 		}
 		if it.ID == "h2" && (it.Send == nil || !strings.Contains(it.Send.Text, workflow.ReplyTokenHidden)) {

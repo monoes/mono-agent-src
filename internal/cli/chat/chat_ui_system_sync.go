@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"time"
 
@@ -85,10 +86,11 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 	}
 	replay := dynorg.RebuildRegistry(evs)
 	e := &sysEnv{cfg: cfg}
-	items, err := e.listHIL(ctx)
+	listed, err := e.listHIL(ctx)
 	if err != nil {
 		return nil, err
 	}
+	items := waitingItems(listed)
 	res := &SyncHILResult{Surfaced: []string{}, Resolved: []string{}}
 	var payloads []chatevents.UISurfacePayload
 	add := func(ref chatevents.UIRef, msgs [][]byte) bool {
@@ -201,6 +203,20 @@ func surfaceOfItem(it listedHIL) string {
 		return surfaces.SendSurfaceID(it.Send.ID)
 	}
 	return surfaces.HILSurfaceID(it.ID)
+}
+
+// waitingItems keeps what waits for a decision, once per card. A listed send
+// that is already decided would get a card without buttons, and a second entry
+// for one card would differ from it: either would be drawn again at every run,
+// growing the journal for as long as the chat is open.
+func waitingItems(items []listedHIL) []listedHIL {
+	seen := map[string]bool{}
+	return slices.DeleteFunc(items, func(it listedHIL) bool {
+		id := surfaceOfItem(it)
+		drop := seen[id] || (it.Kind == "send" && it.Send != nil && it.Send.State != hilsend.StatePending)
+		seen[id] = true
+		return drop
+	})
 }
 
 // buildItemSurface is the card of a pending item and the ref that ties it to
