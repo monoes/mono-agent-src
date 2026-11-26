@@ -2,8 +2,8 @@
 # Test kit for the A2UI chat surfaces (branch integration/a2ui).
 #
 # Everything runs against a throwaway home ($A2UI_TEST_DIR/home, default ~/scratch/a2ui-test) with a test build
-# of the CLI, sign-in disabled, and the extension bridge on port 9232. Your real ~/.monoagent, installed app and
-# live bridge are not used. Run it in YOUR OWN terminal: button presses are refused from an agent shell.
+# of the CLI, sign-in disabled, and the extension bridge on port 9232. Your real ~/.monoagent, installed app,
+# data folders, desktop keyring and live bridge are not used. Run it in YOUR OWN terminal: button presses are refused from an agent shell.
 #
 #   scripts/a2ui-testkit.sh setup          build the test CLI and create the test profile
 #   scripts/a2ui-testkit.sh proof          CLI proof: forged, wrong, genuine and repeated button presses
@@ -39,7 +39,18 @@ own_terminal() { [ -z "${CLAUDECODE:-}${AI_AGENT:-}" ] || die "this shell belong
 testenv() {
 	local extra=()
 	[ "${A2UI_USE_MY_CLAUDE:-}" = 1 ] && extra=(CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$REAL_HOME/.claude}")
-	env HOME="$TEST_HOME" MONOAGENT_DEV_ENFORCE_FROM=2999-01-01T00:00:00Z MONOES_BASE_URL=http://127.0.0.1:9 \
+	# The XDG folders and the desktop keyring are reached without HOME, so they are moved too: nothing of the
+	# test world may land in your real data folders or keyring. mise (if used) keeps its own real folders.
+	env -u MONOAGENT_APP_DIR HOME="$TEST_HOME" \
+		MISE_DATA_DIR="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$REAL_HOME/.local/share}/mise}" \
+		MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$REAL_HOME/.config}/mise}" \
+		MISE_CACHE_DIR="${MISE_CACHE_DIR:-${XDG_CACHE_HOME:-$REAL_HOME/.cache}/mise}" \
+		MISE_STATE_DIR="${MISE_STATE_DIR:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/mise}" \
+		XDG_DATA_HOME="$TEST_HOME/.local/share" XDG_CONFIG_HOME="$TEST_HOME/.config" \
+		XDG_CACHE_HOME="$TEST_HOME/.cache" XDG_STATE_HOME="$TEST_HOME/.local/state" \
+		DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/a2ui-testkit \
+		MONOAGENT_ALLOW_FILE_KEYRING=1 MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE="$DIR/keyring-passphrase" \
+		MONOAGENT_DEV_ENFORCE_FROM=2999-01-01T00:00:00Z MONOES_BASE_URL=http://127.0.0.1:9 \
 		MONOAGENT_EXTENSION_PORT=$PORT MONOAGENTCLI_BIN="$BIN" \
 		GOPATH="$(go env GOPATH)" GOCACHE="$(go env GOCACHE)" GOMODCACHE="$(go env GOMODCACHE)" \
 		npm_config_cache="${npm_config_cache:-$REAL_HOME/.npm}" "${extra[@]}" "$@"
@@ -89,6 +100,7 @@ setup)
 	need sqlite3
 	mkdir -p "$DIR/bin" "$TEST_HOME"
 	chmod 755 "$DIR/bin"
+	[ -s "$DIR/keyring-passphrase" ] || (umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$DIR/keyring-passphrase")
 	echo "building the test CLI (devaccount build, never install it)..."
 	(cd "$ROOT" && go build -tags devaccount -o "$BIN" ./cmd/monoagentcli)
 	chmod 755 "$BIN"
