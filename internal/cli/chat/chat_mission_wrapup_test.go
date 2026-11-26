@@ -229,6 +229,27 @@ func TestMissionOperatorPauseUnspentHasNoWrapUp(t *testing.T) {
 	wantMeter(t, r, "two turns", 0, tasks.SessionPaused)
 }
 
+// A turn nobody typed (a check-in, a wake-up, another agent's message) is not run on a spent mission: the allowance
+// is kept whole for the user's own message.
+func TestMissionWrapUpRefusesAutomaticTurns(t *testing.T) {
+	r := newLeadSpendRig(t, "2\n", true)
+	exhaust(t, r, 6)
+	for _, id := range []string{"checkin-1", "pursuit-1-a", "master-1", "answer-d-1", "ask-r-1"} {
+		err := r.send(id)
+		if err == nil || !strings.Contains(err.Error(), "wrap-up") || !strings.Contains(err.Error(), "your own message") {
+			t.Fatalf("%s: %v", id, err)
+		}
+	}
+	if n := len(r.execs(t)); n != 0 {
+		t.Fatalf("the runtime was started %d times for automatic turns", n)
+	}
+	wantAllowance(t, r, "the automatic turns", 6, 0, 5)
+	if err := r.send("t1"); err != nil {
+		t.Fatalf("the user's own message: %v", err)
+	}
+	wantAllowance(t, r, "the user's message", 8, 2, 3)
+}
+
 // `chat history spend-cap` reports the allowance as what the next message runs under, and says when it is used up.
 func TestSpendCapShowsTheWrapUpAllowance(t *testing.T) {
 	r := newLeadSpendRig(t, "2\n10\n", true)

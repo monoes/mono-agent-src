@@ -310,6 +310,17 @@ func (h *Host) Tick() error {
 					continue
 				}
 			}
+			// A mission that spent its budget runs only what the person sends: its wrap-up allowance is theirs.
+			if automatic, err := h.Store.AutomaticTurn(c.ProfileID, c.ConversationID, c.TurnID); err != nil || automatic {
+				reason := h.wrapUpKept(c.ProfileID, c.ConversationID)
+				if err != nil {
+					reason = readFailed + "the turn's sender does not read: " + err.Error()
+				}
+				if reason != "" {
+					h.recheckFailed(c, reason, k, blocked)
+					continue
+				}
+			}
 			// max_concurrent: a master's children run only so many turns at once; the rest wait, in order.
 			if x.Role == "child" && x.Parent != "" {
 				if running == nil {

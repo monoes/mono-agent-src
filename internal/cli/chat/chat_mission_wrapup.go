@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -56,6 +57,13 @@ func admitWrapUp(ctx context.Context, db *storage.Database, journal *turnJournal
 	if se == nil {
 		return nil, nil
 	}
+	// The allowance is the user's: a turn nobody typed does not draw on it.
+	switch automatic, err := coderhost.NewStore(db.DB).AutomaticTurn(journal.profileID, journal.conversationID, journal.turnID); {
+	case err != nil:
+		return nil, fmt.Errorf("this message was not run: its sender could not be read: %w", err)
+	case automatic:
+		return nil, wrapUpIsTheUsers(*se)
+	}
 	grant, err := mission.Store.BeginWrapUpTurn(ctx, journal.profileID, se.ID, journal.turnID, wrapUpOperator)
 	switch {
 	case errors.Is(err, tasks.ErrWrapUpUsedUp) && grant != nil:
@@ -66,6 +74,13 @@ func admitWrapUp(ctx context.Context, db *storage.Database, journal *turnJournal
 		return nil, nil
 	}
 	return &wrapUpTurn{db: db, store: mission.Store, journal: journal, session: *se, grant: *grant}, nil
+}
+
+// wrapUpIsTheUsers refuses an automatic turn on a spent mission.
+func wrapUpIsTheUsers(se tasks.Session) error {
+	return &coderError{code: "mission_wrapup_automatic", err: &clicore.Error{Code: 3, Msg: fmt.Sprintf(
+		"This automatic turn was not run: mission #%d %q has spent its budget ($%.2f of $%.2f), and the lead's wrap-up allowance is kept for your own message.",
+		se.ID, se.Title, se.SpentUSD, se.BudgetUSD)}}
 }
 
 // wrapUpUsedUp refuses a turn once nothing is left of the allowance.
