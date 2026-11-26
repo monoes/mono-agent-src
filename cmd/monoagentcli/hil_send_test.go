@@ -79,6 +79,9 @@ func queueViaNodeRun(t *testing.T, cfg *globalConfig, config string) string {
 
 const sendConfig = `{"smtp_host":"127.0.0.1","from":"me@example.test","to":"ada@example.test","subject":"Hi","body":"Original","password":"hunter2"}`
 
+// otherSubjectSendConfig is sendConfig under another subject: a second card, as identical sends share one.
+const otherSubjectSendConfig = `{"smtp_host":"127.0.0.1","from":"me@example.test","to":"ada@example.test","subject":"Hi again","body":"Original","password":"hunter2"}`
+
 func swapRunner(t *testing.T) *[]hilsend.Run {
 	t.Helper()
 	var calls []hilsend.Run
@@ -124,7 +127,7 @@ func TestResolveApproveRunsOnceRejectNever(t *testing.T) {
 	cfg := sendEnv(t)
 	calls := swapRunner(t)
 	approveID := queueViaNodeRun(t, cfg, sendConfig)
-	rejectID := queueViaNodeRun(t, cfg, sendConfig)
+	rejectID := queueViaNodeRun(t, cfg, otherSubjectSendConfig)
 	asOperatorProcess(t)
 
 	out, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", approveID, "--approve", "--edit-text", "Edited by me")
@@ -433,7 +436,7 @@ func TestEveryCoderSetFlagIsTheOperators(t *testing.T) {
 		"send-approval": "false", "app-access": "off", "workspace-root": t.TempDir(), "max-turns": "5",
 		"timeout": "5m", "budget-usd": "1", "org-max-agents": "2", "org-max-concurrent": "2",
 		"org-budget-usd": "1", "org-model-picker": "lead", "org-router": "jev", "org-writers": "isolated",
-		"default-access": "coding", "box": "strict", "peercred-binding": "off",
+		"default-access": "coding", "box": "strict", "peercred-binding": "off", "startup-timeout": "3m",
 	}
 	before, err := runSendCLI(t, cfg, newCoderSetCmd(cfg))
 	if err != nil {

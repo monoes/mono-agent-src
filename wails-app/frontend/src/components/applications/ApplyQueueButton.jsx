@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { Bot } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { aitaskApi } from '../SendToCoderApi.js'
 import { useSendToCoder } from '../bubbles/CoderBubbleContext.jsx'
 import { fetchApplicationAssets } from './applicationAssets.js'
 import { parkedApi } from './parkedApi.js'
+import t from '../../lib/i18nOr.js'
 
 const noteStyle = { fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }
 
@@ -25,7 +27,7 @@ function dockQueueChats(ids, openDraft) {
       waiting.delete(id)
       openDraft({
         conversationId: task.conversationId, collapsed: true,
-        task: { taskId: task.taskId, kind: 'application-fill', goal: 'Fill in the application form in your browser (you submit it)', status: task.status, origin: { page: 'applications', label: 'Applications' }, doneLabel: 'filled, waiting for you to submit' },
+        task: { taskId: task.taskId, kind: 'application-fill', goal: t('ui6PagesApps.queue_goal'), status: task.status, origin: { page: 'applications', label: t('ui6PagesApps.applications') }, doneLabel: t('ui6PagesApps.done_label') },
       })
     }
     if (waiting.size > 0 && Date.now() < until) setTimeout(tick, WATCH_EVERY_MS)
@@ -39,6 +41,7 @@ function dockQueueChats(ids, openDraft) {
 // The queue runs in the background; each application shows its own state.
 // With coder mode off it says why and starts nothing.
 export default function ApplyQueueButton({ ids, onStarted, style }) {
+  useTranslation()
   const { openDraft } = useSendToCoder()
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
@@ -48,7 +51,7 @@ export default function ApplyQueueButton({ ids, onStarted, style }) {
   useEffect(() => {
     try {
       return EventsOn('applications:queueStatus', (ev) => {
-        if (ev?.status === 'error') setNote({ text: ev.message || 'The fill queue stopped with an error.', error: true })
+        if (ev?.status === 'error') setNote({ text: ev.message || t('ui6PagesApps.queue_error'), error: true })
       })
     } catch { return undefined } // no Wails runtime (browser preview)
   }, [])
@@ -60,12 +63,12 @@ export default function ApplyQueueButton({ ids, onStarted, style }) {
     try {
       const state = await aitaskApi.status()
       if (!state?.enabled) {
-        setNote({ text: `${state?.reason || 'Coder mode is off.'} Apply works the regular way.` })
+        setNote({ text: t('ui6PagesApps.regular_apply', { reason: state?.reason || t('ui6PagesApps.coder_off') }) })
         return
       }
       await parkedApi.queue(ids, 0)
       if (openDraft) dockQueueChats(ids, openDraft)
-      setNote({ text: `Started: the coder fills ${ids.length === 1 ? 'this application' : `these ${ids.length} applications`} one after another and leaves each form for you to check and submit.` })
+      setNote({ text: t('ui6PagesApps.queue_started', { count: ids.length }) })
       onStarted?.()
     } catch (err) {
       setNote({ text: String(err?.message || err), error: true })
@@ -77,7 +80,7 @@ export default function ApplyQueueButton({ ids, onStarted, style }) {
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
       <button type="button" style={style} onClick={start} disabled={busy || ids.length === 0} aria-busy={busy}>
-        <Bot size={12} aria-hidden="true" /> {busy ? 'Starting…' : `Apply selected with coder${ids.length ? ` (${ids.length})` : ''}`}
+        <Bot size={12} aria-hidden="true" /> {busy ? t('ui6PagesApps.starting') : ids.length ? t('ui6PagesApps.apply_selected_n', { n: ids.length }) : t('ui6PagesApps.apply_selected')}
       </button>
       {note && <span role={note.error ? 'alert' : 'status'} style={{ ...noteStyle, color: note.error ? '#f43f5e' : noteStyle.color, maxWidth: 360, textAlign: 'right' }}>{note.text}</span>}
     </span>

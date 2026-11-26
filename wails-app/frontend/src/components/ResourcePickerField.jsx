@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../lib/i18nOr.js' // for messages set in callbacks
 import { ListResources, CreateResource, ConnectPlatformOAuth } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -14,6 +16,7 @@ import { EventsOn } from '../wailsjs/runtime/runtime'
  *   nodeConfig: object (full node config, for param_field resolution)
  */
 export default function ResourcePickerField({ field, value, onChange, credentialId, platform, nodeConfig }) {
+  const { t } = useTranslation()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -32,7 +35,7 @@ export default function ResourcePickerField({ field, value, onChange, credential
   function handleListResult(result) {
     if (result.needs_reauth) {
       setNeedsReauth(true)
-      setError('Authentication expired')
+      setError(i18nOr('ui6ConnMisc.auth_expired'))
       setItems([])
     } else if (result.error) {
       setError(result.error)
@@ -86,7 +89,7 @@ export default function ResourcePickerField({ field, value, onChange, credential
           .catch(e => setError(String(e)))
           .finally(() => setLoading(false))
       } else {
-        setError(data?.error || 'Reconnection failed')
+        setError(data?.error || i18nOr('ui6ConnMisc.reconnect_failed'))
       }
     })
     ConnectPlatformOAuth(platform)
@@ -132,7 +135,7 @@ export default function ResourcePickerField({ field, value, onChange, credential
         <input
           type="text"
           className="resource-picker-input"
-          placeholder={`Search ${resourceType}...`}
+          placeholder={t('ui6ConnMisc.search', { type: resourceType })}
           value={query}
           onChange={e => { setQuery(e.target.value); if (!expanded) setExpanded(true) }}
           onFocus={() => setExpanded(true)}
@@ -146,7 +149,7 @@ export default function ResourcePickerField({ field, value, onChange, credential
         <button
           type="button"
           className="resource-picker-expand-btn"
-          title="Browse all"
+          title={t('ui6ConnMisc.browse_all')}
           onClick={() => setExpanded(e => !e)}
         >⊞</button>
       </div>
@@ -154,7 +157,7 @@ export default function ResourcePickerField({ field, value, onChange, credential
       {expanded && (
         <div className="resource-browser">
           <div className="resource-browser-header">
-            <span className="resource-browser-title">Select {field.label}</span>
+            <span className="resource-browser-title">{t('ui6ConnMisc.select', { label: field.label })}</span>
             {field.resource?.create_label && (
               <button
                 type="button"
@@ -175,20 +178,20 @@ export default function ResourcePickerField({ field, value, onChange, credential
             <div className="resource-create-row">
               <input
                 type="text"
-                placeholder="Name..."
+                placeholder={t('ui6ConnMisc.name_placeholder')}
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
                 autoFocus
               />
-              <button type="button" onClick={handleCreate} disabled={loading}>Create</button>
-              <button type="button" onClick={() => { setCreating(false); setNewName('') }}>Cancel</button>
+              <button type="button" onClick={handleCreate} disabled={loading}>{t('ui6ConnMisc.create')}</button>
+              <button type="button" onClick={() => { setCreating(false); setNewName('') }}>{t('ui6ConnMisc.cancel')}</button>
             </div>
           )}
 
           {error && (
             <div className="resource-error">
-              {needsReauth ? 'Authentication expired — please reconnect your account.' : error}
+              {needsReauth ? t('ui6ConnMisc.auth_expired_reconnect') : error}
               {needsReauth && (
                 <button
                   type="button"
@@ -208,12 +211,12 @@ export default function ResourcePickerField({ field, value, onChange, credential
                     opacity: reconnecting ? 0.6 : 1,
                   }}
                 >
-                  {reconnecting ? 'Reconnecting…' : 'Reconnect Account'}
+                  {reconnecting ? t('ui6ConnMisc.reconnecting') : t('ui6ConnMisc.reconnect_account')}
                 </button>
               )}
             </div>
           )}
-          {loading && <div className="resource-loading">Loading...</div>}
+          {loading && <div className="resource-loading">{t('ui6ConnMisc.loading')}</div>}
 
           {!loading && (
             <ul className="resource-list">
@@ -231,7 +234,7 @@ export default function ResourcePickerField({ field, value, onChange, credential
               ))}
               {items.length === 0 && !error && (
                 <li className="resource-empty">
-                  {effectiveCredId ? 'No results found' : 'No credential selected'}
+                  {effectiveCredId ? t('ui6ConnMisc.no_results') : t('ui6ConnMisc.no_credential')}
                 </li>
               )}
             </ul>

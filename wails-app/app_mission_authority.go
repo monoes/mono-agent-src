@@ -28,7 +28,7 @@ func authorityConfirm(a *App, body string) string {
 	yes, returned, err := askNativeTitled(a, authorityDialogTitle, body)
 	switch {
 	case !returned:
-		return aiError(&codedError{msg: "the confirmation did not return in time; nothing changed", code: "declined"})
+		return aiError(&codedError{msg: dialogTimedOutDetail("nothing changed"), code: "declined"})
 	case errors.Is(err, errDialogBusy):
 		return aiError(&codedError{msg: err.Error(), code: "busy"})
 	case err != nil:

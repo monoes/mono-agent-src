@@ -5,6 +5,7 @@
 // ascending-sequence order. Kept pure so it is directly unit-testable
 // without mocking Wails.
 import { stageReducer } from '../../lib/orgStage.js'
+import i18nOr from '../../lib/i18nOr.js'
 import { applySurfaceEvent, applyActionEvent } from '../../lib/a2uiModel.js'
 
 export function initialChatState() {
@@ -112,9 +113,10 @@ function agentPatch(state, ev) {
         parts: state.parts.some(x => x.kind === 'agent' && x.agentId === id) ? state.parts : [...state.parts, { kind: 'agent', agentId: id }],
       }
     case 'agent.status':
-      return put({ status: p.to, statusDetail: p.detail || '' })
+      // confinement is per run and absent from other agents: kept once reported.
+      return put({ status: p.to, statusDetail: p.detail || '', ...(p.confinement ? { confinement: p.confinement } : {}) })
     case 'agent.reassigned':
-      return put({ runtime: p.toRuntime, model: p.toModel, reassigned: `${p.fromRuntime}/${p.fromModel || 'default'}: ${p.reason}` })
+      return put({ runtime: p.toRuntime, model: p.toModel, reassigned: `${p.fromRuntime}/${p.fromModel || i18nOr('ui7Chat.default_model')}: ${p.reason}` })
     case 'agent.message':
       if (p.direction === 'result') return put({ report: p.text })
       // A worker's question for the user (#256), open until answered.
@@ -183,7 +185,9 @@ function eventPatch(state, ev) {
 
     case 'notice': {
       // The CLI's verdict on the turn's sandbox: a badge, not a banner.
-      if (payload.code === 'agent.sandbox') return { sandbox: payload.message || null }
+      // A warning severity is the CLI saying the turn runs without a sandbox
+      // (sandboxMissing is absent until then).
+      if (payload.code === 'agent.sandbox') return { sandbox: payload.message || null, sandboxMissing: payload.severity === 'warning' }
       // Its words: the mode a restricted turn ran in, or why the fallback setting was ignored.
       // A coder turn's context size and per-model tokens: a header gauge, not a notice.
       if (payload.code === 'coder.usage') return { coderUsage: payload.coderUsage || null }

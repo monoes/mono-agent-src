@@ -4,9 +4,16 @@ import { confirm } from '../ConfirmDialog.jsx'
 import { aitaskApi, taskIsDone } from '../SendToCoderApi.js'
 import { TaskResultLine } from './TaskResultLine.jsx'
 import { aitaskBudgetApi, money } from '../settings/aitaskBudgetApi.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 const POLL_MS = 4000
 const BUDGET_POLL_MS = 15000
+// The CLI's task statuses; only the displayed word is translated.
+const STATUS_KEYS = {
+  queued: 'ui7Chat.task_queued', running: 'ui7Chat.task_running', needs_user: 'ui7Chat.task_needs_user',
+  complete: 'ui7Chat.task_complete', failed: 'ui7Chat.task_failed', cancelled: 'ui7Chat.task_cancelled',
+}
+const statusWord = s => (Object.hasOwn(STATUS_KEYS, s) ? i18nOr(STATUS_KEYS[s]) : s)
 
 // TaskHeaderCard sits at the top of a coder bubble that is an AI task (#957):
 // what was asked, its status (kept fresh while it runs), a way back to the tab
@@ -68,19 +75,19 @@ export function TaskHeaderCard({ task, onNavigate }) {
 
   const origin = task.origin
   return (
-    <section aria-label="Coder task" data-testid="task-header" style={{
+    <section aria-label={i18nOr('ui7Chat.task_section')} data-testid="task-header" style={{
       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 12px',
       borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 11, flexShrink: 0,
     }}>
       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }} title={task.goal}>{task.goal}</span>
-      <span style={{ color: 'var(--cyan)', border: '1px solid var(--border-bright)', borderRadius: 999, padding: '1px 7px' }}>{status === 'complete' && task.doneLabel ? task.doneLabel : (status || 'queued')}</span>
+      <span style={{ color: 'var(--cyan)', border: '1px solid var(--border-bright)', borderRadius: 999, padding: '1px 7px' }}>{status === 'complete' && task.doneLabel ? task.doneLabel : statusWord(status || 'queued')}</span>
       {budget && (
-        <span data-testid="task-budget" title="Spent of this task's spend cap" style={{ color: 'var(--text-muted)' }}>
+        <span data-testid="task-budget" title={i18nOr('ui7Chat.task_spent')} style={{ color: 'var(--text-muted)' }}>
           {budget.reported ? money(budget.spentUsd) : '–'} / {money(budget.capUsd)}
         </span>
       )}
       {origin?.page && onNavigate && (
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate(origin.page)}>Open in {origin.label || origin.page}</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate(origin.page)}>{i18nOr('ui7Chat.task_open_in', { tab: origin.label || origin.page })}</button>
       )}
       {!taskIsDone(status) && (
         <button type="button" className="btn btn-ghost btn-sm" onClick={cancel} disabled={cancelling}>{tr('taskHeader.cancel')}</button>

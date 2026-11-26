@@ -3,6 +3,8 @@ import { ShieldAlert, ShieldOff, ShieldQuestion, Clock } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { confirm } from '../ConfirmDialog.jsx'
 import { cachedAgentScan } from '../../lib/agentRuntimes.js'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n.js'
 
 // Full-access org roles (#205). A role with policy.access "full" runs like a
 // coder chat: any command, any file, no approval gate. Its state comes from
@@ -19,14 +21,14 @@ import { cachedAgentScan } from '../../lib/agentRuntimes.js'
 // The canvas card shows only "FULL": its icon, color and tooltip carry the
 // state.
 export const ACCESS_STATES = {
-  active: { label: 'Full access', color: '#f59e0b', icon: ShieldAlert },
-  suspended: { label: 'Full access · suspended', color: '#ef4444', icon: ShieldOff },
-  'unattended-blocked': { label: 'Full access · unattended blocked', color: '#fb923c', icon: Clock },
+  active: { get label() { return i18n.t('ui6OrgsMore.state_active') }, color: '#f59e0b', icon: ShieldAlert },
+  suspended: { get label() { return i18n.t('ui6OrgsMore.state_suspended') }, color: '#ef4444', icon: ShieldOff },
+  'unattended-blocked': { get label() { return i18n.t('ui6OrgsMore.state_unattended') }, color: '#fb923c', icon: Clock },
   // Not a monomind state: the role declares full access but no human grant
   // is on file (from `org validate`'s output; see withNotGranted).
-  'not-granted': { label: 'Full access · not granted', color: '#94a3b8', icon: ShieldQuestion },
+  'not-granted': { get label() { return i18n.t('ui6OrgsMore.state_not_granted') }, color: '#94a3b8', icon: ShieldQuestion },
 }
-const UNKNOWN_STATE = { label: 'Full access', color: '#f59e0b', icon: ShieldAlert }
+const UNKNOWN_STATE = { get label() { return i18n.t('ui6OrgsMore.state_active') }, color: '#f59e0b', icon: ShieldAlert }
 
 export function accessState(entry) {
   return ACCESS_STATES[entry?.access_state] || UNKNOWN_STATE
@@ -110,6 +112,7 @@ export function useRolesAccess(orgName, stamp = '') {
 }
 
 export function FullAccessBadge({ entry, compact = false }) {
+  const { t } = useTranslation()
   const st = accessState(entry)
   const Icon = st.icon
   const title = entry?.reason ? `${st.label}: ${entry.reason}` : st.label
@@ -120,7 +123,7 @@ export function FullAccessBadge({ entry, compact = false }) {
       color: st.color, background: `${st.color}14`, border: `1px solid ${st.color}66`,
       borderRadius: 4, padding: compact ? '0 4px' : '1px 5px', whiteSpace: 'nowrap',
     }}>
-      <Icon size={compact ? 8 : 9} /> {compact ? 'FULL' : st.label.toUpperCase()}
+      <Icon size={compact ? 8 : 9} /> {compact ? t('ui6OrgsMore.badge_full') : st.label.toUpperCase()}
     </span>
   )
 }
@@ -129,17 +132,18 @@ export const FULL_ACCESS_HELP = 'monomind org role set-access --help'
 
 // The grant dialog's body: coder mode's risks plus the org specifics.
 export function FullAccessRiskText({ role }) {
+  const { t } = useTranslation()
   return (
     <div data-testid="full-access-risk-text">
-      <p style={{ margin: '0 0 8px' }}>Role <strong>{role}</strong> will work on your computer with no approval prompts (budgets still apply):</p>
+      <p style={{ margin: '0 0 8px' }}>{t('ui6OrgsMore.risk_role')} <strong>{role}</strong> {t('ui6OrgsMore.risk_will_work')}</p>
       <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <li>It can run any command, read and change any file your user account can, and install software.</li>
-        <li>Web pages and files it reads, and other roles&apos; messages, reach it and can contain instructions that steer it. Only grant this when everything that reaches it is trusted.</li>
-        <li>Scheduled and unattended runs use full access only when the org allows unattended full access.</li>
-        <li>It loads its agent&apos;s normal setup: instructions files (CLAUDE.md, AGENTS.md, GEMINI.md), skills, hooks and MCP servers.</li>
+        <li>{t('ui6OrgsMore.risk_commands')}</li>
+        <li>{t('ui6OrgsMore.risk_untrusted')}</li>
+        <li>{t('ui6OrgsMore.risk_unattended')}</li>
+        <li>{t('ui6OrgsMore.risk_setup')}</li>
       </ul>
       <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
-        Editing this role or the org&apos;s run settings suspends the grant. Unattended runs and accepted taint are set with <code>{FULL_ACCESS_HELP}</code>.
+        {t('ui6OrgsMore.risk_suspends')} <code>{FULL_ACCESS_HELP}</code>.
       </p>
     </div>
   )
@@ -149,8 +153,8 @@ export function FullAccessRiskText({ role }) {
 // result, or null when the user cancelled; rejects with the CLI's refusal.
 export async function grantFullAccess(orgName, roleID, { again = false } = {}) {
   const ok = await confirm(<FullAccessRiskText role={roleID} />, {
-    title: again ? `Grant ${roleID} full access again?` : `Give ${roleID} full access?`,
-    confirmLabel: again ? 'Grant again' : 'Grant full access',
+    title: again ? i18n.t('ui6OrgsMore.grant_again_title', { role: roleID }) : i18n.t('ui6OrgsMore.grant_title', { role: roleID }),
+    confirmLabel: again ? i18n.t('ui6OrgsMore.grant_again') : i18n.t('ui6OrgsMore.grant_full'),
     danger: true,
   })
   if (!ok) return null

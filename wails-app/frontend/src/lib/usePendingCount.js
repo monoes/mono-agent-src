@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../services/api.js'
 import { usePageVisibleRef, useVisibleCatchUp } from './usePageVisible.js'
+import i18nOr from './i18nOr.js'
 
 export const PENDING_POLL_MS = 10000
 
@@ -18,15 +19,15 @@ export function pendingFromSummary(summary) {
 
 export function notifyPending(added) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  const body = added === 1 ? '1 new item is waiting for your review' : `${added} new items are waiting for your review`
-  try { new Notification('Human in Loop', { body, tag: 'hil-pending' }) } catch { /* sandboxed webview */ }
+  const body = i18nOr('ui6PagesMisc.pending', { count: added })
+  try { new Notification(i18nOr('ui6PagesMisc.hil_title'), { body, tag: 'hil-pending' }) } catch { /* sandboxed webview */ }
 }
 
 // A coder session with no master that hit a risky gap waits for the person with no timeout
 // (`summary` lists their ids in coder_item_ids: a notification fires when an id appears that was not there before, even if another one went away in the same poll). The notification carries a count, never the question.
 export function notifyCoderQuestions() {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  try { new Notification('Coder session', { body: 'A coder session is waiting for you (coder sessions questions)', tag: 'coder-question' }) } catch { /* sandboxed webview */ }
+  try { new Notification(i18nOr('ui6PagesMisc.coder_title'), { body: i18nOr('ui6PagesMisc.coder_waiting'), tag: 'coder-question' }) } catch { /* sandboxed webview */ }
 }
 
 export function usePendingCount() {

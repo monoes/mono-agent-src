@@ -20,6 +20,7 @@ vi.mock('../lib/orgEventStreams.js', () => ({ acquireOrgEvents: () => () => {} }
 import ApplicationDetailModal from './applications/ApplicationDetailModal.jsx'
 import ApplicationFillSection from './applications/ApplicationFillSection.jsx'
 import AiTaskBudgetsSection, { PLAIN_DECIMAL } from './settings/AiTaskBudgetsSection.jsx'
+import '../i18n.js'
 import { BubbleDock } from './bubbles/BubbleDock.jsx'
 import { isModalOpenAbove } from './bubbles/modalAbove.js'
 import { CoderBubbleContext } from './bubbles/CoderBubbleContext.jsx'

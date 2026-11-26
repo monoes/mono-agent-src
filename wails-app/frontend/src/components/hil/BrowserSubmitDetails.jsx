@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import { api } from '../../services/api.js'
 import { ImageLightbox } from '../chat/ChatAttachments.jsx'
 import { quoteClaim } from '../../lib/quoteClaim.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // A browser submit approval: a form an agent tried to submit on a page that
 // is not local, held until a person approves it (then `monoagentcli browser
@@ -30,10 +32,10 @@ export function requesterParts(by) {
   if (!by || typeof by !== 'object') return []
   const q = by.system ? String : (v) => quoteClaim(v)
   const parts = []
-  if (by.role) parts.push(by.role === 'lead' && by.conversationId ? 'coder chat agent' : `role ${q(by.role)}`)
-  if (by.org) parts.push(`org ${q(by.org)}`)
-  if (by.agentId) parts.push(`agent ${q(by.agentId)}`)
-  if (by.conversationId) parts.push(`chat ${q(String(by.conversationId).slice(0, 8))}`)
+  if (by.role) parts.push(by.role === 'lead' && by.conversationId ? i18nOr('ui6SetHil.coder_agent') : i18nOr('ui6SetHil.part_role', { value: q(by.role) }))
+  if (by.org) parts.push(i18nOr('ui6SetHil.part_org', { value: q(by.org) }))
+  if (by.agentId) parts.push(i18nOr('ui6SetHil.part_agent', { value: q(by.agentId) }))
+  if (by.conversationId) parts.push(i18nOr('ui6SetHil.part_chat', { value: q(String(by.conversationId).slice(0, 8)) }))
   return parts
 }
 
@@ -41,8 +43,8 @@ export function requesterParts(by) {
 // anything else as what the agent claims.
 export function requesterText(by) {
   const parts = requesterParts(by)
-  if (!parts.length) return 'an agent (it did not say which)'
-  return by.system ? parts.join(' · ') : `an agent (claims: ${parts.join(' · ')})`
+  if (!parts.length) return i18nOr('ui6SetHil.unnamed_agent')
+  return by.system ? parts.join(' · ') : i18nOr('ui6SetHil.claims', { parts: parts.join(' · ') })
 }
 
 // displayOrigin is the origin as a person reads it. An internationalized
@@ -59,16 +61,17 @@ export function displayOrigin(ro) {
 // Unicode one, since such a host can imitate another site's name. Nothing
 // shows for an ASCII host.
 export function AsciiHost({ host }) {
+  useTranslation() // render again on a language change
   if (!host) return null
   return (
     <div data-testid="ascii-host" style={{ marginTop: 4, fontSize: 11, lineHeight: 1.5 }}>
       {/* No ligatures: "xn--" must not render as a dash. */}
       <div style={{ fontFamily: mono, color: '#e2e8f0', fontVariantLigatures: 'none' }}>
-        <span style={{ color: 'var(--text-muted)' }}>ASCII form: </span>{host}
+        <span style={{ color: 'var(--text-muted)' }}>{i18nOr('ui6SetHil.ascii_form')} </span>{host}
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, color: '#fbbf24' }}>
         <AlertTriangle size={11} style={{ flexShrink: 0, marginTop: 2 }} />
-        <span>Check the address: this site uses non-Latin characters, which can imitate another site&apos;s name.</span>
+        <span>{i18nOr('ui6SetHil.check_address')}</span>
       </div>
     </div>
   )
@@ -86,6 +89,7 @@ export function Section({ label, children }) {
 // SubmitScreenshot is the page as the agent left it, read through
 // ReadHILScreenshot (only from the browser approvals folder).
 function SubmitScreenshot({ path }) {
+  useTranslation() // render again on a language change
   const [src, setSrc] = useState('')
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
@@ -99,17 +103,17 @@ function SubmitScreenshot({ path }) {
     )
     return () => { live = false }
   }, [path])
-  if (error) return <div style={{ ...box, color: 'var(--text-muted)' }}>Screenshot unavailable: {error}</div>
-  if (!src) return <div style={{ ...box, color: 'var(--text-muted)' }}>Loading screenshot…</div>
+  if (error) return <div style={{ ...box, color: 'var(--text-muted)' }}>{i18nOr('ui6SetHil.shot_unavailable', { error })}</div>
+  if (!src) return <div style={{ ...box, color: 'var(--text-muted)' }}>{i18nOr('ui6SetHil.shot_loading')}</div>
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} aria-label="Open the screenshot" title="Open large" style={{
+      <button type="button" onClick={() => setOpen(true)} aria-label={i18nOr('ui6SetHil.shot_open')} title={i18nOr('ui6SetHil.shot_large')} style={{
         padding: 0, border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, background: 'rgba(255,255,255,0.04)',
         cursor: 'zoom-in', display: 'block', overflow: 'hidden', maxWidth: '100%',
       }}>
-        <img src={src} alt="The page when the submit was held" style={{ display: 'block', maxWidth: '100%', maxHeight: 260, objectFit: 'contain' }} />
+        <img src={src} alt={i18nOr('ui6SetHil.shot_alt')} style={{ display: 'block', maxWidth: '100%', maxHeight: 260, objectFit: 'contain' }} />
       </button>
-      {open && <ImageLightbox src={src} alt="The page when the submit was held" onClose={() => setOpen(false)} />}
+      {open && <ImageLightbox src={src} alt={i18nOr('ui6SetHil.shot_alt')} onClose={() => setOpen(false)} />}
     </>
   )
 }
@@ -117,33 +121,34 @@ function SubmitScreenshot({ path }) {
 // BrowserSubmitDetails replaces the generic "Context Info" of a browser
 // submit item; the card's Approve / Reject stay as they are.
 export function BrowserSubmitDetails({ item }) {
+  useTranslation() // render again on a language change
   const ro = item.readonly_data || {}
   const form = ro.form || {}
   const fields = Array.isArray(form.fields) ? form.fields : []
   const who = requesterText(ro.requested_by)
   return (
     <div data-testid="browser-submit-details" style={{ marginBottom: 20 }}>
-      <Section label="Submits to">
+      <Section label={i18nOr('ui6SetHil.submits_to')}>
         <div style={box}>
-          <div style={{ color: '#e2e8f0', fontWeight: 600 }}>{displayOrigin(ro) || 'an unknown origin'}</div>
+          <div style={{ color: '#e2e8f0', fontWeight: 600 }}>{displayOrigin(ro) || i18nOr('ui6SetHil.unknown_origin')}</div>
           <AsciiHost host={ro.asciiHost} />
           {ro.url && <div style={{ fontFamily: mono, fontSize: 11, marginTop: 2 }}>{ro.url}</div>}
           {(form.method || form.action) && (
             <div style={{ fontFamily: mono, fontSize: 11, marginTop: 4, color: 'var(--text-muted)' }}>
-              {(form.method || 'GET').toUpperCase()} {form.action || '(this page)'}
+              {(form.method || 'GET').toUpperCase()} {form.action || i18nOr('ui6SetHil.this_page')}
             </div>
           )}
         </div>
       </Section>
-      <Section label="Requested by">
+      <Section label={i18nOr('ui6SetHil.requested_by')}>
         <div style={box}>{who}</div>
       </Section>
-      <Section label={`Form fields (${fields.length})`}>
-        {fields.length === 0 ? <div style={{ ...box, color: 'var(--text-muted)' }}>No named fields</div> : (
+      <Section label={i18nOr('ui6SetHil.form_fields', { n: fields.length })}>
+        {fields.length === 0 ? <div style={{ ...box, color: 'var(--text-muted)' }}>{i18nOr('ui6SetHil.no_fields')}</div> : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, ...box, padding: 0 }}>
             <thead>
               <tr style={{ fontFamily: mono, fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                <th style={cell}>Field</th><th style={cell}>Type</th><th style={cell}>Value</th>
+                <th style={cell}>{i18nOr('ui6SetHil.field')}</th><th style={cell}>{i18nOr('ui6SetHil.type')}</th><th style={cell}>{i18nOr('ui6SetHil.value')}</th>
               </tr>
             </thead>
             <tbody>
@@ -161,11 +166,11 @@ export function BrowserSubmitDetails({ item }) {
           </table>
         )}
       </Section>
-      <Section label="Submit control">
-        <div style={{ ...box, fontFamily: mono, fontSize: 11 }}>{form.submitter || 'none: the page submitted it by script'}</div>
+      <Section label={i18nOr('ui6SetHil.submit_control')}>
+        <div style={{ ...box, fontFamily: mono, fontSize: 11 }}>{form.submitter || i18nOr('ui6SetHil.by_script')}</div>
       </Section>
-      <Section label="Screenshot">
-        {ro.screenshot ? <SubmitScreenshot path={ro.screenshot} /> : <div style={{ ...box, color: 'var(--text-muted)' }}>No screenshot was saved</div>}
+      <Section label={i18nOr('ui6SetHil.screenshot')}>
+        {ro.screenshot ? <SubmitScreenshot path={ro.screenshot} /> : <div style={{ ...box, color: 'var(--text-muted)' }}>{i18nOr('ui6SetHil.no_shot')}</div>}
       </Section>
     </div>
   )

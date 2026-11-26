@@ -231,7 +231,8 @@ func (h *Host) liveChildren(profileID, conversationID string) (int, error) {
 // checkinTargetStillValid is the one rule for who may be checked in on, used when a check-in is looked at,
 // when it is about to be queued and when it is about to run. It returns why not, or "". The session
 // must be unattended and not a child; with live children it must be a master; with none (a lead) its
-// conversation must be bound to a RUNNING task session with open work.
+// conversation must be bound to a RUNNING task session with open work. Either way its mission must have budget
+// left (wrapUpKept).
 func (h *Host) checkinTargetStillValid(x Session, liveChildren int) string {
 	switch {
 	case h.conversationPursuing(x.ProfileID, x.ConversationID):
@@ -247,5 +248,5 @@ func (h *Host) checkinTargetStillValid(x Session, liveChildren int) string {
 	case !h.leadWithOpenWork(x.ProfileID, x.ConversationID):
 		return "the session has no running mission with open work"
 	}
-	return ""
+	return h.wrapUpKept(x.ProfileID, x.ConversationID)
 }

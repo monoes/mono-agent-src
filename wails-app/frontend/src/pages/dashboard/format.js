@@ -1,3 +1,5 @@
+import i18nOr from '../../lib/i18nOr.js'
+
 // Time labels for the dashboard. `t` is react-i18next's t; `now` is
 // injectable for tests.
 export function relTime(ts, t, now = Date.now()) {
@@ -17,6 +19,22 @@ export function duration(startedAt, finishedAt, now = Date.now()) {
   const sec = Math.round(ms / 1000)
   return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`
 }
+
+// execStatusWord is the shown word for a stored execution status; one this app
+// does not know is shown as stored.
+const EXEC_STATUS_KEYS = {
+  SUCCESS: 'ui6PagesMisc.exec_SUCCESS',
+  SUCCESS_WITH_ERRORS: 'ui6PagesMisc.exec_SUCCESS_WITH_ERRORS',
+  COMPLETED: 'ui6PagesMisc.exec_COMPLETED',
+  RUNNING: 'ui6PagesMisc.exec_RUNNING',
+  QUEUED: 'ui6PagesMisc.exec_QUEUED',
+  PENDING: 'ui6PagesMisc.exec_PENDING',
+  WAITING: 'ui6PagesMisc.exec_WAITING',
+  PAUSED: 'ui6PagesMisc.exec_PAUSED',
+  FAILED: 'ui6PagesMisc.exec_FAILED',
+  CANCELLED: 'ui6PagesMisc.exec_CANCELLED',
+}
+export const execStatusWord = (status) => (Object.hasOwn(EXEC_STATUS_KEYS, status) ? i18nOr(EXEC_STATUS_KEYS[status]) : status)
 
 export function untilTime(ts, t, now = Date.now()) {
   const diff = new Date(ts) - now

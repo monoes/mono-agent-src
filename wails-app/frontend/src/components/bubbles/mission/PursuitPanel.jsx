@@ -90,7 +90,9 @@ function Panel({ sessionId, conversationId }) {
 
   const lines = statusLines(status, t)
   const notice = str(obj(status).notice)
-  const missing = items(obj(ready).items)
+  const listed = items(obj(ready).items)
+  // The CLI marks an item another listed line already covers (a host idle only for want of a judge).
+  const missing = listed.filter(i => !listed.some(o => o.id === i.covered_by))
   const pursuitDoc = obj(obj(ready).pursuit)
   const notStarted = pursuitDoc.started === false
   const k = obj(kids)

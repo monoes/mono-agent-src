@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import RuntimeSelect from './RuntimeSelect.jsx'
 import { sectionsOrgEnabled, designMeta, runtimeChoice, pickerRuntimes, resetSectionsRuntimePolicyCache } from './sectionsRuntimes.js'
+import '../../i18n.js'
 
 const policy = {
   source: 'monomind',

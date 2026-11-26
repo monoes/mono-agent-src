@@ -97,8 +97,8 @@ func (c *Conductor) missionHalt(ctx context.Context, se tasks.Session) {
 	}
 	c.stopSessionWorkers(se.ID, "the session's budget is spent")
 	if first {
-		c.notice("mission.budget_halt", fmt.Sprintf("Mission %q has spent its budget ($%.2f of $%.2f) and is halted. The operator raises the budget and resumes it.",
-			se.Title, se.SpentUSD, se.BudgetUSD), chatevents.SeverityError)
+		c.notice("mission.budget_halt", fmt.Sprintf("Mission %q has spent its budget ($%.2f of $%.2f) and is halted: no worker starts. The lead keeps a $%.2f wrap-up allowance to report and hand back. The operator raises the budget and resumes it.",
+			se.Title, se.SpentUSD, se.BudgetUSD, tasks.WrapUpAllowanceUSD), chatevents.SeverityError)
 	}
 }
 
@@ -230,8 +230,9 @@ func (c *Conductor) missionReconcile(ctx context.Context, sid int64) {
 	if err != nil {
 		return
 	}
+	wrapping := c.wrapUpKeepsLeadClaims(ctx, sid)
 	for _, t := range held {
-		if t.Claim == nil || !isMissionName(t.Claim.By, sid) || c.taskWorker(t.ID) != nil {
+		if t.Claim == nil || !isMissionName(t.Claim.By, sid) || c.taskWorker(t.ID) != nil || wrapping && t.Claim.By == missionLeadName {
 			continue
 		}
 		c.msched.mu.Lock()

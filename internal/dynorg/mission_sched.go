@@ -112,7 +112,7 @@ const (
 const missionLeadName = "lead"
 
 // missionConductorName acts for the scheduler in the session's history.
-const missionConductorName = "conductor"
+const missionConductorName = tasks.ConductorName
 
 // missionWorkerName is the name a worker holds its task under: one per session and task, so
 // a retry renews the claim of the run before it.
@@ -173,6 +173,8 @@ type missionState struct {
 	overNoted   map[int64]bool // over-committed sessions the operator notice went out for
 	childNoted  map[int64]bool // sessions the "no child sessions for this lead" notice went out for
 	settling    map[int64]bool // tasks whose ended child session is being taken back
+	// leadSession: the mission the lead's turn runs for (mission_lead_spend.go), 0 while none ran
+	leadSession int64
 }
 
 func (m *missionState) init() {
@@ -516,7 +518,8 @@ func (c *Conductor) missionSpendBudget(ctx context.Context, se tasks.Session) st
 	switch {
 	case frac >= budgetHaltAt:
 		c.missionHalt(ctx, se)
-		return fmt.Sprintf("the session has spent its budget ($%.2f of $%.2f): the mission is halted until the operator raises it", se.SpentUSD, se.BudgetUSD)
+		return fmt.Sprintf("the session has spent its budget ($%.2f of $%.2f): the mission is halted until the operator raises it. Start nothing new: wrap up (mission_report), hand back your own tasks (mission_task_finish) and ask the user for more budget",
+			se.SpentUSD, se.BudgetUSD)
 	case frac >= budgetWarnAt:
 		c.msched.mu.Lock()
 		c.msched.init()

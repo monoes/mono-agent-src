@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { aitaskBudgetApi, money } from './aitaskBudgetApi.js'
 import { confirm } from '../ConfirmDialog.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // AI task budgets: spend caps for the tasks the Send to coder buttons and
 // workflows hand to the coder. A task runs under the lowest cap that applies
@@ -23,8 +24,8 @@ const errText = { fontFamily: mono, fontSize: 10.5, color: 'var(--red)', lineHei
 const row = { display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 10, flexWrap: 'wrap' }
 const name = { fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--text)' }
 
-const errMsg = (e) => String(e?.message || e || 'unknown error')
-const AGENT_SCOPES = { conversation: 'Conversation', role: 'Role' }
+const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
+const AGENT_SCOPES = { conversation: 'ui6SetBudget.conversation', role: 'ui6SetBudget.role' }
 
 // CapForm adds or changes one cap: an optional key, an amount in USD, and a
 // button. scopes is a list of [scope, label] to choose from, or null for one fixed scope.
@@ -32,6 +33,7 @@ const AGENT_SCOPES = { conversation: 'Conversation', role: 'Role' }
 export const PLAIN_DECIMAL = /^(\d+\.?\d*|\.\d+)$/
 
 function CapForm({ scope, scopes, keyLabel, busy, onSave, button, visibleLabel }) {
+  const { t } = useTranslation()
   const [pick, setPick] = useState(scopes ? scopes[0][0] : scope)
   const [key, setKey] = useState('')
   const [usd, setUsd] = useState('')
@@ -46,8 +48,8 @@ function CapForm({ scope, scopes, keyLabel, busy, onSave, button, visibleLabel }
   return (
     <form onSubmit={submit} style={row}>
       {scopes && (
-        <select aria-label="Kind of agent cap" value={pick} onChange={e => setPick(e.target.value)} disabled={busy}>
-          {scopes.map(([id, text]) => <option key={id} value={id}>{text}</option>)}
+        <select aria-label={t('ui6SetBudget.agent_kind')} value={pick} onChange={e => setPick(e.target.value)} disabled={busy}>
+          {scopes.map(([id, text]) => <option key={id} value={id}>{t(text)}</option>)}
         </select>
       )}
       {needsKey && (
@@ -56,7 +58,7 @@ function CapForm({ scope, scopes, keyLabel, busy, onSave, button, visibleLabel }
           style={{ flex: '1 1 140px', minWidth: 0, fontFamily: mono, fontSize: 12 }} />
       )}
       {visibleLabel && <label htmlFor={`cap-usd-${pick}`} style={{ ...name, fontSize: 12 }}>{visibleLabel}</label>}
-      <input id={`cap-usd-${pick}`} className="form-input" aria-label={`${keyLabel || 'Global'} cap in USD`} placeholder="USD" inputMode="decimal"
+      <input id={`cap-usd-${pick}`} className="form-input" aria-label={t('ui6SetBudget.cap_in_usd', { name: keyLabel || t('ui6SetBudget.global') })} placeholder="USD" inputMode="decimal"
         value={usd} onChange={e => setUsd(e.target.value)} disabled={busy} style={{ width: 90, maxWidth: '100%', fontFamily: mono, fontSize: 12 }} />
       <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !valid}>{button}</button>
     </form>
@@ -64,16 +66,17 @@ function CapForm({ scope, scopes, keyLabel, busy, onSave, button, visibleLabel }
 }
 
 function CapRows({ caps, busy, onClear }) {
-  if (caps.length === 0) return <div style={hint}>None set.</div>
+  const { t } = useTranslation()
+  if (caps.length === 0) return <div style={hint}>{t('ui6SetBudget.none_set')}</div>
   return caps.map(c => (
     <div key={`${c.scope}:${c.key}`} data-cap={`${c.scope}:${c.key}`} style={row}>
       <span style={{ ...name, fontFamily: mono, fontSize: 11.5, flex: 1, minWidth: 0, wordBreak: 'break-all' }}>
-        {AGENT_SCOPES[c.scope] ? `${AGENT_SCOPES[c.scope]} ` : ''}{c.key}
+        {AGENT_SCOPES[c.scope] ? `${t(AGENT_SCOPES[c.scope])} ` : ''}{c.key}
       </span>
-      <span style={name}>{money(c.usedUsd)} of {money(c.capUsd)}</span>
-      {c.capUsd === 0 && <span style={hint}>no spend</span>}
+      <span style={name}>{t('ui6SetBudget.used_of', { used: money(c.usedUsd), cap: money(c.capUsd) })}</span>
+      {c.capUsd === 0 && <span style={hint}>{t('ui6SetBudget.no_spend')}</span>}
       <button type="button" className="btn btn-ghost btn-sm" disabled={busy}
-        aria-label={`Remove the cap for ${c.key || c.scope}`} title="Remove this cap" onClick={() => onClear(c)}>
+        aria-label={t('ui6SetBudget.remove_cap_for', { name: c.key || c.scope })} title={t('ui6SetBudget.remove_cap')} onClick={() => onClear(c)}>
         <X size={12} />
       </button>
     </div>
@@ -105,7 +108,7 @@ export default function AiTaskBudgetsSection() {
   if (!doc) {
     return (
       <div style={card} data-testid="aitask-budgets">
-        {loadErr ? <div style={errText} role="alert">{loadErr}</div> : <div style={hint}>Loading…</div>}
+        {loadErr ? <div style={errText} role="alert">{loadErr}</div> : <div style={hint}>{t('ui6Set.loading')}</div>}
       </div>
     )
   }
@@ -115,30 +118,27 @@ export default function AiTaskBudgetsSection() {
 
   return (
     <div style={card} data-testid="aitask-budgets">
-      <div style={label}>AI task budgets</div>
+      <div style={label}>{t('ui6SetBudget.title')}</div>
       <div style={hint}>
-        Spend caps for tasks handed to the coder. A task runs under the lowest cap that applies to it and never above
-        the coder budget{doc.operatorUsd > 0 ? ` (${money(doc.operatorUsd)} per message)` : ' (not set)'}. A cap of 0 means no
-        spend, never unlimited, and with no cap at all a task does not run. Tasks and the agents they start count
-        against the same caps. Only you raise a cap; an agent can only lower its own.
+        {t('ui6SetBudget.about', { budget: doc.operatorUsd > 0 ? t('ui6SetBudget.per_message', { amount: money(doc.operatorUsd) }) : t('ui6SetBudget.budget_unset') })}
       </div>
       {err && <div style={errText} role="alert">{err}</div>}
 
-      <div style={{ ...label, marginTop: 6 }}>All tasks</div>
+      <div style={{ ...label, marginTop: 6 }}>{t('ui6SetBudget.all_tasks')}</div>
       <div data-cap="global:" style={{ ...name, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        {global ? <span>{money(global.usedUsd)} of {money(global.capUsd)}</span> : <span style={hint}>No global cap.</span>}
-        {global && <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => clear(global)}>Remove</button>}
+        {global ? <span>{t('ui6SetBudget.used_of', { used: money(global.usedUsd), cap: money(global.capUsd) })}</span> : <span style={hint}>{t('ui6SetBudget.no_global')}</span>}
+        {global && <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => clear(global)}>{t('ui6SetJev.remove')}</button>}
       </div>
-      <CapForm scope="global" busy={busy} onSave={save} button="Set cap" visibleLabel="Cap for all tasks (USD)" />
+      <CapForm scope="global" busy={busy} onSave={save} button={t('ui6SetBudget.set_cap')} visibleLabel={t('ui6SetBudget.cap_all')} />
 
-      <div style={{ ...label, marginTop: 6 }}>Per kind of task</div>
+      <div style={{ ...label, marginTop: 6 }}>{t('ui6SetBudget.per_kind')}</div>
       <CapRows caps={ofScope('kind')} busy={busy} onClear={clear} />
-      <CapForm scope="kind" keyLabel="Kind (e.g. generic)" busy={busy} onSave={save} button="Add cap" />
+      <CapForm scope="kind" keyLabel={t('ui6SetBudget.kind_label')} busy={busy} onSave={save} button={t('ui6SetBudget.add_cap')} />
 
-      <div style={{ ...label, marginTop: 6 }}>Per agent</div>
-      <div style={hint}>A conversation is one coder chat, with the workers it starts; a role is a kind of worker.</div>
+      <div style={{ ...label, marginTop: 6 }}>{t('ui6SetBudget.per_agent')}</div>
+      <div style={hint}>{t('ui6SetBudget.per_agent_hint')}</div>
       <CapRows caps={ofScope('conversation', 'role')} busy={busy} onClear={clear} />
-      <CapForm scopes={Object.entries(AGENT_SCOPES)} keyLabel="Conversation id or role" busy={busy} onSave={save} button="Add cap" />
+      <CapForm scopes={Object.entries(AGENT_SCOPES)} keyLabel={t('ui6SetBudget.conversation_or_role')} busy={busy} onSave={save} button={t('ui6SetBudget.add_cap')} />
     </div>
   )
 }

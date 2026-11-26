@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../services/api.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Coder mode (#203) state for the chat panel: the CLI's `coder status`
 // (enabled / ready / defaults / per-runtime readiness) and the recent
@@ -33,18 +34,18 @@ export function coderReady(status) {
 
 // runtimeReadiness is one runtime's readiness in words.
 export function runtimeReadiness(rt) {
-  if (rt.ready) return 'ready'
-  if (rt.installed === false) return 'not installed'
-  if (!rt.fullAccess) return 'no full access in this monomind'
-  return 'not ready'
+  if (rt.ready) return i18nOr('ui7Chat.ready')
+  if (rt.installed === false) return i18nOr('ui7Chat.not_installed')
+  if (!rt.fullAccess) return i18nOr('ui7Chat.no_full_access')
+  return i18nOr('ui7Chat.not_ready')
 }
 
 // fidelityNote says what a runtime's tool cards leave out, or '' when it
 // reports every call with its result.
 export function fidelityNote(rt) {
   if (!rt || !rt.toolActivity || rt.toolActivity === 'full') return ''
-  if (rt.toolActivity === 'none') return `${rt.id} shows no tool calls, only its replies`
-  return `${rt.id} shows commands, not every result`
+  if (rt.toolActivity === 'none') return i18nOr('ui7Chat.no_tool_calls', { runtime: rt.id })
+  return i18nOr('ui7Chat.commands_only', { runtime: rt.id })
 }
 
 // folderName is the last path segment ("…/20260927-brisk-otter").
@@ -82,14 +83,14 @@ export function monomindNeedsFix(status) {
 // runtime is ready.
 export function missingText(status) {
   const unusable = monomindUnusable(status)
-  if (unusable) return `needs a working monomind (monomind couldn't be used: ${unusable})`
+  if (unusable) return i18nOr('ui7Chat.need_working', { error: unusable })
   const missing = status?.missingCapabilities || []
   if (missing.length) {
-    const found = status?.monomindVersion ? `found monomind ${status.monomindVersion}, ` : ''
-    return `needs monomind update (${found}missing: ${missing.join(', ')})`
+    const version = status?.monomindVersion
+    return i18nOr(version ? 'ui7Chat.need_update_found' : 'ui7Chat.need_update_missing', { version, missing: missing.join(', ') })
   }
-  if (Array.isArray(status?.runtimes)) return 'needs a coding runtime (claude, codex, opencode, …) installed'
-  return 'needs monomind update'
+  if (Array.isArray(status?.runtimes)) return i18nOr('ui7Chat.need_runtime')
+  return i18nOr('ui7Chat.need_update')
 }
 
 // useCoderStatus loads `coder status` once `active` (the panel is open and

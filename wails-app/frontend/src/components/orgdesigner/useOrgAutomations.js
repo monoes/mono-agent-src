@@ -4,6 +4,7 @@
 // through `monoagentcli` bindings; `refresh()` re-reads after a mutation.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../services/api.js'
+import i18n from '../../i18n.js'
 
 export const DAEMON_POLL_MS = 30_000
 
@@ -39,7 +40,7 @@ export default function useOrgAutomations(orgName) {
     setAutomations(arr(autos, 'automations'))
     setGrants(arr(grantRes, 'grants'))
     setAutonomy(auto && !auto.error ? auto : null)
-    const err = autos?.error || grantRes?.error || (autos == null ? 'Could not load automations.' : '')
+    const err = autos?.error || grantRes?.error || (autos == null ? i18n.t('ui6OrgsDesigner.load_automations_failed') : '')
     setError(err || '')
     setLoading(false)
     setVersion(v => v + 1)

@@ -6,6 +6,7 @@ import { CoderHeader, CoderBadge } from '../chat/CoderHeader.jsx'
 import { ChatModeChip } from '../chat/ChatModeSelector.jsx'
 import { useChatMode } from '../chat/useChatMode.js'
 import { OpenStartForm } from '../chat/OpenStartForm.jsx'
+import { FetchedAccessWarning } from '../chat/ChatWarnings.jsx'
 import { folderName } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
@@ -32,6 +33,7 @@ import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
 import { isModalOpenAbove } from './modalAbove.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 const mono = 'var(--font-mono)'
 const chip = { fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }
@@ -198,7 +200,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
     compactPending.current = false
     const summary = compactSummary(lastMsg.state)
     if (summary && startFresh()) setSeed(summary)
-    else notify('chat', 'Could not compact: no summary came back')
+    else notify('chat', i18nOr('ui7Chat.compact_empty'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv.streaming, lastMsg])
   useEffect(() => {
@@ -437,7 +439,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             <RoleChat key={openRole.conversationId} role={openRole} frontDesk={bubble.conversationId} access={access} setup={setup} runtime={runtime}
               onBack={() => setRoleId(null)} onNavigate={onNavigate} onOpenArtifact={onOpenArtifact} />
           ) : (chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
+            <>
+            <FetchedAccessWarning access={bubble.conversationId ? access : getOpenChat().spec.access} />
             <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { const failed = firstTurnFailedIn(r); setOpenStarted(true); setOpenRun({ firstTurnFailed: failed, watch: !failed }) }} />
+            </>
           ) : (
           <CoderChatView
             conv={conv}

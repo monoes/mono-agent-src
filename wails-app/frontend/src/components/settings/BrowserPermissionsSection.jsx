@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ShieldAlert, X } from 'lucide-react'
 import { api } from '../../services/api.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Agent browser permissions (plan C8): what AI agents may do in the
 // browsers that have the MonoAgent Bridge extension, as a level per agent
@@ -26,9 +28,10 @@ const tag = (color) => ({ fontFamily: mono, fontSize: 9, color, border: `1px sol
 // The riskiest level: any site, and form submits go through unasked.
 export const RISKIEST_LEVEL = 'full-no-approvals'
 
-const errMsg = (e) => String(e?.message || e || 'unknown error')
+const errMsg = (e) => String(e?.message || e || i18nOr('ui6SetCoder.unknown_error'))
 
 export default function BrowserPermissionsSection() {
+  const { t } = useTranslation()
   const [perm, setPerm] = useState(null)
   const [loadErr, setLoadErr] = useState('')
   const [err, setErr] = useState('')
@@ -57,7 +60,7 @@ export default function BrowserPermissionsSection() {
   if (!perm) {
     return (
       <div style={card} data-testid="browser-permissions">
-        {loadErr ? <div style={errText} role="alert">{loadErr}</div> : <div style={hint}>Loading…</div>}
+        {loadErr ? <div style={errText} role="alert">{loadErr}</div> : <div style={hint}>{t('ui6Set.loading')}</div>}
       </div>
     )
   }
@@ -68,16 +71,12 @@ export default function BrowserPermissionsSection() {
 
   return (
     <div style={card} data-testid="browser-permissions">
-      <div style={label}>Agent browser permissions</div>
+      <div style={label}>{t('ui6SetBrowser.perm_title')}</div>
       <div style={hint}>
-        What AI agents may do in your browsers through the MonoAgent Bridge, for this whole computer. Local and dev
-        pages (localhost, *.test, …) are always allowed unless a kind is Off. You, in a terminal, are never restricted.
+        {t('ui6SetBrowser.perm_about')}
       </div>
       <div style={hint} data-testid="kind-token-note">
-        MonoAgent tells coder chats and org roles apart by a token it gives the agents it starts. An agent that reads
-        another process&apos;s environment could borrow that kind. Org roles that run in a sandbox (the default on
-        Linux) can&apos;t show their token, so they get the stricter of the Org roles and Other agents levels. Lowering
-        Org roles always applies; raising it above Other agents may not.
+        {t('ui6SetBrowser.perm_token')}
       </div>
       {err && <div style={errText} role="alert">{err}</div>}
 
@@ -88,18 +87,18 @@ export default function BrowserPermissionsSection() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={name}>
                 {k.label}
-                {k.isDefault && <span style={tag('var(--text-muted)')}>default</span>}
+                {k.isDefault && <span style={tag('var(--text-muted)')}>{t('ui6SetBrowser.default_tag')}</span>}
               </div>
               <div style={hint}>{level ? level.description : k.level}</div>
               {k.level === RISKIEST_LEVEL && (
                 <div style={riskText} data-testid="permission-risk">
                   <ShieldAlert size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>The riskiest level: these agents act as you on any site, nothing asks you first, and a page these agents visit can steer them.</span>
+                  <span>{t('ui6SetBrowser.perm_risk')}</span>
                 </div>
               )}
             </div>
             <select
-              aria-label={`Browser permission for ${k.label}`}
+              aria-label={t('ui6SetBrowser.perm_for', { kind: k.label })}
               value={k.level}
               disabled={!!busy}
               onChange={e => run(`kind:${k.kind}`, () => api.setBrowserPermission(k.kind, e.target.value))}
@@ -114,33 +113,31 @@ export default function BrowserPermissionsSection() {
         )
       })}
 
-      <div style={{ ...label, marginTop: 6 }}>Site rules</div>
+      <div style={{ ...label, marginTop: 6 }}>{t('ui6SetBrowser.site_rules')}</div>
       <div style={hint} data-testid="site-rules-note">
-        Block keeps every agent off a site and all its subdomains, on any scheme and port, whatever its level. Allow
-        is exact (that scheme, host and port; write *.host for its subdomains) and opens the site to agents at{' '}
-        {levelOf('dev')?.label || 'dev'} or {levelOf('ask')?.label || 'ask'}.
+        {t('ui6SetBrowser.site_rules_note', { dev: levelOf('dev')?.label || 'dev', ask: levelOf('ask')?.label || 'ask' })}
       </div>
-      {sites.length === 0 && <div style={hint}>No site rules yet.</div>}
+      {sites.length === 0 && <div style={hint}>{t('ui6SetBrowser.no_rules')}</div>}
       {sites.map(s => (
         <div key={s.origin} data-origin={s.origin} style={row}>
           <span style={{ ...name, fontFamily: mono, fontSize: 11.5, flex: 1, minWidth: 0, wordBreak: 'break-all' }}>{s.origin}</span>
-          <span style={tag(s.rule === 'block' ? 'var(--red)' : 'var(--green-neon)')}>{s.rule === 'block' ? 'Block' : 'Allow'}</span>
+          <span style={tag(s.rule === 'block' ? 'var(--red)' : 'var(--green-neon)')}>{s.rule === 'block' ? t('ui6SetBrowser.block') : t('ui6SetBrowser.allow')}</span>
           <button type="button" className="btn btn-ghost btn-sm" disabled={!!busy}
-            aria-label={`Remove the rule for ${s.origin}`} title="Remove this rule"
+            aria-label={t('ui6SetBrowser.remove_rule_for', { origin: s.origin })} title={t('ui6SetBrowser.remove_rule')}
             onClick={() => run('site', () => api.setBrowserSiteRule(s.origin, 'clear'))}>
             <X size={12} />
           </button>
         </div>
       ))}
       <form onSubmit={addRule} style={{ ...row, flexWrap: 'wrap' }}>
-        <input className="form-input" aria-label="Site" placeholder="https://example.com" spellCheck={false}
+        <input className="form-input" aria-label={t('ui6SetBrowser.site')} placeholder="https://example.com" spellCheck={false}
           value={origin} onChange={e => setOrigin(e.target.value)} disabled={!!busy}
           style={{ flex: 1, minWidth: 180, fontFamily: mono, fontSize: 12 }} />
-        <select aria-label="Rule for the site" value={rule} onChange={e => setRule(e.target.value)} disabled={!!busy} style={{ minWidth: 90 }}>
-          <option value="allow">Allow</option>
-          <option value="block">Block</option>
+        <select aria-label={t('ui6SetBrowser.site_rule')} value={rule} onChange={e => setRule(e.target.value)} disabled={!!busy} style={{ minWidth: 90 }}>
+          <option value="allow">{t('ui6SetBrowser.allow')}</option>
+          <option value="block">{t('ui6SetBrowser.block')}</option>
         </select>
-        <button type="submit" className="btn btn-primary btn-sm" disabled={!!busy || !origin.trim()}>Add rule</button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={!!busy || !origin.trim()}>{t('ui6SetBrowser.add_rule')}</button>
       </form>
     </div>
   )

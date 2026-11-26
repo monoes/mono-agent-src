@@ -3,6 +3,7 @@ import { ChevronRight, ChevronDown, ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { mono, label, hint, errText, input, formatUSD, Switch, EgressList, hostOf, isThisComputer, defaultTarget,
   surfacePinned, missingKinds, capabilityError, sampledCeiling } from './jevShared.jsx'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Where a surface's data goes: its own provider, else the default. typesafe
 // (or a CLI too old to say) keeps today's wording.
@@ -145,15 +146,15 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
         </div>
         {s.enabled && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <label htmlFor={thrId} style={{ ...label, letterSpacing: 0.5 }}>Threshold</label>
+            <label htmlFor={thrId} style={{ ...label, letterSpacing: 0.5 }}>{t('ui6SetJev.threshold')}</label>
             <ThresholdInput id={thrId} value={thr} disabled={busy} onChange={setThr} />
             {changed && (
-              <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => onThreshold(s.surface, Number(thr))}>Apply</button>
+              <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => onThreshold(s.surface, Number(thr))}>{t('ui6SetJev.apply')}</button>
             )}
           </div>
         )}
         <Switch
-          on={s.enabled || pending} disabled={busy} label={`${title}: ${s.enabled ? 'on' : 'off'}`}
+          on={s.enabled || pending} disabled={busy} label={t(s.enabled ? 'ui6SetJev.switch_on' : 'ui6SetJev.switch_off', { title })}
           onChange={on => (on ? onStartEnable(s.surface) : (pending ? onCancelEnable() : onDisable(s.surface)))}
         />
       </div>
@@ -175,17 +176,17 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
           padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: mono, fontSize: 11, color: 'var(--yellow)' }}>
-            <ShieldAlert size={13} /> {target.typesafe ? 'Turning this on sends the following to TypeSafe:' : t('settings.jev.providers.sendsTo', { host: target.host })}
+            <ShieldAlert size={13} /> {target.typesafe ? t('ui6SetJev.sends_typesafe') : t('settings.jev.providers.sendsTo', { host: target.host })}
           </div>
           <EgressList items={s.egress} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <label htmlFor={thrId} style={{ ...label, letterSpacing: 0.5 }}>Threshold</label>
+            <label htmlFor={thrId} style={{ ...label, letterSpacing: 0.5 }}>{t('ui6SetJev.threshold')}</label>
             <ThresholdInput id={thrId} value={thr} disabled={busy} onChange={setThr} />
-            <span style={{ ...hint, flex: 1, minWidth: 140 }}>Jev only acts when its top answer is at least this likely.</span>
-            <button className="btn btn-secondary btn-sm" disabled={busy} onClick={onCancelEnable}>Cancel</button>
+            <span style={{ ...hint, flex: 1, minWidth: 140 }}>{t('ui6SetJev.threshold_hint')}</span>
+            <button className="btn btn-secondary btn-sm" disabled={busy} onClick={onCancelEnable}>{t('ui6Set.cancel')}</button>
             <button className="btn btn-primary btn-sm" disabled={busy || !validThreshold(thr, s.default_threshold)}
               onClick={() => onConfirmEnable(s.surface, Number(thr))}>
-              Send this and enable
+              {i18nOr('ui6SetJev.send_enable')}
             </button>
           </div>
         </div>
@@ -195,7 +196,7 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
             type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: mono, fontSize: 10, color: 'var(--cyan-dim)' }}
           >
-            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {target.typesafe ? 'What is sent to TypeSafe' : t('settings.jev.providers.whatIsSentTo', { host: target.host })}
+            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {target.typesafe ? t('ui6SetJev.what_typesafe') : t('settings.jev.providers.whatIsSentTo', { host: target.host })}
           </button>
           {open && <div style={{ marginTop: 6 }}><EgressList items={s.egress} /></div>}
         </div>
@@ -207,7 +208,7 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
 function UsageTable({ usage, titles }) {
   const { t } = useTranslation()
   const rows = usage?.surfaces || []
-  if (!rows.length) return <div style={hint}>No Jev calls in the last 7 days.</div>
+  if (!rows.length) return <div style={hint}>{t('ui6SetJev.no_calls')}</div>
   // A CLI that reports providers may list a surface once per provider.
   const withProvider = rows.some(u => u.provider)
   const th = { ...label, fontSize: 9, textAlign: 'right', padding: '0 0 6px 12px', fontWeight: 400 }
@@ -215,10 +216,10 @@ function UsageTable({ usage, titles }) {
   const row = (u, total) => (
     <tr key={total ? 'total' : `${u.surface}:${u.provider || ''}`} style={total ? { borderTop: '1px solid var(--border)' } : undefined}>
       <td style={{ ...td, textAlign: 'left', paddingLeft: 0, color: total ? 'var(--text)' : 'var(--text-secondary)', whiteSpace: 'normal' }}>
-        {total ? 'Total' : (titles[u.surface] || u.surface)}
+        {total ? t('ui6SetJev.total') : (titles[u.surface] || u.surface)}
       </td>
       {withProvider && <td style={{ ...td, textAlign: 'left' }}>{total ? '' : (u.provider || '')}</td>}
-      <td style={td}>{u.calls}{u.failures ? <span style={{ color: 'var(--red)' }}> ({u.failures} failed)</span> : null}</td>
+      <td style={td}>{u.calls}{u.failures ? <span style={{ color: 'var(--red)' }}> {t('ui6SetJev.failed', { count: u.failures })}</span> : null}</td>
       <td style={td}>{(u.input_tokens || 0).toLocaleString()}</td>
       <td style={td}>{formatUSD(u.estimated_usd)}</td>
     </tr>
@@ -228,11 +229,11 @@ function UsageTable({ usage, titles }) {
       <table style={{ width: '100%', maxWidth: 640, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={{ ...th, textAlign: 'left', paddingLeft: 0 }}>Feature</th>
+            <th style={{ ...th, textAlign: 'left', paddingLeft: 0 }}>{t('ui6SetJev.feature')}</th>
             {withProvider && <th style={{ ...th, textAlign: 'left' }}>{t('settings.jev.providers.usageProvider')}</th>}
-            <th style={th}>Calls</th>
-            <th style={th}>Input tokens</th>
-            <th style={th}>Est. cost</th>
+            <th style={th}>{t('ui6SetJev.calls')}</th>
+            <th style={th}>{t('ui6SetJev.input_tokens')}</th>
+            <th style={th}>{t('ui6SetJev.est_cost')}</th>
           </tr>
         </thead>
         <tbody>
@@ -263,11 +264,11 @@ export default function JevFeaturesBlock({ part, status, usage, usageErr, busy, 
     <>
       {part === 'profile' && <div style={hint}>{defaultHost.typesafe ? t('settings.jev.consent') : t('settings.jev.providers.consentHost', { host: defaultHost.host })}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <span style={label}>Features</span>
+        <span style={label}>{i18nOr('ui6SetJev.features')}</span>
         {!hasKey && needsTypeSafeKey && (
-          <div style={{ ...hint, color: 'var(--yellow)' }}>Enabled features stay inactive until a key is set.</div>
+          <div style={{ ...hint, color: 'var(--yellow)' }}>{i18nOr('ui6SetJev.inactive')}</div>
         )}
-        {surfaces.length === 0 && <div style={hint}>This version of monoagentcli reports no Jev features.</div>}
+        {surfaces.length === 0 && <div style={hint}>{t('ui6SetJev.no_features')}</div>}
         {surfaces.map(s => (
           <SurfaceRow
             key={s.surface} s={s} busy={disabled} pending={pending === s.surface}
@@ -283,8 +284,8 @@ export default function JevFeaturesBlock({ part, status, usage, usageErr, busy, 
 
       {/* Usage */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-dim)', paddingTop: 12 }}>
-        <span style={label}>Usage · last 7 days</span>
-        {usageErr ? <div style={errText}>Couldn't read usage: {usageErr}</div> : <UsageTable usage={usage} titles={titles} />}
+        <span style={label}>{t('ui6SetJev.usage')}</span>
+        {usageErr ? <div style={errText}>{t('ui6SetJev.usage_failed', { error: usageErr })}</div> : <UsageTable usage={usage} titles={titles} />}
       </div>
     </>
   )

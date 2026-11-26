@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Heart, MessageCircle, ExternalLink } from 'lucide-react'
 import { api } from '../services/api.js'
+import i18nOr from '../lib/i18nOr.js'
 
 export default function PostDetail({ id, onBack, onOpenURL }) {
+  useTranslation() // render again on a language change
   const [post, setPost]         = useState(null)
   const [comments, setComments] = useState([])
   const [loading, setLoading]   = useState(true)
@@ -44,11 +47,11 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
     return (
       <div className="page-body">
         <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ gap: 5, marginBottom: 16 }}>
-          <ArrowLeft size={13} /> Back
+          <ArrowLeft size={13} /> {i18nOr('ui6PagesMsgs.back')}
         </button>
         <div className="empty-state" role={loadError ? 'alert' : undefined}>
-          {loadError ? `Could not load the post: ${loadError}` : 'Post not found.'}
-          {loadError && <button className="btn btn-ghost btn-sm" onClick={() => setAttempt(n => n + 1)} style={{ marginLeft: 8 }}>Retry</button>}
+          {loadError ? i18nOr('ui6PagesMsgs.post_failed', { error: loadError }) : i18nOr('ui6PagesMsgs.post_missing')}
+          {loadError && <button className="btn btn-ghost btn-sm" onClick={() => setAttempt(n => n + 1)} style={{ marginLeft: 8 }}>{i18nOr('ui6PagesMsgs.retry')}</button>}
         </div>
       </div>
     )
@@ -59,7 +62,7 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
       <div className="page-header">
         <div className="page-header-left" style={{ gap: 10 }}>
           <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ gap: 5 }}>
-            <ArrowLeft size={13} /> Back
+            <ArrowLeft size={13} /> {i18nOr('ui6PagesMsgs.back')}
           </button>
           <div className="page-title" style={{ fontFamily: 'var(--font-mono)', fontSize: 16 }}>
             {post.shortcode}
@@ -71,7 +74,7 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
             onClick={() => onOpenURL(post.url)}
             style={{ gap: 5 }}
           >
-            <ExternalLink size={12} /> Open Post
+            <ExternalLink size={12} /> {i18nOr('ui6PagesMsgs.open_post')}
           </button>
         </div>
       </div>
@@ -90,14 +93,14 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
             fontFamily: 'var(--font-mono)', fontSize: 12,
             color: 'var(--text-muted)',
           }}>
-            <Heart size={12} /> {post.like_count ?? '—'} likes
+            <Heart size={12} /> {i18nOr('ui6PagesMsgs.likes', { n: post.like_count ?? '—' })}
           </span>
           <span style={{
             display: 'flex', alignItems: 'center', gap: 4,
             fontFamily: 'var(--font-mono)', fontSize: 12,
             color: 'var(--text-muted)',
           }}>
-            <MessageCircle size={12} /> {post.comment_count ?? '—'} comments
+            <MessageCircle size={12} /> {i18nOr('ui6PagesMsgs.comments_n', { n: post.comment_count ?? '—' })}
           </span>
           {post.scraped_at && (
             <span style={{
@@ -105,7 +108,7 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
               color: 'var(--text-dim)',
               marginLeft: 'auto',
             }}>
-              scraped {post.scraped_at.slice(0, 10)}
+              {i18nOr('ui6PagesMsgs.scraped', { date: post.scraped_at.slice(0, 10) })}
             </span>
           )}
         </div>
@@ -126,7 +129,7 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
 
         {/* Comments section */}
         <div className="profile-section-title" style={{ marginBottom: 12 }}>
-          Comments
+          {i18nOr('ui6PagesMsgs.comments')}
           <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
             {comments.length}
           </span>
@@ -137,7 +140,7 @@ export default function PostDetail({ id, onBack, onOpenURL }) {
             padding: '24px 0', textAlign: 'center',
             color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12,
           }}>
-            No comments scraped yet — run list_post_comments to populate
+            {i18nOr('ui6PagesMsgs.no_comments')}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>

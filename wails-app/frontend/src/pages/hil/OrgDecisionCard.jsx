@@ -1,8 +1,16 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import t from '../../lib/i18nOr.js'
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, MessageCircleQuestion, ShieldAlert, KeyRound } from 'lucide-react'
+import { ApprovalCall } from '../../components/ApprovalCommand.jsx'
+import { NoRequestID } from '../../components/NoRequestID.jsx'
+
+// The kinds `org pending` reports; only the displayed word is translated.
+const KIND_KEYS = { question: 'ui7Hil.kind_question', approval: 'ui7Hil.kind_approval', gate: 'ui7Hil.kind_gate' }
 
 // ── 4. Org Decision / Question / Gate Card ────────────────────
 export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDenyAction, onApproveGate, onRejectGate }) {
+  useTranslation() // renders again on a language change
   const [expanded, setExpanded] = useState(true)
   const [answerText, setAnswerText] = useState('')
   const [loading, setLoading] = useState(null)
@@ -21,7 +29,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
     setLoading('approve')
     try {
       if (item.kind === 'approval') {
-        await onApproveAction(item.orgName, item.role, item.action)
+        await onApproveAction(item)
       } else if (item.kind === 'gate') {
         await onApproveGate(item.orgName, item.id)
       }
@@ -34,7 +42,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
     setLoading('reject')
     try {
       if (item.kind === 'approval') {
-        await onDenyAction(item.orgName, item.role, item.action)
+        await onDenyAction(item)
       } else if (item.kind === 'gate') {
         await onRejectGate(item.orgName, item.id)
       }
@@ -43,10 +51,15 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
     }
   }
 
+  // Only a request with an id can be resolved on its own.
+  const noRequestID = item.kind === 'approval' && !item.request_id
+
   const KindIcon = item.kind === 'question' ? MessageCircleQuestion : item.kind === 'gate' ? ShieldAlert : KeyRound
 
+  const kind = Object.hasOwn(KIND_KEYS, item.kind) ? t(KIND_KEYS[item.kind]) : item.kind
+
   return (
-    <div style={{
+    <div data-testid="org-decision" style={{
       background: 'linear-gradient(160deg,#181024 0%,#100a1c 100%)',
       border: '1.5px solid rgba(139,92,246,0.25)',
       borderRadius: 10,
@@ -71,21 +84,21 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
               fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700,
               background: 'rgba(139,92,246,0.2)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)',
             }}>
-              ORG: {item.orgName}
+              {t('ui7Hil.org_label', { name: item.orgName })}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
-              {item.title || item.action || item.name || `${item.kind} for ${item.role}`}
+              {item.title || item.action || item.name || t('ui7Hil.kind_for_role', { kind, role: item.role })}
             </span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-            Role: {item.role || 'operator'} {item.since ? `· waiting ${item.since}` : ''}
+            {t('ui7Hil.role', { role: item.role || t('ui7Hil.operator') })} {item.since ? t('ui7Hil.waiting_since', { since: item.since }) : ''}
           </div>
         </div>
         <span style={{
           padding: '2px 8px', borderRadius: 10,
           background: 'rgba(139,92,246,0.15)', color: '#a78bfa',
           fontSize: 11, fontFamily: 'var(--font-mono)', flexShrink: 0,
-        }}>{item.kind}</span>
+        }}>{kind}</span>
         {expanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
       </div>
 
@@ -96,8 +109,14 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
             border: '1px solid rgba(255,255,255,0.07)', fontSize: 13, color: 'var(--text-secondary)',
             marginBottom: 16, lineHeight: 1.5,
           }}>
-            {item.text || item.summary || item.question || item.description}
+            {item.text || item.name}
           </div>
+
+          {item.kind === 'approval' && (
+            <div style={{ marginBottom: 16 }}>
+              <ApprovalCall command={item.command} truncated={item.command_truncated} cwd={item.cwd} input={item.input} />
+            </div>
+          )}
 
           {item.kind === 'question' ? (
             <div style={{ display: 'flex', gap: 8 }}>
@@ -106,7 +125,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
                 value={answerText}
                 onChange={e => setAnswerText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && answerText.trim()) handleAnswer() }}
-                placeholder="Type your answer…"
+                placeholder={t('ui7Hil.answer_placeholder')}
                 style={{
                   flex: 1, padding: '7px 10px',
                   background: 'rgba(139,92,246,0.05)', border: '1px solid rgba(139,92,246,0.25)',
@@ -121,9 +140,11 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
                   borderRadius: 6, color: '#a78bfa', fontWeight: 600, fontSize: 12, cursor: !answerText.trim() ? 'not-allowed' : 'pointer',
                 }}
               >
-                {loading === 'answer' ? 'Answering…' : 'Submit Answer'}
+                {t(loading === 'answer' ? 'ui7Hil.answering' : 'ui7Hil.submit_answer')}
               </button>
             </div>
+          ) : noRequestID ? (
+            <NoRequestID org={item.orgName} role={item.role} action={item.action} />
           ) : (
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <button
@@ -140,7 +161,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
                 }}
               >
                 <XCircle size={13} />
-                {loading === 'reject' ? 'Denying…' : (item.kind === 'gate' ? 'Reject Gate' : 'Deny')}
+                {t(loading === 'reject' ? 'ui7Hil.denying' : (item.kind === 'gate' ? 'ui7Hil.reject_gate' : 'ui7Hil.deny'))}
               </button>
               <button
                 onClick={handleApprove}
@@ -156,7 +177,7 @@ export function OrgDecisionCard({ item, onAnswerQuestion, onApproveAction, onDen
                 }}
               >
                 <CheckCircle size={13} />
-                {loading === 'approve' ? 'Approving…' : (item.kind === 'gate' ? 'Approve Gate' : 'Approve')}
+                {t(loading === 'approve' ? 'ui7Hil.approving' : (item.kind === 'gate' ? 'ui7Hil.approve_gate' : 'ui7Hil.approve'))}
               </button>
             </div>
           )}

@@ -4,6 +4,7 @@
 // per-tenant connect fields (subdomain, region, environment URL). The CLI
 // checks them; this only renders the form and builds `connect oauth`'s
 // arguments from it.
+import { useTranslation } from 'react-i18next'
 import { HelpCircle } from 'lucide-react'
 import { api } from '../../services/api.js'
 
@@ -40,6 +41,7 @@ const inputStyle = { width: '100%', fontFamily: 'var(--font-mono)', fontSize: 11
 const labelStyle = { display: 'block', fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }
 
 export default function OAuthFields({ title, fields, values, onChange, disabled }) {
+  const { t } = useTranslation()
   if (!fields.length) return null
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -58,7 +60,7 @@ export default function OAuthFields({ title, fields, values, onChange, disabled 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
               {f.help_text}
               {f.help_url && (
-                <button type="button" onClick={() => api.openURL(f.help_url)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)', padding: 0, display: 'inline-flex' }} aria-label={`Help for ${f.label || f.key}`}>
+                <button type="button" onClick={() => api.openURL(f.help_url)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)', padding: 0, display: 'inline-flex' }} aria-label={t('ui6Conn.help_for', { label: f.label || f.key })}>
                   <HelpCircle size={10} />
                 </button>
               )}

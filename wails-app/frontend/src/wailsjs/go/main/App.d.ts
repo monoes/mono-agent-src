@@ -101,7 +101,7 @@ export function ApplyToApplication(arg1:string,arg2:Record<string, any>,arg3:Rec
 
 export function ApproveHIL(arg1:string,arg2:string):Promise<void>;
 
-export function ApproveOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
+export function ApproveOrgAction(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function ApprovePendingPerson(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
@@ -119,6 +119,8 @@ export function CancelPlatformOAuth(arg1:string):Promise<string>;
 export function CancelAITask(arg1:string):Promise<main.AITask>;
 
 export function CancelWorkflow(arg1:string):Promise<void>;
+
+export function ChatSpendCap(arg1:string):Promise<string>;
 
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
@@ -222,7 +224,7 @@ export function DeleteVaultImage(arg1:string):Promise<void>;
 
 export function DeleteWorkflow(arg1:string):Promise<void>;
 
-export function DenyOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
+export function DenyOrgAction(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function DisableAutomation(arg1:string):Promise<string>;
 
@@ -453,6 +455,8 @@ export function HILAttachment(arg1:string,arg2:number):Promise<string>;
 
 export function HILList():Promise<string>;
 
+export function HILPendingAll():Promise<string>;
+
 export function HILResolve(arg1:string,arg2:boolean,arg3:string,arg4:string):Promise<string>;
 
 export function HasGeneratedDocuments(arg1:string):Promise<boolean>;
@@ -576,6 +580,8 @@ export function ListOrgDecisionLog(arg1:string,arg2:string):Promise<string>;
 export function ListOrgDesigns():Promise<string>;
 
 export function ListOrgGrants(arg1:string):Promise<string>;
+
+export function ListOrgPending():Promise<string>;
 
 export function ListOrgQueuedMessages(arg1:string):Promise<string>;
 

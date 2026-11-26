@@ -189,6 +189,76 @@ func (d *Database) syncMessageToKG(msg *PersonMessage, profileID string) {
 
 }
 
+// The listing queries of person_messages. A message belongs to its person's
+// profile; migration 172 keeps the message's own profile_id equal to it. The
+// listings filter on both, so a row that ever disagreed (an older binary, a
+// hand edit) shows in no profile rather than in the wrong one. CROSS JOIN
+// keeps person_messages the outer table, so its indexes serve the filter and
+// the order.
+
+const messageListColumns = `pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
+		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
+		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at`
+
+// messageInstantOrder is the newest-first order of the listings.
+// idx_person_messages_profile_instant (migration 172) indexes this expression.
+func messageInstantOrder() string {
+	return "COALESCE(" + sentAtInstant("pm.sent_at") + ", " + sentAtInstant("pm.created_at") + ") DESC"
+}
+
+// personMessagesQuery lists one person's messages. The unary + keeps SQLite
+// off the profile indexes: a person's rows are found by person.
+func personMessagesQuery(personID, source, profileID string, limit, offset int) (string, []any) {
+	query := `
+		SELECT ` + messageListColumns + `, pm.read_at, COALESCE(pm.hil_ref,'')
+		FROM person_messages pm
+		CROSS JOIN people p ON p.id = pm.person_id
+		WHERE pm.person_id = ? AND +pm.profile_id = ? AND p.profile_id = pm.profile_id`
+	args := []any{personID, profileID}
+	if source != "" {
+		query += " AND pm.source = ?"
+		args = append(args, source)
+	}
+	query += " ORDER BY " + messageInstantOrder() + " LIMIT ? OFFSET ?"
+	return query, append(args, limit, offset)
+}
+
+// messagesByStatusQuery lists a profile's messages in one status.
+func messagesByStatusQuery(profileID, status string) (string, []any) {
+	return `
+		SELECT ` + messageListColumns + `,
+		       COALESCE(p.full_name,''), p.platform_username, p.platform, pm.read_at, COALESCE(pm.hil_ref,'')
+		FROM person_messages pm
+		CROSS JOIN people p ON p.id = pm.person_id
+		WHERE pm.profile_id = ? AND p.profile_id = pm.profile_id AND pm.status = ?
+		ORDER BY pm.created_at DESC`, []any{profileID, status}
+}
+
+// allMessagesQuery lists a profile's messages, optionally by source, status
+// or unread.
+func allMessagesQuery(profileID, source, status string, unreadOnly bool, limit, offset int) (string, []any) {
+	query := `
+		SELECT ` + messageListColumns + `,
+		       COALESCE(p.full_name,''), p.platform_username, p.platform, pm.read_at, COALESCE(pm.hil_ref,'')
+		FROM person_messages pm
+		CROSS JOIN people p ON p.id = pm.person_id
+		WHERE pm.profile_id = ? AND p.profile_id = pm.profile_id`
+	args := []any{profileID}
+	if source != "" {
+		query += " AND pm.source = ?"
+		args = append(args, source)
+	}
+	if status != "" {
+		query += " AND pm.status = ?"
+		args = append(args, status)
+	}
+	if unreadOnly {
+		query += " AND pm.direction = 'inbound' AND pm.read_at IS NULL"
+	}
+	query += " ORDER BY " + messageInstantOrder() + " LIMIT ? OFFSET ?"
+	return query, append(args, limit, offset)
+}
+
 // ListPersonMessages returns messages for a person within the given profile,
 // optionally filtered by source, newest first. Pass an empty source to skip
 // that filter.
@@ -204,21 +274,7 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 		offset = 0
 	}
 
-	query := `
-		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
-		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
-		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at, pm.read_at, COALESCE(pm.hil_ref,'')
-		FROM person_messages pm
-		JOIN people p ON p.id = pm.person_id
-		WHERE pm.person_id = ? AND p.profile_id = ?`
-	args := []interface{}{personID, profileID}
-
-	if source != "" {
-		query += " AND pm.source = ?"
-		args = append(args, source)
-	}
-	query += " ORDER BY COALESCE(" + sentAtInstant("pm.sent_at") + ", " + sentAtInstant("pm.created_at") + ") DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	query, args := personMessagesQuery(personID, source, profileID, limit, offset)
 
 	rows, err := d.DB.Query(query, args...)
 	if err != nil {
@@ -316,16 +372,8 @@ func (d *Database) ListPersonMessagesByStatus(profileID, status string) ([]*Pers
 		return nil, err
 	}
 	d.scrubHeldSends(profileID)
-	rows, err := d.DB.Query(`
-		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
-		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
-		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at,
-		       COALESCE(p.full_name,''), p.platform_username, p.platform, pm.read_at, COALESCE(pm.hil_ref,'')
-		FROM person_messages pm
-		JOIN people p ON p.id = pm.person_id
-		WHERE p.profile_id = ? AND pm.status = ?
-		ORDER BY pm.created_at DESC`, profileID, status,
-	)
+	query, args := messagesByStatusQuery(profileID, status)
+	rows, err := d.DB.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing person messages by status %q: %w", status, err)
 	}
@@ -388,29 +436,7 @@ func (d *Database) ListAllPersonMessagesByStatus(profileID, source, status strin
 		offset = 0
 	}
 
-	query := `
-		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
-		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
-		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at,
-		       COALESCE(p.full_name,''), p.platform_username, p.platform, pm.read_at, COALESCE(pm.hil_ref,'')
-		FROM person_messages pm
-		JOIN people p ON p.id = pm.person_id
-		WHERE p.profile_id = ?`
-	args := []interface{}{profileID}
-
-	if source != "" {
-		query += " AND pm.source = ?"
-		args = append(args, source)
-	}
-	if status != "" {
-		query += " AND pm.status = ?"
-		args = append(args, status)
-	}
-	if unreadOnly {
-		query += " AND pm.direction = 'inbound' AND pm.read_at IS NULL"
-	}
-	query += " ORDER BY COALESCE(" + sentAtInstant("pm.sent_at") + ", " + sentAtInstant("pm.created_at") + ") DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	query, args := allMessagesQuery(profileID, source, status, unreadOnly, limit, offset)
 
 	rows, err := d.DB.Query(query, args...)
 	if err != nil {

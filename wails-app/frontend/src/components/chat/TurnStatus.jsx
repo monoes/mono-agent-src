@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Loader, Square } from 'lucide-react'
 import { failureHint, cleanReason } from '../../lib/turnFailure.js'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../lib/i18nOr.js'
 
 // Idle-activity threshold (plan §"Honest progress"): "After 15 seconds
 // without activity, show 'No new activity for 15s'; silence is not proof
 // of a hang."
 const IDLE_WARNING_MS = 15000
 
-const TERMINAL_LABELS = {
-  completed: 'Completed',
-  failed: 'Failed',
-  cancelled: 'Stopped',
-  interrupted: 'Interrupted',
+const TERMINAL_KEYS = {
+  completed: 'ui7Chat.turn_completed',
+  failed: 'ui7Chat.turn_failed',
+  cancelled: 'ui7Chat.turn_stopped',
+  interrupted: 'ui7Chat.turn_interrupted',
 }
 
 // computeStatusLabel derives one of the plan's exact honest-progress
@@ -37,9 +39,9 @@ const TERMINAL_LABELS = {
 export function computeStatusLabel(state, now) {
   const { terminal, stopRequested, startedAt, lastEventAt, parts, calls, ownedByThisInstance, streamsIncrementally = true } = state
   if (terminal) {
-    let label = TERMINAL_LABELS[terminal.status] || terminal.status
+    let label = Object.hasOwn(TERMINAL_KEYS, terminal.status) ? i18nOr(TERMINAL_KEYS[terminal.status]) : terminal.status
     if (terminal.status === 'completed' && terminal.reason && terminal.reason.startsWith('limit reached')) {
-      label = 'Limit reached'
+      label = i18nOr('ui7Chat.turn_limit')
     }
     return { label, isIdleWarning: false }
   }
@@ -58,22 +60,22 @@ export function computeStatusLabel(state, now) {
   // GetChatTurns says so explicitly — absent/undefined (older data, a
   // mock, or the backend half of this contract not deployed yet)
   // defensively falls through to normal handling below.
-  if (ownedByThisInstance === false) return { label: 'Running in another window', isIdleWarning: false }
-  if (stopRequested) return { label: 'Stopping', isIdleWarning: false }
+  if (ownedByThisInstance === false) return { label: i18nOr('ui7Chat.turn_other_window'), isIdleWarning: false }
+  if (stopRequested) return { label: i18nOr('ui7Chat.turn_stopping'), isIdleWarning: false }
 
   let label
   const runningTool = Object.values(calls || {}).find(c => c.status === 'started')
-  if (runningTool) label = `Running ${runningTool.name}`
-  else if ((parts || []).some(p => p.kind === 'text')) label = 'Responding'
-  else if (!startedAt) label = 'Starting agent'
+  if (runningTool) label = i18nOr('ui7Chat.turn_running_tool', { name: runningTool.name })
+  else if ((parts || []).some(p => p.kind === 'text')) label = i18nOr('ui7Chat.turn_responding')
+  else if (!startedAt) label = i18nOr('ui7Chat.turn_starting')
   else if (!streamsIncrementally) {
     // No tool running, no text yet, and this runtime never sends partial
     // output — a minute of silence here is normal, not a stall. Skip the
     // idle-activity annotation entirely rather than reusing "No new
     // activity for Ns", which specifically implies something might be
     // wrong.
-    return { label: 'Waiting for full reply — this runtime doesn’t stream partial output', isIdleWarning: false }
-  } else label = 'Waiting for response'
+    return { label: i18nOr('ui7Chat.turn_waiting_full'), isIdleWarning: false }
+  } else label = i18nOr('ui7Chat.turn_waiting')
 
   const isIdleWarning = !!lastEventAt && (now - new Date(lastEventAt).getTime()) > IDLE_WARNING_MS
   return { label, isIdleWarning }
@@ -93,6 +95,7 @@ export function computeStatusLabel(state, now) {
 // convention) reflects the active runtime's own capability — see
 // computeStatusLabel's doc comment above.
 export function TurnStatus({ state, stopRequested, ownedByThisInstance = true, streamsIncrementally = true }) {
+  useTranslation() // renders again on a language change
   // "Active" is whatever chatReducer state itself considers active — no
   // terminal event yet observed for this turn.
   const isForeignActive = !state.terminal && ownedByThisInstance === false
@@ -145,7 +148,7 @@ export function TurnStatus({ state, stopRequested, ownedByThisInstance = true, s
         : <Loader size={11} className="chat-spin" style={{ color: '#00b4d8' }} />
       )}
       <span>{label}</span>
-      {isIdleWarning && <span style={{ color: '#fbbf24' }}>· No new activity for 15s</span>}
+      {isIdleWarning && <span style={{ color: '#fbbf24' }}>{i18nOr('ui7Chat.turn_idle')}</span>}
       {failureReason && <span>· {failureReason}</span>}
       {hint && <span data-testid="turn-failure-hint">· {hint}</span>}
     </div>

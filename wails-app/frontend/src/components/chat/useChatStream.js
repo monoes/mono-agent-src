@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react'
 import { api, onChatEvent } from '../../services/api.js'
 import { chatReducer, initialChatState } from './chatReducer.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 const PAGE_SIZE = 200
 // One automatic retry of a failed backlog fetch, after this pause.
@@ -62,7 +63,7 @@ export function useChatStream({ conversationId, turnId }) {
           type: 'localNotice',
           notice: {
             code: 'history_not_saved',
-            message: 'This turn finished, but its history may not have saved — reopening this conversation later might not show everything.',
+            message: i18nOr('ui7Chat.history_not_saved'),
             severity: 'warning',
           },
         })
@@ -96,7 +97,7 @@ export function useChatStream({ conversationId, turnId }) {
         type: 'localNotice',
         notice: {
           code: 'stream_backlog_failed',
-          message: "Couldn't load this turn's earlier events, so some updates may be missing. New updates still appear live; switch away and back to try loading them again.",
+          message: i18nOr('ui7Chat.backlog_failed'),
           severity: 'warning',
         },
       })

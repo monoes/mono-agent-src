@@ -164,22 +164,28 @@ func EnsureHost(cfg *Deps) error { return ensureHost(cfg) }
 
 // ensureHost starts the host when none is running and waits for it to take its lock.
 func ensureHost(cfg *Deps) error {
+	_, err := ensureHostStarted(cfg)
+	return err
+}
+
+// ensureHostStarted is ensureHost that also says whether it started a host.
+func ensureHostStarted(cfg *Deps) (bool, error) {
 	if hostRunning(cfg) {
-		return nil
+		return false, nil
 	}
 	if err := requireCoderEnabled(cfg); err != nil {
-		return err
+		return false, err
 	}
 	if err := startHostProcess(cfg); err != nil {
-		return fmt.Errorf("starting the coder host: %w", err)
+		return false, fmt.Errorf("starting the coder host: %w", err)
 	}
 	for i := 0; i < 60; i++ {
 		if hostRunning(cfg) {
-			return nil
+			return true, nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return fmt.Errorf("the coder host did not start; see %s", filepath.Join(hostDir(cfg), "host.log"))
+	return false, fmt.Errorf("the coder host did not start; see %s", filepath.Join(hostDir(cfg), "host.log"))
 }
 
 // requireCoderEnabled refuses with the coder-disabled error while coder mode is off: no host starts for it.

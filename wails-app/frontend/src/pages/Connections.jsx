@@ -4,6 +4,7 @@
 // connected without the browser. A site with both appears in both.
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import i18nOr from '../lib/i18nOr.js' // for messages built in callbacks
 import { RefreshCw, Upload, Circle } from 'lucide-react'
 import { api } from '../services/api.js'
 import { emitAutomationsChanged } from '../lib/appEvents.js'
@@ -37,7 +38,7 @@ export default function Connections({ onRefresh, navData }) {
 
   const loadAutomations = useCallback(async () => {
     const res = await api.listAutomations()
-    if (!res || res.error) { setAutoError(res?.error || 'Could not load browser automations.'); return }
+    if (!res || res.error) { setAutoError(res?.error || i18nOr('ui6Conn.load_automations_failed')); return }
     setAutoError('')
     setAutomations(Array.isArray(res.automations) ? res.automations : [])
   }, [])
@@ -55,7 +56,7 @@ export default function Connections({ onRefresh, navData }) {
       setConnections(Array.isArray(conns) ? conns : [])
       setPollFailed(false)
     } catch (e) {
-      if (!silent) setError(e?.message || 'Failed to load connections')
+      if (!silent) setError(e?.message || i18nOr('ui6Conn.load_connections_failed'))
       else setPollFailed(true) // keep the stale rows but say they may be out of date
     } finally {
       if (!silent) setLoading(false)
@@ -111,13 +112,13 @@ export default function Connections({ onRefresh, navData }) {
     <>
       <div className="page-header">
         <div className="page-header-left">
-          <div className="page-title">Connections</div>
-          <div className="page-subtitle">{loading ? 'Loading…' : 'Browser automations and API connections'}</div>
+          <div className="page-title">{t('ui6Conn.page_title')}</div>
+          <div className="page-subtitle">{loading ? t('ui6Conn.loading') : t('ui6Conn.page_subtitle')}</div>
         </div>
         <div className="page-header-right" style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => setImporting(true)} style={{ gap: 5 }}><Upload size={12} /> Import automation</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setRecordHelp(true)} style={{ gap: 5 }}><Circle size={12} color="var(--red)" /> Record new</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => loadAll()} style={{ gap: 5 }}><RefreshCw size={12} /> Refresh</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setImporting(true)} style={{ gap: 5 }}><Upload size={12} /> {t('ui6Conn.import_automation')}</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRecordHelp(true)} style={{ gap: 5 }}><Circle size={12} color="var(--red)" /> {t('ui6Conn.record_new')}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => loadAll()} style={{ gap: 5 }}><RefreshCw size={12} /> {t('ui6Conn.refresh')}</button>
         </div>
       </div>
 

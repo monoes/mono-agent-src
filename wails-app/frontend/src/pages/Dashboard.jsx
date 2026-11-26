@@ -25,6 +25,7 @@ import { bridgeState, getStartedSteps, getStartedComplete, clearDismissed, loadD
 import { AccountContext } from '../lib/accountContext.js'
 import NewProfileModal from '../components/NewProfileModal.jsx'
 import { switchToProfile } from './dashboard/profileSwitch.js'
+import i18nOr from '../lib/i18nOr.js'
 
 const noGate = { subscribe: () => () => {}, getSnapshot: () => null }
 
@@ -77,7 +78,7 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
     const started = await api.runWorkflow(id)
     if (!started?.ok) {
       reloadLists() // undo the optimistic RUNNING at once
-      reportRunFailure(started?.error || 'Run failed', {
+      reportRunFailure(started?.error || i18nOr('ui6PagesMisc.run_failed'), {
         activateAndRun: async () => { await handleToggle(id, true); await handleRun(id) },
       })
       return

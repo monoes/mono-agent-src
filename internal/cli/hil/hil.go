@@ -35,7 +35,7 @@ func (d Deps) newHILCmd() *cobra.Command {
 		d.newHILRejectCmd(),
 		d.newHILResolveCmd(), d.newHILSendsCmd(), d.newHILShowCmd(), d.newHILEditCmd(),
 		d.newHILAttachmentCmd(), d.newHILRecipientCmd(), d.newHILAllowCmd(),
-		d.newHILExpireCmd(),
+		d.newHILExpireCmd(), d.newHILPendingCmd(),
 	)
 	return cmd
 }
@@ -63,6 +63,9 @@ type hilItem struct {
 	Send *hilsend.Payload `json:"send,omitempty"`
 	// Suggestion is TypeSafe Jev's stored suggestion (--suggest only).
 	Suggestion *hilsuggest.Suggestion `json:"suggestion,omitempty"`
+	// ProfileID and ProfileName say whose item it is (`hil pending` only).
+	ProfileID   string `json:"profile_id,omitempty"`
+	ProfileName string `json:"profile_name,omitempty"`
 }
 
 func (d Deps) newHILListCmd() *cobra.Command {

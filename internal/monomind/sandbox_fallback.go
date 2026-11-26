@@ -1,6 +1,7 @@
 package monomind
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -89,6 +90,32 @@ func SandboxFallbackPlan(caps *CapabilitySet, modes []string, runtime, mode, fal
 		return args, SandboxStatusUnsupported, true, ""
 	}
 	return args, SandboxStatusRestricted, true, ""
+}
+
+// SandboxMissing reports a start event's verdict under which the turn runs
+// with no sandbox at all. "scoped" (claude's scoped access) and "restricted"
+// (monomind's stricter fallback) limit the turn, so they are not missing, and
+// "" is a turn that asked for none.
+func SandboxMissing(status string) bool {
+	switch status {
+	case SandboxStatusUnsupported, SandboxStatusAwaitingMonomind, SandboxStatusNeedsMonomind, SandboxStatusOff:
+		return true
+	}
+	return false
+}
+
+// UnsandboxedWarning is what such a turn says about itself.
+func UnsandboxedWarning(runtime, status string) string {
+	return fmt.Sprintf("this turn is running without a sandbox (%s: %s): the agent runtime is not confined to a working folder", runtime, status)
+}
+
+// warnUnsandboxed prints the stderr line every turn that runs without a
+// sandbox gets. Exec calls it with each start event's verdict, so no caller
+// has to.
+func warnUnsandboxed(runtime, status string) {
+	if SandboxMissing(status) {
+		fmt.Fprintln(os.Stderr, "warning: "+UnsandboxedWarning(runtime, status))
+	}
 }
 
 // AppliedSandboxStatus is the verdict once monomind reports sandbox_applied

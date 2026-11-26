@@ -306,17 +306,6 @@ func OrgAnswer(ctx context.Context, projectRoot, name, questionID, answer string
 	return runOrgJSONText(ctx, projectRoot, []string{"answer"}, name, questionID, answer)
 }
 
-// OrgApprove approves a pending tool-approval request
-// (`org approve <name> <role> <action>` — role+action, not an id).
-func OrgApprove(ctx context.Context, projectRoot, name, role, action string) (json.RawMessage, error) {
-	return runOrgJSON(ctx, projectRoot, "approve", name, role, action)
-}
-
-// OrgDeny denies a pending tool-approval request (`org deny <name> <role> <action>`).
-func OrgDeny(ctx context.Context, projectRoot, name, role, action string) (json.RawMessage, error) {
-	return runOrgJSON(ctx, projectRoot, "deny", name, role, action)
-}
-
 // OrgGateApprove approves a decision gate
 // (`org gate-approve <name> <gateID> [resolution...]`).
 func OrgGateApprove(ctx context.Context, projectRoot, name, gateID, resolution string) (json.RawMessage, error) {

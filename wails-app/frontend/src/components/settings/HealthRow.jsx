@@ -81,7 +81,7 @@ export default function HealthRow({ row, depth = 0, fixStates, onFix, onCancel }
           paddingLeft: depth * 18, borderTop: depth === 0 ? '1px solid var(--border)' : 'none',
         }}
       >
-        <span role="img" aria-label={row.status} style={{ ...mono, width: 14, textAlign: 'center', color: st.color, flexShrink: 0 }}>{st.mark}</span>
+        <span role="img" aria-label={STATUS_STYLE[row.status] ? t(`ui6SetHealth.status_${row.status}`) : row.status} style={{ ...mono, width: 14, textAlign: 'center', color: st.color, flexShrink: 0 }}>{st.mark}</span>
         {children.length > 0 ? (
           <button
             onClick={() => setOpen(o => !o)}

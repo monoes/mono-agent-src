@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, X, Loader, ChevronRight, ChevronDown } from 'lucide-react'
 import { ChatMarkdown } from '../chat/ChatMarkdown.jsx'
+import { UnsandboxedWarning } from '../chat/ChatWarnings.jsx'
 import { maskArgs, maskSecretShapes } from '../chat/credentials.js'
 import { vaultRelatedCall } from '../chat/toolLinks.js'
 
@@ -57,6 +58,7 @@ export function LiteTurn({ state, turnId = '', isLive = false }) {
   const calls = state?.calls || {}
   return (
     <div data-testid="lite-turn" style={{ maxWidth: '100%', minWidth: 0 }}>
+      {state?.sandboxMissing && <UnsandboxedWarning />}
       {parts.map((part, i) => {
         if (part.kind === 'text') return part.text ? <ChatMarkdown key={`t-${part.partId}-${i}`} content={part.text} /> : null
         if (part.kind !== 'tool') return null

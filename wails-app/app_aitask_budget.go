@@ -45,6 +45,16 @@ func (a *App) ClearAITaskBudget(scope, key string) string {
 	return a.jsonResult(args...)
 }
 
+// ChatSpendCap is `chat history spend-cap`: {bounded, capUsd, source,
+// totalUsd, usedUp, taskId, unenforceableOn, workersCapUsd}, the cap the
+// conversation's next message runs under.
+func (a *App) ChatSpendCap(conversationID string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.jsonResult("chat", "history", "spend-cap", "--", conversationID)
+}
+
 // AITaskBudgetFor is `aitask budget show --task ID`: {taskId, capUsd,
 // spentUsd, reported}, for a task's header.
 func (a *App) AITaskBudgetFor(taskID string) string {

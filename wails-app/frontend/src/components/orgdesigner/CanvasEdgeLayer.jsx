@@ -1,7 +1,9 @@
 import { SectionEdges } from './SectionLayer.jsx'
+import { useTranslation } from 'react-i18next'
 
 // The SVG edge layer: reports-to edges, document edges, the pending edge and live message edges.
 export default function CanvasEdgeLayer({ camera, edges, sections, rects, docEdges, secDragPending, readOnly, onRemoveDocEdge, pendingPath, pendingColor, liveEdges }) {
+  const { t } = useTranslation()
   return (
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', zIndex: 1, pointerEvents: 'none' }}>
               <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
@@ -28,7 +30,7 @@ export default function CanvasEdgeLayer({ camera, edges, sections, rects, docEdg
                       fill="none"
                       className={e.recent ? 'od-live-edge' : undefined}
                     />
-                    <title>{`${e.from} → ${e.to}: ${e.count} message${e.count === 1 ? '' : 's'}${e.subject ? ` (last: ${e.subject})` : ''}`}</title>
+                    <title>{`${t('ui6Orgs.arc_title', { from: e.from, to: e.to, count: e.count })}${e.subject ? t('ui6Orgs.arc_last', { subject: e.subject }) : ''}`}</title>
                   </g>
                 ))}
               </g>

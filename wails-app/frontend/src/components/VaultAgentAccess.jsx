@@ -5,16 +5,16 @@ import { confirm } from './ConfirmDialog.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 
 const levels = [
-  { value: 'strict', label: '1. Strict', description: 'Agents cannot read or use vault passwords without your approval.' },
-  { value: 'use', label: '2. Use without revealing', description: 'Agents can use passwords through supported tools and workflows without retrieving their plaintext values.' },
-  { value: 'reveal', label: '3. Reveal', description: 'Agents can retrieve plaintext passwords as well as use them.' },
+  { value: 'strict', label: 'ui6Set.access_strict', description: 'ui6Set.access_strict_desc' },
+  { value: 'use', label: 'ui6Set.access_use', description: 'ui6Set.access_use_desc' },
+  { value: 'reveal', label: 'ui6Set.access_reveal', description: 'ui6Set.access_reveal_desc' },
 ]
 
 export default function VaultAgentAccess({ isActive = true }) {
   const { t } = useTranslation()
   const [policy, setPolicy] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(null) // { key, error }: translated when shown
   const pending = useRef(false)
   const generation = useRef(0)
 
@@ -22,12 +22,12 @@ export default function VaultAgentAccess({ isActive = true }) {
     if (pending.current) return
     const request = ++generation.current
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       const next = await GetVaultAgentAccess()
       if (request === generation.current) setPolicy(next)
     } catch (e) {
-      if (request === generation.current) setError('Could not load agent access: ' + String(e))
+      if (request === generation.current) setError({ key: 'ui6Set.access_load_failed', error: String(e) })
     } finally {
       if (request === generation.current) setBusy(false)
     }
@@ -43,7 +43,7 @@ export default function VaultAgentAccess({ isActive = true }) {
     if (pending.current || busy || !policy || level === policy.level) return
     pending.current = true
     setBusy(true)
-    setError('')
+    setError(null)
     // Invalidate an earlier load so it cannot replace the saved policy.
     const request = ++generation.current
     try {
@@ -54,7 +54,7 @@ export default function VaultAgentAccess({ isActive = true }) {
       const next = await SetVaultAgentAccess(level)
       if (request === generation.current) setPolicy(next)
     } catch (e) {
-      if (request === generation.current) setError('Could not change agent access: ' + String(e))
+      if (request === generation.current) setError({ key: 'ui6Set.access_change_failed', error: String(e) })
     } finally {
       pending.current = false
       if (request === generation.current) setBusy(false)
@@ -62,25 +62,26 @@ export default function VaultAgentAccess({ isActive = true }) {
   }
 
   const scoped = policy && (policy.secrets?.length > 0 || policy.hosts?.length > 0 || policy.expires_at)
+  const current = levels.find(level => level.value === policy?.level)
   return (
-    <section aria-label="Vault agent access" style={{ margin: '12px 20px 0', padding: 12, border: '1px solid var(--border, #1e3a4f)', borderRadius: 6, fontSize: 12 }}>
-      <label htmlFor="vault-agent-access" style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Agent access · current profile</label>
+    <section aria-label={t('ui6Set.access_section')} style={{ margin: '12px 20px 0', padding: 12, border: '1px solid var(--border, #1e3a4f)', borderRadius: 6, fontSize: 12 }}>
+      <label htmlFor="vault-agent-access" style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('ui6Set.access_label')}</label>
       <select id="vault-agent-access" value={policy?.level || ''} disabled={busy || !policy} onChange={e => change(e.target.value)} aria-describedby="vault-agent-access-description"
         style={{ maxWidth: '100%' }}>
-        {!policy && <option value="">{busy ? 'Loading…' : 'Unavailable'}</option>}
-        {levels.map(level => <option key={level.value} value={level.value}>{level.label}</option>)}
+        {!policy && <option value="">{busy ? t('ui6Set.loading') : t('ui6Set.unavailable')}</option>}
+        {levels.map(level => <option key={level.value} value={level.value}>{t(level.label)}</option>)}
       </select>
       <p id="vault-agent-access-description" style={{ margin: '7px 0 0', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.5 }}>
-        {levels.find(level => level.value === policy?.level)?.description}
-        {policy && ' Passwords remain encrypted on disk.'}
-        {policy?.level === 'use' && ' Output masking is best-effort; enable only for agents you trust.'}
+        {current && t(current.description)}
+        {policy && ` ${t('ui6Set.access_encrypted')}`}
+        {policy?.level === 'use' && ` ${t('ui6Set.access_masking')}`}
       </p>
       {scoped && <p style={{ margin: '6px 0 0', color: 'var(--text-muted, #94a3b8)' }}>
-        Current scope: {policy.secrets?.length ? policy.secrets.join(', ') : 'all secrets'}.
-        {policy.hosts?.length > 0 && ` Hosts: ${policy.hosts.join(', ')}.`}
-        {policy.expires_at && ` Expires: ${new Date(policy.expires_at).toLocaleString()}.`}
+        {t('ui6Set.access_scope', { secrets: policy.secrets?.length ? policy.secrets.join(', ') : t('ui6Set.access_all_secrets') })}
+        {policy.hosts?.length > 0 && ` ${t('ui6Set.access_hosts', { hosts: policy.hosts.join(', ') })}`}
+        {policy.expires_at && ` ${t('ui6Set.access_expires', { date: new Date(policy.expires_at).toLocaleString() })}`}
       </p>}
-      {error && <div role="alert" style={{ marginTop: 7, color: '#fca5a5' }}>{error} <button onClick={load} disabled={busy}>Retry</button></div>}
+      {error && <div role="alert" style={{ marginTop: 7, color: '#fca5a5' }}>{t(error.key, { error: error.error })} <button onClick={load} disabled={busy}>{t('ui6Set.retry')}</button></div>}
     </section>
   )
 }

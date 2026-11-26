@@ -300,6 +300,7 @@ The desktop app does everything through these commands; they are equally usable 
 - **Org bubbles (chat with a running org's boss):**
   - `org chat send <org> -- <text>` messages the boss as `human:operator` (live, or queued for the org's next start).
   - `org chat history <org> [--run R] [--limit N]` is the boss thread, built from the bus log and the org's questions, approvals and gates. It holds your messages, the boss's replies (its `chat` events), questions, approvals and gates (each `pending` or with its `resolution`), role-to-role messages as `team` rows, and the org starting and stopping. It also returns the roles (for the stage) and the org's status. A part that can't be read is listed in `warnings`.
+  - `org pending` lists what every org of the folder still waits on a person for (`items` with `org`, `kind`, `ref`, `role`, `text`; approvals add `request_id`, `input`, and for a shell call `command`, `command_truncated`, `cwd`; unreadable lists are in `errors`). The app's Human in Loop page renders it.
   - `org chat answer <org> <questionId> -- <answer>` and `org chat approve|deny <org> <gate-id|request-id|role:action> [-- note]` are idempotent. An item already resolved returns `"already": true` with how it ended, and nothing is sent. While the org is not running they refuse with exit 3 and send nothing, so the item stays pending.
   - `org chat dismiss <org> <questionId> [--reason <text>]` closes a question without answering it (monomind 2.22+; a blocking question stops holding the org back). Same idempotency as `answer`, but it also works on a stopped org: monomind records the dismissal and queues a note for the asking role, so a question left over from the last run can be cleared without starting the org. `org chat history` marks questions `blocking` and, for a `crashed` run (monomind 2.21+: a dead `running` record), returns the cause in `status_error`.
   - `org stop|pause|resume <org>` are the bubble's controls.
@@ -2421,6 +2422,16 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   it only prints the settings. `TestEveryCoderSetFlagIsTheOperators` fails
   for a new flag until it is classified. `coder disable` is anyone's: it
   only turns coder mode off.
+- `coder set --startup-timeout 3m` is how long claude may take to initialize
+  (its SessionStart hooks and MCP servers) in a coder turn, the lead's and
+  its workers' (default 2m; `0` = the default again). The environment
+  variable `MONOAGENT_STARTUP_TIMEOUT` overrides it, and applies to every
+  other claude turn too. Both take a duration with its unit (`3m`, `180s`;
+  at least 1s for the flag), and more than 1h is cut to 1h; an unreadable
+  variable is ignored with a warning. `coder status --json` shows
+  `startupTimeout` (the stored value), `startupTimeoutEffective` and
+  `startupTimeoutSource` (`default`, `set` or `env`). A monomind too old for
+  the flag ignores it.
 - **Access levels.** A conversation has an `access` level, and the turn is
   chosen by it, not by the mode: `scoped` is the sandboxed assistant
   (mono-agent's own tools, canvas, page read), `coding`, `workspace` and
@@ -3465,7 +3476,8 @@ monoagentcli --profile work coder host pursuit status --json     # the pursuit l
      <child-conv> <id> TEXT` from its turn (turn id `answer-m-`, `answeredBy` `master:<conv>`). A master can read the parked questions of its whole subtree but answers only those of its direct children (a grandchild's goes to the grandchild's own master).
 - **Good to know:** the host and the turns it starts keep the environment of the terminal that started the host.
   `host stop` leaves turns running: `sessions stop <conv>` first if you want them ended. Queued sends only
-  expire while a host runs. `send` prints `hostStarted: true` unless you pass `--no-host`.
+  expire while a host runs. `send` and `questions answer` print `hostStarted: true` only when that call started a
+  host (a host that was already running gives `false`).
 - **Files:** `<db dir>/coder-host/` holds `host.lock`, `host.json`, `host.log` and `turns/<turn>.log`; the
   logs hold turn output and are never pruned.
 - **Not run by agents:** like `wails dev` and the real coder run, starting the host is the user's own act from
@@ -3791,6 +3803,10 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   or gate
   (exit 3 with the operator refusal otherwise; deny stays open), and
   the chat's Bash allowlist leaves out `monomind org approve|gate-approve|answer`.
+  `org approve|deny <org> <role> <action> --request <id>` resolves that one request and
+  is refused when it is no longer pending or monomind lacks `org-decision-attribution`
+  (a request id is never dropped). Without `--request` every pending request of the role
+  and action is resolved, also one queued after you looked; the app always passes the id.
   A called workflow is found with the engine's own lookup
   (`workflow.ResolveSubWorkflow`: by id, else the one workflow of the
   profile with that exact name, files first); anything else counts as
@@ -4536,9 +4552,11 @@ resolver prefix `jev:`.
   `gpt-6-luna`) and `gemini-decisions` (Google's, `POST /v1beta/decisions`,
   model `gemini-decision-1`): the vendor's own calibrated probabilities
   (`native`), `choice`, `noul` and `score`, every question of a request in
-  one call; `base_url` is the host and may be left at the vendor's, a key is
-  required. Gemini wants question keys of `[A-Za-z0-9_-]` and at most 64
-  characters, so the adapter sends cleaned keys and maps the answers back.
+  one call; `base_url` is the host (a trailing `/v1` or `/v1beta` is not
+  doubled) and `jev provider add` fills the vendor's when `--base-url` is
+  left out; a key is required, on this computer too. Gemini wants question
+  keys of `[A-Za-z0-9_-]` and at most 64 characters, so the adapter sends
+  cleaned keys and maps the answers back.
   With no provider configured every surface uses TypeSafe and behaves as before.
 - **Requests in flight and retries.** A request's questions go out at most 8
   at a time, and a sampled question's 5 samples together (Anthropic: one,
@@ -4549,7 +4567,9 @@ resolver prefix `jev:`.
   `max_tokens` or `temperature` is sent again with `max_completion_tokens`
   (16, then 256 once a model spent all 16 reasoning) and no `temperature`,
   and a 400 on log-probabilities is asked once more with 5 alternatives
-  before the adapter samples. A model whose one token is no option label,
+  before the adapter samples. What a server refused for a model (those two
+  parameters, more than 5 alternatives) is remembered by the process for an
+  hour, for every client of it. A model whose one token is no option label,
   with almost no mass on any, fails with "the model did not answer with a
   single option label; a reasoning/thinking model needs a larger budget or a
   non-thinking variant". The client's retry budget holds

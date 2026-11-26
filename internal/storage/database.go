@@ -422,9 +422,11 @@ func (d *Database) afterSchemaMigrations(ctx context.Context) error {
 
 // preMigrationSteps run inside a migration's transaction just before its
 // statements, for a database shape a plain .sql file cannot adapt to (SQLite
-// has no ADD COLUMN IF NOT EXISTS). Keyed by migration version.
+// has no ADD COLUMN IF NOT EXISTS) or rows that need per-row choices before
+// them. Keyed by migration version.
 var preMigrationSteps = map[int]func(ctx context.Context, tx *sql.Tx) error{
-	95: prepareConnectionsForAdhocTables,
+	95:  prepareConnectionsForAdhocTables,
+	173: dedupeOrgGrants,
 }
 
 // prepareConnectionsForAdhocTables lets migration 095 run on a database whose

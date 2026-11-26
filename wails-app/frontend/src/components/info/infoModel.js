@@ -1,3 +1,5 @@
+import i18nOr from '../../lib/i18nOr.js'
+
 // Pure helpers for the Info page. The field catalog (`profile info fields`)
 // is the only list of fields; nothing here names a field.
 
@@ -51,7 +53,7 @@ export function leftEmpty(catalog, entries, type = 'person') {
 
 export function errorText(e) {
   const m = (e && e.message) || String(e ?? '')
-  return m.replace(/^Error:\s*/i, '').trim() || 'unknown error'
+  return m.replace(/^Error:\s*/i, '').trim() || i18nOr('ui6PagesMisc.unknown_error')
 }
 
 export const isPdfDataUrl = (u) => typeof u === 'string' && u.startsWith('data:application/pdf')

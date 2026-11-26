@@ -114,7 +114,7 @@ func SaveProvider(ctx context.Context, db *sql.DB, p Provider) error {
 	if !MayNameHost(ctx) {
 		return ErrOperatorOnly
 	}
-	p = normaliseProvider(p)
+	p = WithKindDefaults(p)
 	if err := checkProvider(p); err != nil {
 		return err
 	}
@@ -414,6 +414,9 @@ func checkProvider(p Provider) error {
 		return fmt.Errorf("%w: %q", ErrProviderURL, redact(p.BaseURL))
 	}
 	if err := keylessRemote(p); err != nil {
+		return err
+	}
+	if err := keylessKind(p); err != nil {
 		return err
 	}
 	if s := p.SecretName; s != "" && (strings.HasPrefix(s, "@secret:") || s == SecretName || keyNameAliases[normaliseKeyName(s)]) {

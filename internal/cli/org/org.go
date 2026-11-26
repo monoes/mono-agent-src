@@ -51,11 +51,12 @@ func NewCommand(d Deps) *cobra.Command {
 		newOrgQuestionsCmd(root),
 		newOrgApprovalsCmd(root),
 		newOrgGatesCmd(root),
+		newOrgPendingCmd(env),
 		newOrgDecisionsCmd(root),
 		newOrgMemoryCmd(root),
 		newOrgAnswerCmd(root),
-		newOrgApproveCmd(root, env.refuseSendingApproval),
-		newOrgDenyCmd(root),
+		newOrgApproveCmd(env),
+		newOrgDenyCmd(env),
 		newOrgGateApproveCmd(env),
 		newOrgGateRejectCmd(root),
 		newOrgEventsCmd(root),
@@ -172,24 +173,6 @@ func newOrgStatusCmd(root func() string) *cobra.Command {
 			return printOrgJSON(orgenv.WithSignature(cmd.Context(), root(), out))
 		},
 	}
-}
-
-func newOrgLogsCmd(root func() string) *cobra.Command {
-	var run string
-	c := &cobra.Command{
-		Use:   "logs <name>",
-		Short: "Show the org's bus event log",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := monomind.OrgLogs(cmd.Context(), root(), args[0], run)
-			if err != nil {
-				return err
-			}
-			return printOrgJSON(out)
-		},
-	}
-	c.Flags().StringVar(&run, "run", "", "Specific run id (default: most recent run)")
-	return c
 }
 
 func newOrgReportCmd(root func() string) *cobra.Command {
@@ -341,13 +324,15 @@ func newOrgApprovalsCmd(root func() string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "approvals <name>",
 		Short: "List pending tool/action approval requests",
-		Args:  cobra.ExactArgs(1),
+		Long: "An approval of a shell call also carries command (command_truncated when monomind kept only " +
+			"its start) and cwd, the folder the org file gives the role.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out, err := monomind.OrgApprovals(cmd.Context(), root(), args[0])
 			if err != nil {
 				return err
 			}
-			return printOrgJSON(out)
+			return printOrgJSON(withApprovalCommands(root(), args[0], out))
 		},
 	}
 }
@@ -408,39 +393,6 @@ func newOrgAnswerCmd(root func() string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			answer := joinRemainder(args[2:])
 			out, err := monomind.OrgAnswer(cmd.Context(), root(), args[0], args[1], answer)
-			if err != nil {
-				return err
-			}
-			return printOrgJSON(out)
-		},
-	}
-}
-
-func newOrgApproveCmd(root func() string, refuse func(ctx context.Context, org, role, action string) error) *cobra.Command {
-	return &cobra.Command{
-		Use:   "approve <name> <role> <action>",
-		Short: "Approve a pending tool-approval request",
-		Args:  cobra.ExactArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := refuse(cmd.Context(), args[0], args[1], args[2]); err != nil {
-				return err
-			}
-			out, err := monomind.OrgApprove(cmd.Context(), root(), args[0], args[1], args[2])
-			if err != nil {
-				return err
-			}
-			return printOrgJSON(out)
-		},
-	}
-}
-
-func newOrgDenyCmd(root func() string) *cobra.Command {
-	return &cobra.Command{
-		Use:   "deny <name> <role> <action>",
-		Short: "Deny a pending tool-approval request",
-		Args:  cobra.ExactArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := monomind.OrgDeny(cmd.Context(), root(), args[0], args[1], args[2])
 			if err != nil {
 				return err
 			}

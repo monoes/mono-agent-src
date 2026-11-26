@@ -186,7 +186,7 @@ func (a *App) PursuitStart(sessionId int64, limits PursuitLimits, phrase, token 
 	}
 	switch {
 	case !returned:
-		return no("the confirmation did not return in time; nothing started", "declined")
+		return no(dialogTimedOutDetail("nothing started"), "declined")
 	case errors.Is(err, errDialogBusy):
 		return no(err.Error(), "busy")
 	case err != nil:

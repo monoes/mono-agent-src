@@ -1,6 +1,8 @@
 // Small shared presentational bits for the org unification UI, matching the
 // inline-style language of OrgsPanel / orgdesigner (mono font, CSS vars).
 import { TIER_COLORS } from './autonomyModel.js'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../lib/i18nOr.js'
 
 export const mono = { fontFamily: 'var(--font-mono)' }
 
@@ -35,15 +37,18 @@ export function Chip({ children, color = 'var(--text-muted)', title, style }) {
 }
 
 export function TierChip({ tier }) {
+  const { t } = useTranslation()
   if (!tier) return null
-  return <Chip color={TIER_COLORS[tier] || 'var(--text-muted)'} title={`Tier: ${tier}`}>{tier}</Chip>
+  const name = t(`ui6Orgs.tier_${tier}`, { defaultValue: tier })
+  return <Chip color={TIER_COLORS[tier] || 'var(--text-muted)'} title={t('ui6Orgs.tier_title', { tier: name })}>{name}</Chip>
 }
 
 export function Badge({ count, style }) {
+  const { t } = useTranslation()
   if (!count) return null
   return (
     <span
-      aria-label={`${count} waiting`}
+      aria-label={t('ui6Orgs.badge_waiting', { count })}
       style={{
         minWidth: 14, height: 14, padding: '0 3px', borderRadius: 7,
         background: 'var(--red, #ef4444)', color: '#fff',
@@ -65,7 +70,7 @@ export function Card({ children, style }) {
 }
 
 /** Payload helper shared by org components: CLI {error} or a null read. */
-export function errorOf(res, fallback = 'request failed') {
+export function errorOf(res, fallback = i18nOr('ui6Orgs.request_failed')) {
   if (res == null) return fallback
   return res.error || null
 }

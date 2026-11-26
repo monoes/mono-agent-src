@@ -3,6 +3,8 @@ import { ArrowUp, ArrowDown, Minus } from 'lucide-react'
 import { COLOR } from './ui.js'
 import { SERIES_COLORS, SURFACE, arcPath, fmtFull } from './chartScale.js'
 import { Tooltip, Legend } from './chartParts.jsx'
+import { useTranslation } from 'react-i18next'
+import i18nOr from '../../../lib/i18nOr.js'
 
 const pct = (v, total) => `${Math.round((v / total) * 1000) / 10}%`
 
@@ -41,13 +43,14 @@ export function DonutChart({ data, label }) {
 
 // sparkline: a small line, end-dot on the last value; no axes.
 export function Sparkline({ data, label }) {
+  useTranslation() // renders again on a language change
   const { data: v, unit } = data
   const W = 140, H = 32, p = 4
   const lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1
   const pts = v.map((d, i) => [p + ((W - 2 * p) * i) / (v.length - 1), H - p - ((H - 2 * p) * (d - lo)) / span])
   const last = pts[pts.length - 1]
   return (
-    <div tabIndex={0} role="img" aria-label={`${label}. ${fmtFull(v[v.length - 1], unit)} latest, ${fmtFull(lo, unit)} to ${fmtFull(hi, unit)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, outlineOffset: 2, borderRadius: 4 }}>
+    <div tabIndex={0} role="img" aria-label={i18nOr('ui7Chat.sparkline_label', { label, latest: fmtFull(v[v.length - 1], unit), lo: fmtFull(lo, unit), hi: fmtFull(hi, unit) })} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, outlineOffset: 2, borderRadius: 4 }}>
       <svg width={W} height={H} aria-hidden="true">
         <polyline points={pts.map(q => q.join(',')).join(' ')} fill="none" stroke={SERIES_COLORS[0]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={last[0]} cy={last[1]} r={4} fill={SERIES_COLORS[0]} stroke={SURFACE} strokeWidth={2} />

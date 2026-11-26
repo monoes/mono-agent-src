@@ -251,7 +251,7 @@ func (j *turnJournal) handle(ev monomind.Event) {
 		}
 		// The badge the app shows on the turn; message is the status key.
 		if ev.SandboxStatus != "" {
-			_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandbox, Message: ev.SandboxStatus, Severity: chatevents.SeverityInfo})
+			_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandbox, Message: ev.SandboxStatus, Severity: sandboxSeverity(ev.SandboxStatus)})
 			if detail := sandboxDetail(ev); detail != "" {
 				_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeAgentSandboxDetail, Message: detail, Severity: chatevents.SeverityInfo})
 			}

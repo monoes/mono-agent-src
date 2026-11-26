@@ -4,6 +4,7 @@ import {
 import { Tag, Section, ResultSection, DiffView, PatchDiffView, patchLines, preStyle, sectionLabel, mono, CYAN } from './nativeToolParts.jsx'
 import { diffLines, diffStats } from './unifiedDiff.js'
 import { monoagentCommand, cliTitle, vaultRelated, isSingleCommand } from './toolLinks.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 // How one native tool call reads: by the normalized kind every coder
 // runtime reports on tool.started (shell, edit, write, read, search, web,
@@ -28,13 +29,18 @@ export function kindOf(call) {
   return 'other'
 }
 
+const EXISTING_KEYS = { overwrite: 'ui7Chat.file_overwrite', modified: 'ui7Chat.file_modified' }
+// A patch's actions; only the displayed word is translated.
+const PATCH_ACTION_KEYS = { add: 'ui7Chat.patch_add', delete: 'ui7Chat.patch_delete', update: 'ui7Chat.patch_update' }
+const patchAction = a => (Object.hasOwn(PATCH_ACTION_KEYS, a) ? i18nOr(PATCH_ACTION_KEYS[a]) : a)
+
 // fileTags labels a write/edit by whether its file existed when the call
 // started (tool.started's fileExisted, absent when unknown): "new file",
 // else existingLabel ("overwrite" for a write, "modified" for an edit).
 function fileTags(call, existingLabel) {
-  if (call.fileExisted === false) return [<Tag key="nf" testId="file-state" color="#86efac">new file</Tag>]
+  if (call.fileExisted === false) return [<Tag key="nf" testId="file-state" color="#86efac">{i18nOr('ui7Chat.new_file')}</Tag>]
   if (call.fileExisted === true) {
-    return [<Tag key="ex" testId="file-state" color={existingLabel === 'overwrite' ? '#fbbf24' : '#94a3b8'}>{existingLabel}</Tag>]
+    return [<Tag key="ex" testId="file-state" color={existingLabel === 'overwrite' ? '#fbbf24' : '#94a3b8'}>{i18nOr(EXISTING_KEYS[existingLabel])}</Tag>]
   }
   return []
 }
@@ -45,10 +51,10 @@ function statsTag(stats) {
 
 function exitTag(call) {
   if (typeof call.exitCode !== 'number') return []
-  return [<Tag key="exit" testId="exit-code" color={call.exitCode === 0 ? '#94a3b8' : '#ef4444'}>{`exit ${call.exitCode}`}</Tag>]
+  return [<Tag key="exit" testId="exit-code" color={call.exitCode === 0 ? '#94a3b8' : '#ef4444'}>{i18nOr('ui7Chat.exit_code', { code: call.exitCode })}</Tag>]
 }
 
-const errorOnFail = (call) => call.ok === false && <ResultSection call={call} label="Error" />
+const errorOnFail = (call) => call.ok === false && <ResultSection call={call} label={i18nOr('ui7Chat.error')} />
 
 function shell(call, args, childCalls, renderChild, t) {
   const command = Array.isArray(args.command) ? args.command.join(' ') : (args.command ?? '')
@@ -57,8 +63,8 @@ function shell(call, args, childCalls, renderChild, t) {
   if (vaultRelated(command)) return vaultHidden(call, t)
   if (cli) return monoagentShell(call, args, command, cli, t)
   return {
-    icon: Terminal, title: `$ ${command}`, titleMono: true, subtitle: args.description || (args.cwd ? `in ${args.cwd}` : undefined),
-    tags: [...(args.run_in_background ? [<Tag key="bg" color="#fbbf24">background</Tag>] : []), ...exitTag(call)],
+    icon: Terminal, title: `$ ${command}`, titleMono: true, subtitle: args.description || (args.cwd ? i18nOr('ui7Chat.in_path', { path: args.cwd }) : undefined),
+    tags: [...(args.run_in_background ? [<Tag key="bg" color="#fbbf24">{i18nOr('ui7Chat.background')}</Tag>] : []), ...exitTag(call)],
     body: <ResultSection call={call} />,
   }
 }
@@ -72,7 +78,7 @@ function monoagentShell(call, args, command, cli, t) {
   const vault = cli.family === 'vault'
   return {
     icon: Terminal, title: cliTitle(cli, t), subtitle: vault ? undefined : args.description,
-    tags: [...(args.run_in_background ? [<Tag key="bg" color="#fbbf24">background</Tag>] : []), ...exitTag(call)],
+    tags: [...(args.run_in_background ? [<Tag key="bg" color="#fbbf24">{i18nOr('ui7Chat.background')}</Tag>] : []), ...exitTag(call)],
     link: { page: cli.page },
     body: vault ? (
       cli.sub === 'list' && isSingleCommand(command) ? <ResultSection call={call} /> : <VaultHidden t={t} />
@@ -107,7 +113,7 @@ function edit(call, args) {
   }, { added: 0, removed: 0 })
   return {
     icon: FilePen, title: args.file_path, titleMono: true, defaultOpen: true,
-    tags: [...(pairs.length ? [statsTag(stats)] : []), ...fileTags(call, 'modified'), ...(args.replace_all ? [<Tag key="ra">replace all</Tag>] : [])],
+    tags: [...(pairs.length ? [statsTag(stats)] : []), ...fileTags(call, 'modified'), ...(args.replace_all ? [<Tag key="ra">{i18nOr('ui7Chat.replace_all')}</Tag>] : [])],
     body: <>{pairs.map((p, i) => <DiffView key={i} oldText={p.old_string} newText={p.new_string} />)}{errorOnFail(call)}</>,
   }
 }
@@ -118,29 +124,29 @@ function write(call, args) {
   const lineCount = content ? content.replace(/\n$/, '').split('\n').length : 0
   return {
     icon: FilePlus, title: args.file_path, titleMono: true,
-    tags: [<Tag key="lines" color="#94a3b8">{`${lineCount} line${lineCount === 1 ? '' : 's'}`}</Tag>, ...fileTags(call, 'overwrite')],
-    body: <><Section label="Content" copyText={content}><pre style={preStyle}>{content}</pre></Section>{errorOnFail(call)}</>,
+    tags: [<Tag key="lines" color="#94a3b8">{i18nOr('ui7Chat.lines', { count: lineCount })}</Tag>, ...fileTags(call, 'overwrite')],
+    body: <><Section label={i18nOr('ui7Chat.content')} copyText={content}><pre style={preStyle}>{content}</pre></Section>{errorOnFail(call)}</>,
   }
 }
 
 function read(call, args) {
   const range = args.offset != null || args.limit != null
-    ? ` (lines ${args.offset ?? 1}${args.limit != null ? `–${(args.offset ?? 1) + args.limit - 1}` : '+'})`
+    ? ` ${i18nOr('ui7Chat.line_range', { range: `${args.offset ?? 1}${args.limit != null ? `–${(args.offset ?? 1) + args.limit - 1}` : '+'}` })}`
     : ''
   // cline reads several files in one call: file_path is the first, file_paths all.
   const paths = Array.isArray(args.file_paths) && args.file_paths.length > 1 ? args.file_paths : null
   if (paths) {
-    return { icon: FileText, compact: true, title: `Read ${paths.length} files`, subtitle: paths.join(', '), body: <ResultSection call={call} /> }
+    return { icon: FileText, compact: true, title: i18nOr('ui7Chat.read_files', { n: paths.length }), subtitle: paths.join(', '), body: <ResultSection call={call} /> }
   }
-  return { icon: FileText, compact: true, title: `Read ${args.file_path ?? ''}${range}`, body: <ResultSection call={call} /> }
+  return { icon: FileText, compact: true, title: `${i18nOr('ui7Chat.read_path', { path: args.file_path ?? '' })}${range}`, body: <ResultSection call={call} /> }
 }
 
 function search(call, args) {
-  const verb = CLAUDE_KINDS[call.name] === 'search' ? call.name : 'Search'
+  const verb = CLAUDE_KINDS[call.name] === 'search' ? call.name : i18nOr('ui7Chat.search')
   return {
     icon: Search, compact: true,
-    title: `${verb} ${args.pattern ?? args.query ?? ''}${args.path ? ` in ${args.path}` : ''}`,
-    body: <ResultSection call={call} label="Matches" />,
+    title: `${verb} ${args.pattern ?? args.query ?? ''}${args.path ? ` ${i18nOr('ui7Chat.in_path', { path: args.path })}` : ''}`,
+    body: <ResultSection call={call} label={i18nOr('ui7Chat.matches')} />,
   }
 }
 
@@ -149,9 +155,9 @@ function web(call, args) {
   const more = Array.isArray(args.urls) && args.urls.length > 1 ? args.urls.length - 1 : 0
   return {
     icon: Globe, title: args.url || args.query, titleMono: true,
-    subtitle: more ? `and ${more} more: ${args.urls.slice(1).join(', ')}` : args.url ? args.prompt : undefined,
-    tags: [<Tag key="ext" color="#fbbf24" testId="external-content">external content</Tag>],
-    body: <ResultSection call={call} label="Result" />,
+    subtitle: more ? i18nOr('ui7Chat.and_more_urls', { n: more, urls: args.urls.slice(1).join(', ') }) : args.url ? args.prompt : undefined,
+    tags: [<Tag key="ext" color="#fbbf24" testId="external-content">{i18nOr('ui7Chat.external_content')}</Tag>],
+    body: <ResultSection call={call} label={i18nOr('ui7Chat.result')} />,
   }
 }
 
@@ -165,14 +171,14 @@ function patch(call, args) {
   }, { added: 0, removed: 0 })
   return {
     icon: FileDiff, titleMono: true, defaultOpen: true,
-    title: files.length === 1 ? files[0].file_path : `${files.length} files`,
+    title: files.length === 1 ? files[0].file_path : i18nOr('ui7Chat.n_files', { n: files.length }),
     tags: [statsTag(stats)],
     body: (
       <>
         {files.map((f, i) => (
           <div key={i} data-testid="patch-file" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: mono, fontSize: 10, color: '#e2e8f0', wordBreak: 'break-all' }}>
-              <Tag color={PATCH_ACTION_COLORS[f.action] || '#94a3b8'} testId="patch-action">{f.action || 'update'}</Tag>
+              <Tag color={PATCH_ACTION_COLORS[f.action] || '#94a3b8'} testId="patch-action">{patchAction(f.action || 'update')}</Tag>
               {f.file_path}
             </div>
             {f.diff && <PatchDiffView diff={f.diff} />}
@@ -197,8 +203,8 @@ function mcp(call, args) {
     icon: Plug, title: server ? `${server} · ${tool}` : tool, titleMono: true,
     body: (
       <>
-        {shown && shown !== '{}' && <Section label="Args" copyText={shown}><pre style={preStyle}>{shown}</pre></Section>}
-        <ResultSection call={call} label="Result" />
+        {shown && shown !== '{}' && <Section label={i18nOr('ui7Chat.args')} copyText={shown}><pre style={preStyle}>{shown}</pre></Section>}
+        <ResultSection call={call} label={i18nOr('ui7Chat.result')} />
       </>
     ),
   }
@@ -206,14 +212,14 @@ function mcp(call, args) {
 
 function task(call, args, childCalls, renderChild) {
   return {
-    icon: Bot, title: args.description || 'Subagent', subtitle: args.subagent_type,
+    icon: Bot, title: args.description || i18nOr('ui7Chat.subagent'), subtitle: args.subagent_type,
     defaultOpen: true,
-    tags: [<Tag key="n" color="#94a3b8">{`${childCalls.length} call${childCalls.length === 1 ? '' : 's'}`}</Tag>],
+    tags: [<Tag key="n" color="#94a3b8">{i18nOr('ui7Chat.calls', { count: childCalls.length })}</Tag>],
     body: (
       <>
         {args.prompt && (
           <details>
-            <summary style={{ ...sectionLabel, cursor: 'pointer' }}>Prompt</summary>
+            <summary style={{ ...sectionLabel, cursor: 'pointer' }}>{i18nOr('ui7Chat.prompt')}</summary>
             <pre style={preStyle}>{args.prompt}</pre>
           </details>
         )}
@@ -222,7 +228,7 @@ function task(call, args, childCalls, renderChild) {
             {childCalls.map(c => renderChild(c))}
           </div>
         )}
-        <ResultSection call={call} label="Result" />
+        <ResultSection call={call} label={i18nOr('ui7Chat.result')} />
       </>
     ),
   }
@@ -237,7 +243,7 @@ function todo(call, args) {
     active: t.status === 'in_progress',
   }))
   return {
-    icon: ListChecks, compact: true, title: `Todos (${items.filter(t => t.done).length}/${items.length} done)`,
+    icon: ListChecks, compact: true, title: i18nOr('ui7Chat.todos', { done: items.filter(t => t.done).length, total: items.length }),
     body: (
       <ul style={{ margin: 0, paddingLeft: 16, fontFamily: mono, fontSize: 10, color: '#94a3b8' }}>
         {items.map((t, i) => (
@@ -254,9 +260,9 @@ function other(call, args) {
     body: (
       <>
         {Object.keys(args).length > 0 && (
-          <Section label="Args" copyText={JSON.stringify(args, null, 2)}><pre style={preStyle}>{JSON.stringify(args, null, 2)}</pre></Section>
+          <Section label={i18nOr('ui7Chat.args')} copyText={JSON.stringify(args, null, 2)}><pre style={preStyle}>{JSON.stringify(args, null, 2)}</pre></Section>
         )}
-        <ResultSection call={call} label="Result" />
+        <ResultSection call={call} label={i18nOr('ui7Chat.result')} />
       </>
     ),
   }

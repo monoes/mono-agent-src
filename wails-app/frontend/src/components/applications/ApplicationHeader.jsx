@@ -1,18 +1,23 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { ExternalLink, Clock, X, Building2, Calendar } from 'lucide-react'
 import * as WailsApp from '../../wailsjs/go/main/App'
 import { StatusBadge, subtleBtnStyle } from './constants.jsx'
 import SendToCoderButton from '../SendToCoderButton.jsx'
 import ApplyWithCoderButton from '../ApplyWithCoderButton.jsx'
 import { selectionText } from '../SendToCoderApi.js'
+import t from '../../lib/i18nOr.js'
 
 export default function ApplicationHeader({ detail, assets, onSetStatus, onClose }) {
+  useTranslation()
   if (!detail) return null
 
-  const title = detail.title || 'Untitled Application'
-  const orgName = detail.kind === 'job'
-    ? (detail.company || 'Unknown Company')
-    : (detail.issuing_org || detail.company || 'Unknown Organization')
+  const org = detail.kind === 'job' ? detail.company : (detail.issuing_org || detail.company)
+  const title = detail.title || t('ui6PagesApps.untitled')
+  const orgName = org || (detail.kind === 'job' ? t('ui6PagesApps.unknown_company') : t('ui6PagesApps.unknown_org'))
+  // What the coder is told stays in English.
+  const contextTitle = detail.title || 'Untitled Application'
+  const contextOrg = org || (detail.kind === 'job' ? 'Unknown Company' : 'Unknown Organization')
 
   const deadline = detail.submission_deadline || detail.submissionDeadline || assets?.posting?.deadline
   const postingUrl = detail.url || assets?.posting?.url
@@ -32,7 +37,7 @@ export default function ApplicationHeader({ detail, assets, onSetStatus, onClose
   return (
     <header
       role="banner"
-      aria-label="Application header"
+      aria-label={t('ui6PagesApps.header_label')}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -79,7 +84,7 @@ export default function ApplicationHeader({ detail, assets, onSetStatus, onClose
 
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Clock size={13} style={{ color: '#64748b' }} />
-              {deadline ? `Deadline: ${deadline}` : 'No deadline'}
+              {deadline ? t('ui6PagesApps.deadline', { date: deadline }) : t('ui6PagesApps.no_deadline')}
             </span>
 
             {postingUrl && (
@@ -88,8 +93,8 @@ export default function ApplicationHeader({ detail, assets, onSetStatus, onClose
                 <a
                   href={postingUrl}
                   onClick={handleOpenUrl}
-                  title="Open application URL"
-                  aria-label={`Open link: ${postingUrl}`}
+                  title={t('ui6PagesApps.open_url')}
+                  aria-label={t('ui6PagesApps.open_link', { url: postingUrl })}
                   style={{
                     color: '#00b4d8',
                     textDecoration: 'none',
@@ -112,9 +117,9 @@ export default function ApplicationHeader({ detail, assets, onSetStatus, onClose
 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flex: '0 1 auto', minWidth: 0, maxWidth: '100%', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {canCancel && <ApplyWithCoderButton applicationId={detail.id} />}
-          <SendToCoderButton label="Discuss in coder" goal="Discuss this application with me: its fit, the posting, and what to do next."
-            applicationId={detail.id} origin={{ page: 'applications', label: 'Applications' }}
-            context={[selectionText([title, orgName, postingUrl].filter(Boolean).join(' | '))]} />
+          <SendToCoderButton label={t('ui6PagesApps.discuss')} goal="Discuss this application with me: its fit, the posting, and what to do next."
+            applicationId={detail.id} origin={{ page: 'applications', label: t('ui6PagesApps.applications') }}
+            context={[selectionText([contextTitle, contextOrg, postingUrl].filter(Boolean).join(' | '))]} />
           {canCancel && onSetStatus && (
             <button
               type="button"
@@ -125,9 +130,9 @@ export default function ApplicationHeader({ detail, assets, onSetStatus, onClose
                 borderColor: 'rgba(244,63,94,0.3)',
                 background: 'rgba(244,63,94,0.1)',
               }}
-              aria-label="Cancel this application"
+              aria-label={t('ui6PagesApps.cancel_this')}
             >
-              Cancel Application
+              {t('ui6PagesApps.cancel_application')}
             </button>
           )}
 
@@ -135,7 +140,7 @@ export default function ApplicationHeader({ detail, assets, onSetStatus, onClose
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close detail modal"
+              aria-label={t('ui6PagesApps.close_detail')}
               style={{
                 background: 'transparent',
                 border: 'none',

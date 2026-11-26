@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Wand2, Download, Loader2, CheckCircle, AlertCircle, Crop } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { useEscapeClose } from '../lib/escapeStack.js'
-import { mono, btnBase, TABS, OUT_DIR, DEFAULT_ADJ, buildFilter, AdjustControls, RemoveBgControls, ResizeControls, CropOverlay, CropControls, ConvertControls } from './ImageEditorParts.jsx'
-export { RemoveBgControls, ConvertControls } from './ImageEditorParts.jsx'
+import { mono, btnBase, TABS, OUT_DIR, DEFAULT_ADJ, buildFilter, AdjustControls, ResizeControls, CropOverlay, CropControls, ConvertControls } from './ImageEditorParts.jsx'
+export { ConvertControls } from './ImageEditorParts.jsx'
 
 export default function ImageEditorFullscreen({ image, onClose, onSaved, initialTab = 'adjust' }) {
   const [tab, setTab]         = useState(initialTab)
@@ -11,7 +11,6 @@ export default function ImageEditorFullscreen({ image, onClose, onSaved, initial
   const [natW, setNatW]       = useState(0)
   const [natH, setNatH]       = useState(0)
   const [adj, setAdj]         = useState({ ...DEFAULT_ADJ })
-  const [bgcolor, setBgcolor] = useState('')
   const [width, setWidth]     = useState(800)
   const [height, setHeight]   = useState(600)
   const [fit, setFit]         = useState('contain')
@@ -61,7 +60,6 @@ export default function ImageEditorFullscreen({ image, onClose, onSaved, initial
   }
 
   const handleProcess = () => {
-    if (tab === 'remove_bg') return runNode('image.remove_background', { field: 'image_path', output_field: 'out_path', output_dir: OUT_DIR, output_format: 'png', bgcolor: bgcolor || '' })
     if (tab === 'resize')    return runNode('image.resize',    { field: 'image_path', output_field: 'out_path', output_dir: OUT_DIR, width, height, fit })
     if (tab === 'crop')      return runNode('image.crop',      { field: 'image_path', output_field: 'out_path', output_dir: OUT_DIR, x: cx, y: cy, width: cw, height: ch })
     if (tab === 'convert')   return runNode('image.convert',   { field: 'image_path', output_field: 'out_path', output_dir: OUT_DIR, format, quality })
@@ -170,7 +168,6 @@ export default function ImageEditorFullscreen({ image, onClose, onSaved, initial
           <div style={{ width: 300, background: '#080c14', borderLeft: '1px solid #0d1a26', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
             <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
               {tab === 'adjust'    && <AdjustControls adj={adj} setAdj={setAdj} />}
-              {tab === 'remove_bg' && <RemoveBgControls bgcolor={bgcolor} setBgcolor={setBgcolor} />}
               {tab === 'resize'    && <ResizeControls width={width} setWidth={setWidth} height={height} setHeight={setHeight} fit={fit} setFit={setFit} natW={natW} natH={natH} />}
               {tab === 'crop'      && <CropControls cx={cx} cy={cy} cw={cw} ch={ch} />}
               {tab === 'convert'   && <ConvertControls format={format} setFormat={setFormat} quality={quality} setQuality={setQuality} sizeBytes={image.size_bytes} />}

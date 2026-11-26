@@ -53,6 +53,9 @@ type coderTurn struct {
 	// missionConfirmed: the user confirmed a mission for this conversation
 	// (mission.propose), so the lead plans one (dynorg.MissionPrompt).
 	missionConfirmed bool
+	// wrapUp: the turn runs under its mission's wrap-up allowance (set by
+	// runCoderTurn; chat_mission_wrapup.go).
+	wrapUp bool
 }
 
 // coderSystemPrompt is appended to the runtime's own system prompt (not a
@@ -168,23 +171,25 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 	if err != nil {
 		return err
 	}
+	startupTimeout, _ := settings.resolveStartupTimeout()
 	opts := monomind.ExecOptions{
-		Bin:          bin,
-		Runtime:      rt.ID,
-		Prompt:       t.prompt + attachmentPrompt(t.attachments),
-		Model:        t.model,
-		Effort:       t.effort,
-		EffortFlag:   st.caps.Has(monomind.CapAgentExecEffort),
-		Resume:       t.resume,
-		Cwd:          t.cwd,
-		Access:       monomind.AccessFull,
-		Settings:     monomind.CoderSettings,
-		MaxTurns:     settings.MaxTurns,
-		Timeout:      settings.timeout(),
-		BudgetUSD:    budget,
-		SystemPrompt: systemPrompt,
-		Env:          agentSendEnv(journal, "lead", ""),
-		Attach:       nativeAttachments(st.caps, t.attachments),
+		Bin:            bin,
+		Runtime:        rt.ID,
+		Prompt:         t.prompt + attachmentPrompt(t.attachments),
+		Model:          t.model,
+		Effort:         t.effort,
+		EffortFlag:     st.caps.Has(monomind.CapAgentExecEffort),
+		Resume:         t.resume,
+		Cwd:            t.cwd,
+		Access:         monomind.AccessFull,
+		Settings:       monomind.CoderSettings,
+		MaxTurns:       settings.MaxTurns,
+		Timeout:        settings.timeout(),
+		StartupTimeout: startupTimeout,
+		BudgetUSD:      budget,
+		SystemPrompt:   systemPrompt,
+		Env:            agentSendEnv(journal, "lead", ""),
+		Attach:         nativeAttachments(st.caps, t.attachments),
 	}
 	// The coder kind of browser permissions, vouched for by a token that
 	// counts while this turn runs (its workers get their own, dynorg).
@@ -227,11 +232,23 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 			journal.notice(noticeCoderStatus, "Kilo takes no "+kiloDropped+": this turn runs without it", chatevents.SeverityWarning)
 		}
 	}
+	// A mission that has spent its budget still runs its lead, under the wrap-up
+	// allowance; once that is used up the message is refused here.
+	var wrap *wrapUpTurn
+	if journal != nil && t.orgMode == ai.OrgModeDynamic {
+		if wrap, err = beginWrapUp(ctx, cfg, journal, t); err != nil {
+			return err
+		}
+	}
+	if wrap != nil {
+		defer wrap.close(ctx)
+		t.wrapUp = true
+	}
 	var closeOrg func()
-	var chargeLead func(float64)
+	var settleLead func(res *monomind.TurnResult, last bool)
 	if journal != nil && t.orgMode == ai.OrgModeDynamic {
 		var leadEvent func(monomind.Event)
-		closeOrg, leadEvent, chargeLead = startDynamicOrg(ctx, cfg, journal, settings, st, rt, t, &opts)
+		closeOrg, leadEvent, settleLead = startDynamicOrg(ctx, cfg, journal, settings, st, rt, t, &opts)
 		if leadEvent != nil {
 			journalEvent := onEvent
 			onEvent = func(ev monomind.Event) {
@@ -251,18 +268,35 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 			}
 		}
 	}
+	if t.confine == nil && startsChat(journal, t.resume) {
+		warnAccess(cmd.ErrOrStderr(), t.access, settings)
+	}
+	if wrap != nil {
+		wrap.apply(&opts)
+		onEvent = wrap.watch(onEvent)
+	}
 	res, err := monomind.Exec(ctx, opts, onEvent)
-	if chargeLead != nil && res != nil && res.HasCostUSD {
-		// the lead's own turn counts against the mission's budget, as a worker's run does
-		chargeLead(res.CostUSD)
+	if wrap != nil {
+		wrap.settle(ctx, res)
+	}
+	if settleLead != nil {
+		// The lead's own turn counts against the mission's budget, as a worker's run does: charged at once, so
+		// that nothing that follows (closing the workers, a long compaction, a crash) can lose it.
+		settleLead(res, false)
 	}
 	if closeOrg != nil {
 		// The lead is done: workers still running are stopped and their
 		// ends journaled before the turn finishes.
 		closeOrg()
 	}
-	if journal != nil {
+	switch {
+	case wrap != nil:
+		wrap.warnContext()
+	case journal != nil:
 		compactContext(ctx, journal, opts, res, err)
+	}
+	if settleLead != nil {
+		settleLead(res, true) // what the compaction added: its cost is part of this turn's
 	}
 	if journal != nil {
 		if err != nil && res == nil {
@@ -371,7 +405,13 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 // createCoderConversation is `chat history create` above the scoped level
 // (--mode coder is full); runtimeID "" means claude.
 // chatMode ("" is off) is written in the transaction that inserts the conversation.
-func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID, chatMode string, folder coderFolderChoice) (ai.Conversation, error) {
+// A conversation that can run anything warns on stderr (warnAccess).
+func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID, chatMode string, folder coderFolderChoice) (conv ai.Conversation, err error) {
+	defer func() {
+		if err == nil {
+			warnNewChatAccess(cmd.ErrOrStderr(), cfg, access)
+		}
+	}()
 	// A conversation above scoped is a raise from nothing: an agent, the chat or
 	// a workflow must not make itself a full-access one to run next.
 	if err := clicore.RequireOperator(cfg.RequireOperator, "create a conversation above the scoped level"); err != nil {
@@ -398,7 +438,7 @@ func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, m
 	}
 	defer db.Close()
 	cs := coderhost.NewStore(db.DB)
-	conv, err := store.CreateConversationAccessIn(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort,
+	conv, err = store.CreateConversationAccessIn(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort,
 		func(ctx context.Context, conn *sql.Conn, id string) error {
 			return cs.SetNewChatModeOn(ctx, conn, profileID, id, chatMode)
 		})

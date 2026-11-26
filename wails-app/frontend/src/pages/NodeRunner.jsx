@@ -41,6 +41,7 @@ import { withAiPorts, isAiEdge, checkSubConnection, subEdge, missingRequired, ai
 import { AI_GROUP_PREFIX } from './paletteSections.js'
 import { isAgentNotSetup, withoutAgentSetupMarker } from '../lib/agentSetup.js'
 import AgentSetupLink from '../components/AgentSetupLink.jsx'
+import { useSchemaCatalog, localizeFields, localizeSubInputs } from '../lib/schemaI18n.js'
 
 // ── Wails bindings with mock fallback ────────────────────────────────────────
 const RunNode               = WailsApp.RunNode               ?? (async (req) => ({ outputs: [{ handle: 'main', items: [{ mock: true, node_type: req.node_type }] }], duration_ms: 42 }))
@@ -485,6 +486,11 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
   const [vaultImages, setVaultImages] = useState([])
   const [atAC, setAtAC] = useState({ open: false, query: '', fieldKey: null })
   const [pickerField, setPickerField] = useState(null)
+  const schemaCatalog = useSchemaCatalog()
+  const shownFields = useMemo(
+    () => localizeFields(schemaCatalog, node?.subtype, schema?.fields || node?.configFields || []),
+    [schemaCatalog, node?.subtype, schema, node?.configFields],
+  )
 
   const platformId = derivePlatformId(node, schema, automationIds)
   const isBrowserPlatform = isSessionPicker(node, automationIds)
@@ -598,7 +604,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
 
         {/* Config fields */}
         {(() => {
-          const fields = schema?.fields || node.configFields || []
+          const fields = shownFields
           if (fields.length === 0) {
             return (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
@@ -964,7 +970,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 letterSpacing: 1.2, textTransform: 'uppercase', cursor: 'pointer',
                 padding: '4px 0', userSelect: 'none',
               }}>
-                INPUT · {node.runInputItems.length} item{node.runInputItems.length !== 1 ? 's' : ''}
+                {t('ui6Node.inputItems', { count: node.runInputItems.length })}
               </summary>
               <div style={{ marginTop: 4 }}>
                 {node.runInputItems.slice(0, 3).map((item, ii) => (
@@ -982,7 +988,7 @@ export function Inspector({ node, onConfigChange, onClose, onNavigate, liveSchem
                 ))}
                 {node.runInputItems.length > 3 && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', padding: '2px 0' }}>
-                    + {node.runInputItems.length - 3} more
+                    {t('ui6Node.moreItems', { n: node.runInputItems.length - 3 })}
                   </div>
                 )}
               </div>
@@ -1123,6 +1129,7 @@ function schemaDefaults(fields) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) {
   const { t } = useTranslation()
+  const schemaCatalog = useSchemaCatalog()
   const [categories, setCategories] = useState([])
   // type -> schema, from the node catalog. The workflow file carries the
   // schema each node had when it was saved; the catalog is what the running
@@ -1611,13 +1618,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     dragRef.current = null; setPendingEdge(null)
     if (!d || (d.type !== 'subEdge' && d.type !== 'edge')) return
     const tNode = nodesRef.current.find(n => n.id === targetNodeId)
-    const label = (tNode?.subInputs || []).find(x => x.handle === handle)?.label || handle
+    const label = (localizeSubInputs(schemaCatalog, tNode)?.subInputs || []).find(x => x.handle === handle)?.label || handle
     if (d.type === 'edge') {
       notify(t('nodeRunnerMore.op_connectNodes'), t('nodeRunner.run.rejectedAiInput', { label }))
       return
     }
     const sNode = nodesRef.current.find(n => n.id === d.sourceNodeId)
-    const check = checkSubConnection(sNode, tNode, handle, edgesRef.current)
+    const check = checkSubConnection(sNode, localizeSubInputs(schemaCatalog, tNode), handle, edgesRef.current)
     if (!check.ok) {
       if (check.reason !== 'duplicate') notify(t('nodeRunnerMore.op_connectNodes'), check.message)
       return
@@ -1998,7 +2005,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
             color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 3,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
-            UNSAVED
+            {t('ui6Node.unsaved')}
           </span>
         )}
 
@@ -2440,7 +2447,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
               {nodes.map(node => (
                 <CanvasNode
                   key={node.id}
-                  node={node}
+                  node={localizeSubInputs(schemaCatalog, node)}
                   selected={selectedId === node.id}
                   zoom={camera.zoom}
                   onClick={() => { setSelectedId(node.id); setInspectorOpen(true) }}
@@ -2451,7 +2458,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
                   }}
                   onOutputPortMouseDown={(e, portIdx) => startEdge(e, node.id, portIdx)}
                   onInputPortMouseUp={(portIdx) => completeEdge(node.id, portIdx)}
-                  missing={missingRequired(node, edges)}
+                  missing={missingRequired(localizeSubInputs(schemaCatalog, node), edges)}
                   subCounts={node.subInputs?.length ? Object.fromEntries(node.subInputs.map(x => [x.handle, attachedCount(edges, node.id, x.handle)])) : null}
                   dragKind={pendingEdge?.kind}
                   onSubOutputMouseDown={() => startSubEdge(node.id)}

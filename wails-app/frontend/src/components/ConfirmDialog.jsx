@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useEscapeClose } from '../lib/escapeStack.js'
+import i18nOr from '../lib/i18nOr.js'
 
 // Promise-based confirm to replace blocking native window.confirm(), which looks
 // foreign in a styled Wails app and freezes the webview. Usage:
@@ -110,7 +111,7 @@ export default function ConfirmHost() {
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={req.title || 'Confirm'}
+        aria-label={req.title || i18nOr('ui6Set.confirm')}
         style={{
           background: 'var(--surface, #0d1520)',
           border: '1px solid var(--border, rgba(255,255,255,0.1))',
@@ -145,7 +146,7 @@ export default function ConfirmHost() {
               color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)',
             }}
           >
-            {req.cancelLabel || 'Cancel'}
+            {req.cancelLabel || i18nOr('ui6Set.cancel')}
           </button>
           <button
             autoFocus={!req.defaultCancel}
@@ -155,7 +156,7 @@ export default function ConfirmHost() {
               background: danger ? '#ef4444' : '#00b4d8', color: '#fff', fontFamily: 'var(--font-mono)',
             }}
           >
-            {req.confirmLabel || 'Confirm'}
+            {req.confirmLabel || i18nOr('ui6Set.confirm')}
           </button>
         </div>
       </div>

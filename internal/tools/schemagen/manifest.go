@@ -76,7 +76,6 @@ var Manifest = []ManifestEntry{
 	{NodeType: "image.convert", GoFile: "internal/nodes/image/convert_schema.go", StructName: "ImageConvertNodeSchema"},
 	{NodeType: "image.crop", GoFile: "internal/nodes/image/crop_schema.go", StructName: "ImageCropNodeSchema"},
 	{NodeType: "image.info", GoFile: "internal/nodes/image/info_schema.go", StructName: "ImageInfoNodeSchema"},
-	{NodeType: "image.remove_background", GoFile: "internal/nodes/image/remove_background_schema.go", StructName: "RemoveBackgroundNodeSchema"},
 	{NodeType: "image.resize", GoFile: "internal/nodes/image/resize_schema.go", StructName: "ImageResizeNodeSchema"},
 	{NodeType: "image.thumbnail", GoFile: "internal/nodes/image/thumbnail_schema.go", StructName: "ImageThumbnailNodeSchema"},
 	{NodeType: "image.vault_get", GoFile: "internal/nodes/image/vault_get_schema.go", StructName: "ImageVaultGetNodeSchema"},

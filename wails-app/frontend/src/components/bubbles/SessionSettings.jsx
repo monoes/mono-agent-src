@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../services/api.js'
 import { aliasFromTitle } from '../../lib/meshAlias.js'
+import i18nOr from '../../lib/i18nOr.js'
 
 const mono = 'var(--font-mono)'
 const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px solid var(--border)' }
@@ -154,7 +155,7 @@ export function SessionSettings({ conversationId, access }) {
                 {WHO.map(w => <option key={w} value={w}>{t(`bubbles.pane.session.who.${w}`)}</option>)}
               </select>
               {c && (
-                <select aria-label={`${t(`bubbles.pane.session.class.${cls}`)} – fallback`} value={c.fallback} disabled={busy} onChange={e => setClass(cls, 'fallback', e.target.value)} className="select-compact">
+                <select aria-label={i18nOr('ui7Chat.fallback_label', { name: t(`bubbles.pane.session.class.${cls}`) })} value={c.fallback} disabled={busy} onChange={e => setClass(cls, 'fallback', e.target.value)} className="select-compact">
                   {['park', 'take_default'].map(f => <option key={f} value={f}>{t(`bubbles.pane.session.fallback.${f}`)}</option>)}
                 </select>
               )}

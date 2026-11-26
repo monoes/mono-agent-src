@@ -6,6 +6,7 @@ import { isUnread, UnreadDot } from '../lib/unread.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '../components/CommsLinks.jsx'
+import i18nOr from '../lib/i18nOr.js'
 import { STATUS_FILTERS, messageStatus, isPending, hilRefOf, matchesStatusFilter, onCommsChanged } from '../lib/commsStatus.js'
 
 const FETCH_LIMIT = 200
@@ -48,7 +49,7 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
       setMessages(data || [])
       setKnownSources(prev => [...new Set([...prev, ...(data || []).map(m => m.source).filter(Boolean)])])
     } catch (e) {
-      setError(e?.message || 'Failed to load messages')
+      setError(e?.message || i18nOr('ui6PagesMsgs.load_failed'))
     } finally {
       setLoading(false)
     }
@@ -90,12 +91,12 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
     <>
       <div className="page-header">
         <div className="page-header-left">
-          <div className="page-title">Communications</div>
-          <div className="page-subtitle">{filtered.length} message{filtered.length !== 1 ? 's' : ''} across all people</div>
+          <div className="page-title">{i18nOr('ui6PagesMsgs.communications')}</div>
+          <div className="page-subtitle">{i18nOr('ui6PagesMsgs.across', { count: filtered.length })}</div>
         </div>
         <div className="page-header-right">
           <button className="btn btn-ghost btn-sm" onClick={load} style={{ gap: 5 }}>
-            <RefreshCw size={12} /> Refresh
+            <RefreshCw size={12} /> {i18nOr('ui6PagesMsgs.refresh')}
           </button>
         </div>
       </div>
@@ -137,14 +138,14 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
           <div className="profile-summary-chips" style={{ marginBottom: 12 }}>
             {(unreadCount > 0 || unreadOnly) && (
               <button className={`summary-chip ${unreadOnly ? 'active' : ''}`} onClick={() => setUnreadOnly(u => !u)}>
-                Unread <span>{unreadCount}</span>
+                {i18nOr('ui6PagesMsgs.unread')} <span>{unreadCount}</span>
               </button>
             )}
             <button
               className={`summary-chip ${!sourceFilter ? 'active' : ''}`}
               onClick={() => setSourceFilter('')}
             >
-              All{!sourceFilter && <> <span>{messages.length}</span></>}
+              {i18nOr('ui6PagesMsgs.all')}{!sourceFilter && <> <span>{messages.length}</span></>}
             </button>
             {sources.map(src => (
               <button
@@ -169,7 +170,7 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
         ) : filtered.length === 0 ? (
           <div className="empty-state" style={{ height: '50vh' }}>
             <Mail size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
-            <div className="empty-state-title">No messages synced yet</div>
+            <div className="empty-state-title">{i18nOr('ui6PagesMsgs.empty')}</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -216,7 +217,7 @@ export default function Communications({ onProfile, isActive = true, onOpenHil, 
                     color: 'var(--text-muted)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
-                    {msg.subject || '(no subject)'}
+                    {msg.subject || i18nOr('ui6PagesMsgs.no_subject')}
                   </span>
                   <span style={{
                     marginLeft: 'auto', flexShrink: 0,

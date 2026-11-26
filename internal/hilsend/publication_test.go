@@ -32,8 +32,9 @@ func TestClaimPublicationApproval(t *testing.T) {
 	asAgent(t)
 	db := testDB(t)
 	ctx := context.Background()
-	pending := queueEmail(t, db)
 	sent := sentEmail(t, db, `{"main":[{"json":{"message_id":"m-42"}}]}`)
+	// Queued after the first was sent: an identical send that still waits shares its card (merge.go).
+	pending := queueEmail(t, db)
 	p, err := (Store{db, "p1"}).Get(ctx, sent)
 	if err != nil {
 		t.Fatal(err)

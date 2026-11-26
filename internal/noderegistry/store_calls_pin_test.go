@@ -110,7 +110,7 @@ var noStoreWrite = map[string]string{
 	"image.convert":           "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.crop":              "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.info":              "edits pixels, not text; image.vault_save declares WritesLocalStore()",
-	"image.remove_background": "edits pixels, not text; image.vault_save declares WritesLocalStore()",
+	"image.remove_background": "removed feature: the stub fails without writing anything",
 	"image.resize":            "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.thumbnail":         "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.vault_get":         "edits pixels, not text; image.vault_save declares WritesLocalStore()",

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, onMonomindInitEvent, notify } from '../services/api.js'
+import i18nOr from '../lib/i18nOr.js'
 
 const MAX_LOG_LINES = 10
 
@@ -27,7 +28,7 @@ export default function MonomindInitPrompt({ onInitialized }) {
     } else if (payload.kind === 'error') {
       runningRef.current = false
       setStatus('error')
-      notify('initialize monomind', payload.message || 'failed')
+      notify(i18nOr('ui6Set.op_init_monomind'), payload.message || i18nOr('ui6Set.failed_word'))
     } else if (payload.kind === 'done') {
       runningRef.current = false
       setStatus('idle')
@@ -52,7 +53,7 @@ export default function MonomindInitPrompt({ onInitialized }) {
     if (message && runningRef.current) {
       runningRef.current = false
       setStatus('error')
-      notify('initialize monomind', message)
+      notify(i18nOr('ui6Set.op_init_monomind'), message)
     }
   }
 
