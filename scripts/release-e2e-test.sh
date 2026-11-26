@@ -170,7 +170,7 @@ set_sh_latest() { # <manifest> <keyname> : URLs rewritten to the loopback server
   mkdir -p "$srv/sh" "$work/shtmp"
   sed "s#https://github.com/$dl/#$base/$dl/#g" "$1" > "$work/shtmp/manifest.json"
   "$rm_tool" sign -manifest "$work/shtmp/manifest.json" -key-file "$work/$2.key" >/dev/null
-  cp "$work/shtmp/manifest.json" "$work/shtmp/manifest.json.sig" "$srv/sh/"
+  cp "$work/shtmp/manifest.json" "$work/shtmp/manifest.json.sig" "$work/shtmp/manifest.json.sshsig" "$srv/sh/"
 }
 publish_assets v9.9.9; publish_assets v9.0.0
 
@@ -206,14 +206,15 @@ reset_sh() { set_sh_latest "$work/art-v9.9.9/manifest.json" good; publish_assets
 
 reset_sh
 inst "signed with the pinned key: verified, right binary" ok "Manifest signature verified" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
-inst "no key configured: says SKIPPED, never claims a signature (no-false-claim)" ok "signature verification is SKIPPED" --unpinned
+inst "no key configured: stops" fail "could not be checked on this machine" --unpinned
+inst "no key configured, opted in: says SKIPPED, never claims a signature (no-false-claim)" ok "signature verification is SKIPPED" --unpinned MONOAGENT_ALLOW_UNSIGNED=1
 inst "wrong pinned key" fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$other_pub64"
 
 set_sh_latest "$work/exp/manifest.json" good
 inst "manifest with a future expires_at installs" ok "Manifest signature verified" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
 set_sh_latest "$work/expired.json" good
 inst "expired manifest (validly signed)" fail "expired" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
-inst "expired manifest, no key configured" fail "expired" --unpinned
+inst "expired manifest, no key configured" fail "expired" --unpinned MONOAGENT_ALLOW_UNSIGNED=1
 
 reset_sh
 sed 's/v9.9.9/v9.9.8/' "$srv/sh/manifest.json" > "$work/t2" && cp "$work/t2" "$srv/sh/manifest.json"
@@ -231,6 +232,27 @@ inst "tampered signature" fail "signature verification FAILED" MONOAGENT_RELEASE
 reset_sh
 find "$srv/sh" -name manifest.json.sig -delete
 inst "missing signature with a key configured" fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
+
+# The producer's manifest.json.sshsig through the installer (ssh-keygen path:
+# an openssl that cannot verify) and through the release jobs' verify helper.
+if command -v ssh-keygen >/dev/null 2>&1; then
+  mkdir -p "$work/stub" && printf '#!/bin/sh\nexit 1\n' > "$work/stub/openssl" && chmod +x "$work/stub/openssl"
+  nossl="PATH=$work/stub:$PATH"
+  reset_sh
+  inst "sshsig: verified without openssl" ok "checked by ssh-keygen" "$nossl" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
+  inst "sshsig: another key is refused" fail "signature verification FAILED" "$nossl" MONOAGENT_RELEASE_PUBKEY="$other_pub64"
+  sed 's/v9.9.9/v9.9.8/' "$srv/sh/manifest.json" > "$work/t6" && cp "$work/t6" "$srv/sh/manifest.json"
+  inst "sshsig: tampered manifest" fail "signature verification FAILED" "$nossl" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
+  reset_sh
+  find "$srv/sh" -name manifest.json.sshsig -delete
+  inst "sshsig: missing stops" fail "no manifest.json.sshsig could be fetched" "$nossl" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
+  printf 'RELEASE_SSH_PUBKEY="ssh-ed25519 %s"\n' "$({ printf '\000\000\000\013ssh-ed25519\000\000\000 '; cat "$work/good.pub"; } | openssl base64 -A)" > "$work/installer-good-key"
+  out="$(bash "$root/scripts/verify-sshsig.sh" --installer "$work/installer-good-key" "$m" "$m.sshsig" 2>&1)"; check "verify-sshsig.sh: the signed manifest verifies" $? "$out"
+  out="$(bash "$root/scripts/verify-sshsig.sh" --installer "$root/install.sh" "$m" "$m.sshsig" 2>&1)" && rc=0 || rc=$?
+  [ "$rc" -ne 0 ]; check "verify-sshsig.sh: the real installer's key refuses a test signature" $? "$out"
+else
+  echo "SKIP sshsig (no ssh-keygen)"
+fi
 
 # ── (6) update (the Go client) ───────────────────────────────────────────────
 echo "== 6: monoagentcli update"

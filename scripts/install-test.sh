@@ -91,11 +91,13 @@ done
 write_manifest "$asset" "$(sha "$web/$asset")"; sign
 run pinned-key-refuses-other fail "not the pinned key"
 
-# 1b. checksum-only: an openssl without Ed25519 says so and does not claim a
-# signature. A stub openssl that fails everything stands in for one.
+# 1b. an openssl without Ed25519 and no .sshsig: the install stops. The opt-in
+# installs checksum-only, says so and claims no signature. A stub openssl that
+# fails everything stands in for such an openssl.
 mkdir -p "$work/stub" && printf '#!/bin/sh\nexit 1\n' > "$work/stub/openssl" && chmod +x "$work/stub/openssl"
-run no-ed25519-openssl ok "signature verification is SKIPPED" PATH="$work/stub:$PATH"
-run_installer no-false-claim PATH="$work/stub:$PATH" || fails=$((fails+1))
+run no-ed25519-openssl-stops fail "could not be checked on this machine" PATH="$work/stub:$PATH"
+run no-ed25519-openssl ok "signature verification is SKIPPED" PATH="$work/stub:$PATH" MONOAGENT_ALLOW_UNSIGNED=1
+run_installer no-false-claim PATH="$work/stub:$PATH" MONOAGENT_ALLOW_UNSIGNED=1 || fails=$((fails+1))
 if printf '%s' "$out" | grep -q "signature verified"; then echo "FAIL claimed verification without checking"; fails=$((fails+1)); else echo "PASS no false claim"; fi
 
 # 2. tarball asset.
@@ -277,10 +279,13 @@ EOF
   check mac-app-tampered-nothing-installed "$st"
   cp "$work/good.zip" "$web/MonoAgent-darwin-arm64.zip"
 
-  # 9e. an openssl without pkeyutl -rawin (LibreSSL) is checksum-only and
-  # says so, rather than failing every signature.
-  run mac-libressl ok "cannot verify raw Ed25519 signatures" \
+  # 9e. an openssl without pkeyutl -rawin (LibreSSL), with no ssh-keygen on
+  # this PATH: the install stops; the opt-in is checksum-only and says so,
+  # rather than failing every signature. (With ssh-keygen: 10.)
+  run mac-libressl-stops fail "could not be checked on this machine" \
     PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
+  run mac-libressl ok "cannot verify raw Ed25519 signatures" \
+    PATH="$mac/libressl:$mac/bin" MONOAGENT_TEST_APPLICATIONS_DIR="$sysapps" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_ALLOW_UNSIGNED=1 --app-flag
   st=0
   { printf '%s\n' "$out" | grep -q "Checksum verified: MonoAgent-darwin-arm64.zip" \
     && ! printf '%s\n' "$out" | grep -q "signature verified"; } || st=1
@@ -292,6 +297,72 @@ EOF
 else
   echo "SKIP mac-app (needs zip, unzip, shasum and perl)"
 fi
+
+# 10. manifest.json.sshsig, where openssl cannot verify: checked with the real
+# ssh-keygen and a temporary key.
+if command -v ssh-keygen >/dev/null 2>&1; then
+  ssh-keygen -q -t ed25519 -N '' -f "$work/sshkey" >/dev/null
+  ssh-keygen -q -t ed25519 -N '' -f "$work/sshother" >/dev/null
+  sshline="$(awk '{print $1" "$2}' "$work/sshkey.pub")"
+  sshpub="$(awk '{print $2}' "$work/sshkey.pub" | openssl base64 -d -A | tail -c 32 | openssl base64 -A)"
+  sshsign() { # <key-file> [namespace] — (re)write manifest.json.sshsig
+    ssh-keygen -Y sign -q -f "$1" -n "${2:-monoagent-manifest}" < "$web/manifest.json" > "$web/manifest.json.sshsig"
+  }
+  nossl="PATH=$work/stub:$PATH"
+  key="MONOAGENT_RELEASE_PUBKEY=$sshpub"
+  write_manifest "$asset" "$(sha "$web/$asset")"; sign; sshsign "$work/sshkey"
+  run sshsig-verified ok "Manifest signature verified (Ed25519, checked by ssh-keygen" "$nossl" "$key"
+  # the embedded RELEASE_SSH_PUBKEY (no override): a copy that pins the test key.
+  sed -e "s#^RELEASE_PUBKEY=\"[A-Za-z0-9+/]*=\"\$#RELEASE_PUBKEY=\"$sshpub\"#" \
+    -e "s#^RELEASE_SSH_PUBKEY=\"ssh-ed25519 .*\"\$#RELEASE_SSH_PUBKEY=\"$sshline\"#" "$installer" > "$work/install-testpin.sh"
+  INSTALLER_SCRIPT="$work/install-testpin.sh"
+  run sshsig-embedded-key ok "checked by ssh-keygen" "$nossl"
+  unset INSTALLER_SCRIPT
+  run sshsig-real-pin-refuses-other fail "signature verification FAILED" "$nossl"
+  # a signature that does not verify is refused, opt-in or not.
+  sed 's/v9.9.9/v6.6.6/' "$web/manifest.json" > "$work/m4" && cp "$work/m4" "$web/manifest.json"
+  run sshsig-tampered fail "signature verification FAILED" "$nossl" "$key"
+  run sshsig-tampered-opt-in fail "signature verification FAILED" "$nossl" "$key" MONOAGENT_ALLOW_UNSIGNED=1
+  write_manifest "$asset" "$(sha "$web/$asset")"; sign; sshsign "$work/sshother"
+  run sshsig-wrong-key fail "signature verification FAILED" "$nossl" "$key"
+  sshsign "$work/sshkey" git
+  run sshsig-wrong-namespace fail "signature verification FAILED" "$nossl" "$key"
+  echo garbage > "$web/manifest.json.sshsig"
+  run sshsig-garbage fail "signature verification FAILED" "$nossl" "$key"
+  # a ssh-keygen too old for -Y verify cannot check; it is not a bad signature.
+  mkdir -p "$work/oldssh" && printf '#!/bin/sh\necho "unknown option -- Y" >&2\nexit 1\n' > "$work/oldssh/ssh-keygen" && chmod +x "$work/oldssh/ssh-keygen"
+  sshsign "$work/sshkey"
+  run sshsig-old-ssh-keygen fail "too old to verify signatures" PATH="$work/oldssh:$work/stub:$PATH" "$key"
+  # a stock Mac: LibreSSL, ssh-keygen present.
+  if [ "$mac_ok" -eq 1 ]; then
+    mkdir -p "$mac/ssh"
+    for t in ssh-keygen base64; do ln -s "$(command -v "$t")" "$mac/ssh/$t"; done
+    write_mac_manifest "$app_sha"; sshsign "$work/sshkey"
+    run mac-sshsig ok "checked by ssh-keygen" PATH="$mac/libressl:$mac/ssh:$mac/bin" "$key" --app-flag
+    # no openssl at all (key id and base64 never need it on this path).
+    rm -f "$mac/bin/openssl"
+    run mac-sshsig-no-openssl ok "checked by ssh-keygen" PATH="$mac/ssh:$mac/bin" "$key" --app-flag
+    ln -s "$(command -v openssl)" "$mac/bin/openssl"
+  fi
+  # no .sshsig (an older release): fail closed, with what to do; the opt-in
+  # installs checksum-only; a working openssl still verifies it.
+  write_manifest "$asset" "$(sha "$web/$asset")"; sign; rm -f "$web/manifest.json.sshsig"
+  run sshsig-missing-stops fail "no manifest.json.sshsig could be fetched" "$nossl" "$key"
+  st=0; printf '%s\n' "$out" | grep -q "install an openssl that verifies Ed25519.*MONOAGENT_ALLOW_UNSIGNED=1" || st=1
+  if [ "$st" -eq 0 ]; then echo "PASS sshsig-missing says what to do"; else echo "FAIL sshsig-missing says what to do"; fails=$((fails+1)); fi
+  run sshsig-missing-opt-in ok "signature verification is SKIPPED" "$nossl" "$key" MONOAGENT_ALLOW_UNSIGNED=1
+  run older-release-openssl ok "Manifest signature verified (Ed25519, key $keyid)" MONOAGENT_RELEASE_PUBKEY="$pub"
+else
+  echo "SKIP sshsig (no ssh-keygen)"
+fi
+
+# 11. an unreachable manifest is an error, never a fall back to the unsigned
+# GitHub path. The curl wrapper refuses and records every non-loopback URL.
+mkdir -p "$work/netguard"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in %s/*) ;; http://*|https://*) echo "$a" >> "%s/netguard.log"; exit 7 ;; esac; done\nexec "%s" "$@"\n' \
+  "$base" "$work" "$(command -v curl)" > "$work/netguard/curl" && chmod +x "$work/netguard/curl"
+run manifest-unreachable-stops fail "could not be fetched" PATH="$work/netguard:$PATH" MONOAGENT_MANIFEST_URL="$base/no-such-manifest.json"
+if [ ! -s "$work/netguard.log" ]; then echo "PASS no legacy fallback"; else echo "FAIL fell back to the network"; sed 's/^/    /' "$work/netguard.log"; fails=$((fails+1)); fi
 
 # 8. no asset for this platform.
 printf '{"schema":1,"version":"v9.9.9","assets":[]}' > "$web/manifest.json"; sign

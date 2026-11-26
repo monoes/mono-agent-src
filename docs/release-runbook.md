@@ -20,10 +20,24 @@ Releases are hands-free apart from the `release` environment approval.
 - `manifest.json.sig`: one line, `<key id> <base64 Ed25519 signature>`, made over the exact
   bytes of `manifest.json`. The key id is the first 8 bytes of the SHA-256 of the public key,
   hex encoded.
+- `manifest.json.sshsig`: the same key's signature over the same bytes in OpenSSH's SSHSIG
+  format (principal `monoagent-release`, namespace `monoagent-manifest`). Only `install.sh`
+  reads it: where `openssl` cannot verify Ed25519 (stock macOS) it runs `ssh-keygen -Y verify`
+  against `RELEASE_SSH_PUBKEY`. `monoagentcli` uses `manifest.json.sig`.
+- `install.sh`, committed to the releases repository's branch after the release's signed
+  files are uploaded.
 
-Assets, `manifest.json` and `manifest.json.sig` are uploaded together, so an unsigned
+Assets, `manifest.json` and both signature files are uploaded together, so an unsigned
 manifest never sits alone in the public release. Downloads are anonymous. The client pins
 only the public key(s) and trusts nothing else.
+
+`install.sh` fails closed: no reachable manifest, no verifiable signature, nothing installed.
+The opt-outs are `MONOAGENT_ALLOW_UNSIGNED=1` (checksum only, where the signature cannot be
+checked; never accepts a bad signature), `MONOAGENT_ALLOW_LEGACY_GITHUB=1` (unsigned GitHub
+API path) and `--no-verify`. Releases made before `manifest.json.sshsig` was published can only
+be verified with an `openssl` that does Ed25519. Between the `release` job (which creates the
+release) and `publish-releases-repo` (which attaches the manifest) the latest release has no
+manifest, so installs stop with "try again later"; approve the pending jobs promptly.
 
 ## How CI signs
 
@@ -55,17 +69,25 @@ GitHub environment. It exists nowhere else in CI.
    - it runs `monoagentcli release verify` as a self-check against the pinned keys. If the
      signing key is **not** pinned in `internal/release/keys.go` the step **fails**, unless
      the repository variable `RELEASE_SIGNING_BOOTSTRAP` is `true` (see "Bootstrap" below).
-   `manifest.json`, `manifest.json.sig` and the derived public key (`signing-pubkey.txt`, public)
-   go up as the `signed-manifest` artifact.
+   - the same signing run writes `manifest.json.sshsig`; a last step without the key verifies it
+     with `scripts/verify-sshsig.sh --installer install.sh` (real `ssh-keygen -Y verify` against
+     the key `install.sh` pins). The job **fails** if the file is missing or does not verify,
+     including when the signing key changed and `install.sh` was not updated. In the bootstrap
+     release of an unpinned key it verifies against the derived key and warns.
+   `manifest.json`, both signature files and the derived public key (`signing-pubkey.txt`,
+   public) go up as the `signed-manifest` artifact.
 3. `publish-releases-repo` (also `environment: release`) downloads the artifacts again and
    therefore **re-verifies everything before uploading**: `manifest.json.sig` against the pinned
    key (or, in bootstrap, the derived one); every manifest-listed file's sha256 and size
-   against the signed `manifest.json` (`release-manifest check -strict`); and it uploads only
-   the files the manifest lists, plus the manifest, the signature and a `SHA256SUMS`
-   regenerated from those verified files (the unsigned `SHA256SUMS` is never uploaded). Any
-   mismatch aborts. It writes to `RELEASES_REPO` with the secret `RELEASES_REPO_TOKEN` and fails
-   rather than upload without the signature. Both this job and `sign-manifest` are no-ops when
-   the secret `RELEASES_REPO_TOKEN` does not exist.
+   against the signed `manifest.json` (`release-manifest check -strict`);
+   `manifest.json.sshsig` again with `verify-sshsig.sh`, on the files about to be uploaded; and
+   it uploads only the files the manifest lists, plus the manifest, both signature files,
+   `NOTICE` and a `SHA256SUMS` regenerated from those verified files (the unsigned `SHA256SUMS`
+   is never uploaded). Any mismatch aborts. Only after the upload does it commit `install.sh` to
+   the releases repository. It writes to `RELEASES_REPO` with the secret `RELEASES_REPO_TOKEN`
+   and fails rather than upload without the signatures. Both this job and `sign-manifest` are
+   no-ops when the secret `RELEASES_REPO_TOKEN` does not exist; the release then has no signed
+   manifest, and `install.sh` refuses it.
 
 What these checks do and do not prove: the pre-sign check proves the manifest **matches the
 build artifacts** that the workflow produced. It does not prove the build itself was not
@@ -76,7 +98,10 @@ Read the diff of `.github/`, `cmd/release-manifest/` and `internal/release/` bef
 
 CI never overwrites `manifest.json` once `manifest.json.sig` exists on the release: the
 upload step fails with a message instead. A new version always makes a new release, so this
-only matters for a re-run of the same tag.
+only matters for a re-run of the same tag. If the upload succeeded but committing `install.sh`
+failed, a re-run stops at that same refusal: the next release publishes the installer, or commit
+`install.sh` to the releases repository by hand. If an upload stopped halfway, delete
+`manifest.json.sig` from the release deliberately and re-run the job.
 
 The `-key-env NAME` flag reads the base64 private key (64-byte key or 32-byte seed) from the
 named environment variable. It is never accepted as a flag value, never printed, never written
@@ -86,8 +111,8 @@ Optional expiry policy: the manifest job can pass `-expires-days N` to
 `release-manifest manifest`, which adds a signed `expires_at` (RFC3339). Clients reject a
 manifest whose `expires_at` is in the past. The default (0) omits the field.
 
-Until `manifest.json.sig` exists, clients treat the manifest as unavailable and use the
-GitHub API path (while `AllowLegacyGitHubUpdates` is true).
+Until `manifest.json.sig` exists, clients treat the manifest as unavailable. Shipped builds
+have `AllowLegacyGitHubUpdates` false, so `update` stops, and so does `install.sh`.
 
 ## One-time setup (owner)
 
@@ -103,9 +128,15 @@ GitHub API path (while `AllowLegacyGitHubUpdates` is true).
    Create the environment first (step 3) if it does not exist, since `gh secret set --env`
    needs it. Nothing is stored in your keyring in this mode.
 2. Copy the printed public line (`<keyid> <base64pub>`) into `pinnedReleaseKeys` in
-   `internal/release/keys.go`, and its base64 half into `RELEASE_PUBKEY` in `install.sh`, and
-   ship it in a release (see "Bootstrap"). Until a key is pinned no manifest is trusted by
-   clients, and the CI self-check fails.
+   `internal/release/keys.go`, and its base64 half into `RELEASE_PUBKEY` in `install.sh`, with
+   its SSH form in `RELEASE_SSH_PUBKEY`, and ship it in a release (see "Bootstrap"). Until a key
+   is pinned no manifest is trusted by clients, and the CI self-check fails. The SSH form of the
+   base64 half (public data; `go test ./internal/release/` checks the two match):
+
+   ```bash
+   B64='base64-half-of-the-public-line'
+   printf 'ssh-ed25519 %s\n' "$({ printf '\000\000\000\013ssh-ed25519\000\000\000 '; printf '%s' "$B64" | base64 -d; } | base64 | tr -d '\n')"
+   ```
 3. Protect the `release` environment. Find your numeric user id, then set the required
    reviewer and limit deployments to master:
 
@@ -182,9 +213,10 @@ never be uploaded.)
    gh secret set RELEASE_SIGNING_KEY --env release --repo OWNER/REPO < "$keydir/next"
    ```
 
-   `install.sh` pins one key (`RELEASE_PUBKEY`), and each release publishes it to the releases
-   repository. Set it to the new key's base64 in the first release CI signs with the new key,
-   or the installer refuses that release's manifest.
+   `install.sh` pins one key (`RELEASE_PUBKEY` and its SSH form `RELEASE_SSH_PUBKEY`), and
+   each release publishes it to the releases repository. Set both to the new key in the first
+   release CI signs with the new key, or `sign-manifest` fails: the installer would refuse that
+   release's manifest.
 
 4. Delete the staged key: `rm -f "$keydir/next"; rmdir "$keydir"` (the trap does this on exit).
 5. Later, when clients have moved past builds that only know the old key, ship a release
@@ -201,6 +233,9 @@ revokes it. Move fast, in the same order as a rotation but pinning only the new 
    the only signature existing clients accept. Approve it yourself, after checking
    `.github/workflows/release.yml` on master and the environment's deployment history for
    anything you did not do.
+   That release signs with a key its own commit no longer pins, so CI refuses it unless
+   `RELEASE_SIGNING_BOOTSTRAP` is `true` for that one run. Its `install.sh` pins the new key
+   and refuses that release's manifest, so installs stop until the next release (step 3).
 3. Immediately set the secret to the new key (Rotation step 3) and delete the staged file.
 4. Clients that do not update to that release keep trusting the leaked key and need a manual
    install (installer / releases page). If the leak is also a workflow or reviewer
@@ -210,7 +245,8 @@ revokes it. Move fast, in the same order as a rotation but pinning only the new 
 ## Code owners
 
 `.github/CODEOWNERS` assigns the release path (`/.github/`, `/cmd/release-manifest/`,
-`/internal/release/`, `/cmd/monoagentcli/release*.go`, `/internal/secrets/release_key.go`, `/scripts/check-release-tags*.sh`, `/scripts/release-flatten.sh`,
+`/internal/release/`, `/cmd/monoagentcli/release*.go`, `/internal/secrets/release_key.go`, `/scripts/check-release-tags*.sh`, `/scripts/release-flatten.sh`
+(`/scripts/verify-sshsig.sh` and `/install.sh` are not listed yet; add them),
 `/docs/release-runbook.md`) to the owner. **It only takes effect when branch protection on
 master requires code-owner review**; without that rule it is a label. Enable it (owner runs
 this, it replaces the rule's review settings, so check Settings -> Branches afterwards):
@@ -240,9 +276,13 @@ monoagentcli release keygen
 
 gh release download vX.Y.Z --repo monoes/mono-agent --pattern manifest.json
 go run ./cmd/release-manifest sign -manifest manifest.json -keyring     # or -key-file path/to/key
-gh release upload vX.Y.Z manifest.json.sig --repo monoes/mono-agent
 monoagentcli release verify manifest.json manifest.json.sig   # add --pubkey "<id> <b64>" to try another key
+bash scripts/verify-sshsig.sh --installer install.sh manifest.json manifest.json.sshsig
+gh release upload vX.Y.Z manifest.json.sig manifest.json.sshsig --repo monoes/mono-agent
 ```
+
+`sign` writes both signature files; upload both. CI is also what commits `install.sh` to the
+releases repository, so after a release published by hand, commit it there by hand if it changed.
 
 `-key-file` is refused unless its mode is 0600 or tighter (a symlink is judged by its target;
 the check is skipped on Windows, which has no POSIX mode bits). `-keyring` reads the entry written by keygen (service `monoagent-release-signing`, account
