@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Migration 174 records, on a kept dynamic-org worker, the claude session of its last reported cost and the total it
-// had reached. It is additive: a worker stored before it keeps its row with nothing to subtract, and a second run
+// Migration 174 records, on a kept dynamic-org worker, the claude session of its last reported cost, the total it had
+// reached and its token counters. It is additive: a worker stored before it keeps its row with nothing to subtract, and a second run
 // changes nothing.
 func TestMigration174KeepsStoredWorkersWithNothingToSubtract(t *testing.T) {
 	db, err := NewDatabase(filepath.Join(t.TempDir(), "monoagent.db"))
@@ -29,8 +29,9 @@ func TestMigration174KeepsStoredWorkersWithNothingToSubtract(t *testing.T) {
 		}
 		var session, resumable string
 		var usd float64
-		if err := db.DB.QueryRow(`SELECT session_id, cost_session, cost_usd FROM ai_chat_org_workers WHERE agent_id = 'old'`).Scan(&resumable, &session, &usd); err != nil || resumable != "s" || session != "" || usd != 0 {
-			t.Fatalf("run %d: a worker stored before the migration: %q %q %v %v", run, resumable, session, usd, err)
+		var models string
+		if err := db.DB.QueryRow(`SELECT session_id, cost_session, cost_usd, cost_models FROM ai_chat_org_workers WHERE agent_id = 'old'`).Scan(&resumable, &session, &usd, &models); err != nil || resumable != "s" || session != "" || usd != 0 || models != "" {
+			t.Fatalf("run %d: a worker stored before the migration: %q %q %v %q %v", run, resumable, session, usd, models, err)
 		}
 	}
 }

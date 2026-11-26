@@ -100,6 +100,9 @@ func finalRun(res *monomind.TurnResult, events monomind.TurnResult) monomind.Tur
 	if run.SessionID == "" {
 		run.SessionID = events.SessionID
 	}
+	if run.ModelUsage == nil {
+		run.ModelUsage = events.ModelUsage
+	}
 	return run
 }
 

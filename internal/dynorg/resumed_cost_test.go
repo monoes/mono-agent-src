@@ -15,11 +15,26 @@ import (
 // claude reports a resumed session's cost as a running total for the whole session (#1744), so a worker run that
 // resumes its session costs what it added to that total.
 
-// totalRun is one run of totalsExec: the session it reports ("" = none) and that session's total so far.
+// totalRun is one run of totalsExec: the session it reports ("" = none), that session's total so far, and its token
+// counters (0 = they grew with the total, as a restored session's do; -1 = none reported). killed ends the run after
+// the usage event, with no result.
 type totalRun struct {
 	session string
 	total   float64
 	noCost  bool
+	tokens  int64
+	killed  bool
+}
+
+func (r totalRun) models() map[string]monomind.ModelUsage {
+	n := r.tokens
+	if n < 0 || r.noCost {
+		return nil
+	}
+	if n == 0 {
+		n = int64(r.total * 1000)
+	}
+	return map[string]monomind.ModelUsage{"opus": {Input: n, Output: n, CacheRead: n, CacheCreation: n}}
 }
 
 // totalsExec is a claude-like exec: each run reports its session, then the session's total as usage and result.
@@ -40,10 +55,16 @@ func (e *totalsExec) exec(_ context.Context, o monomind.ExecOptions, on func(mon
 	}
 	if !run.noCost {
 		on(usageCost(run.total))
-		on(monomind.Event{Type: monomind.EventResult, HasCostUSD: true, CostUSD: run.total, StopReason: monomind.StopEndTurn})
+	}
+	if run.killed {
+		return &monomind.TurnResult{SessionID: run.session, CostUSD: run.total, HasCostUSD: !run.noCost}, nil
+	}
+	if !run.noCost {
+		on(monomind.Event{Type: monomind.EventResult, HasCostUSD: true, CostUSD: run.total, StopReason: monomind.StopEndTurn,
+			ResultFields: monomind.ResultFields{ModelUsage: run.models()}})
 	}
 	return &monomind.TurnResult{SawDone: true, ResultText: "ok", StopReason: monomind.StopEndTurn, SessionID: run.session,
-		CostUSD: run.total, HasCostUSD: !run.noCost}, nil
+		CostUSD: run.total, HasCostUSD: !run.noCost, ModelUsage: run.models()}, nil
 }
 
 func (e *totalsExec) caps() []float64 {
@@ -181,6 +202,10 @@ func TestResumedCostDoubtfulCasesAreChargedInFull(t *testing.T) {
 		{"no session reported", opus, []totalRun{{session: "s1", total: 0.4}, {total: 0.6}}, 1.0},
 		{"a figure that fell", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.1}, {session: "s1", total: 0.3}}, 0.7},
 		{"a run with no cost", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", noCost: true}, {session: "s1", total: 0.9}}, 0.9},
+		{"not restored: higher cost, fewer tokens", opus, []totalRun{{session: "s1", total: 0.4, tokens: 900}, {session: "s1", total: 0.6, tokens: 300}}, 1.0},
+		{"no counters now", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6, tokens: -1}}, 1.0},
+		{"no counters before", opus, []totalRun{{session: "s1", total: 0.4, tokens: -1}, {session: "s1", total: 0.6}}, 1.0},
+		{"killed before its counters", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6, killed: true}}, 1.0},
 		{"another runtime", codex, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6}}, 1.0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -246,5 +271,27 @@ func TestMissionResumedClaudeWorkerIsChargedOnce(t *testing.T) {
 				t.Errorf("a run on the spent mission: %v after %d runs", err, len(ex.calls))
 			}
 		})
+	}
+}
+
+// Runs that really cost 0.40, 0.45 and 0.50, each after the session's total started again from zero: the second leaves
+// 0.15, the third passes the $1 budget and a fourth is refused. Subtracting by cost alone counted 0.50 for the three.
+func TestFollowUpsThatWereNotRestoredAreChargedInFullAndTheBudgetBoundsThem(t *testing.T) {
+	ex := &totalsExec{runs: []totalRun{{session: "s1", total: 0.4, tokens: 900}, {session: "s1", total: 0.45, tokens: 300},
+		{session: "s1", total: 0.5, tokens: 200}}}
+	c := New(context.Background(), Config{Cwd: "/w", Limits: Limits{MaxAgents: 1, MaxConcurrent: 1, BudgetUSD: 1},
+		Staffer: &Staffer{Roster: []Model{opus}, Lead: opus}, ReadAccess: true, Exec: ex.exec, Emit: &recEmitter{}})
+	t.Cleanup(c.Close)
+	spawnOne(t, c, opus)
+	follow(t, c)
+	follow(t, c)
+	if _, err := c.Message(context.Background(), "w1", "again"); err == nil || !strings.Contains(err.Error(), "budget") {
+		t.Fatalf("a follow-up past the real spend: %v", err)
+	}
+	if got := ex.caps(); !nearAll(got, 1, 0.6, 0.15) {
+		t.Errorf("caps given to the runs = %v, want 1, 0.6, 0.15", got)
+	}
+	if got := c.spent(); !spendNear(got, 1.35) {
+		t.Errorf("spent = %v, want 1.35", got)
 	}
 }

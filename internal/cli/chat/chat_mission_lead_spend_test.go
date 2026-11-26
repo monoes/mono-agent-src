@@ -17,7 +17,9 @@ import (
 
 // leadSpendMission is a dynamic-org conversation with a running mission whose lead is a scripted claude: every
 // exec takes the next line of the costs file, "<cost_usd> [warn]", and reports it for the one claude session
-// (a running total for the session, as claude reports it). "warn" asks for a compaction.
+// (a running total for the session, as claude reports it). "warn" asks for a compaction. The session's token
+// counters grow with the cost, as a restored total's do; a fourth word sets each of the four to that number
+// instead ("-" leaves a word out; "nousage" reports no counters).
 // turn runs one chat turn and returns what the mission's meter and the conversation's spend say after it.
 func leadSpendMission(t *testing.T, costs string) (turn func(id string) (meter, conversation float64)) {
 	t.Helper()
@@ -61,6 +63,10 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
   warn=""
   if [ "$2" = warn ]; then warn=',"peak_context_tokens":250000,"context_warning":true'; fi
   cost=',"cost_usd":'"$1"
+  n="$4"
+  [ -z "$n" ] && n=$(awk -v c="$1" 'BEGIN{printf "%d", c*1000}')
+  usage=',"model_usage":{"opus":{"input":'"$n"',"output":'"$n"',"cache_read":'"$n"',"cache_creation":'"$n"'}}'
+  if [ "$n" = nousage ] || [ "$1" = none ]; then usage=""; fi
   [ "$1" = none ] && cost=""
   [ "$1" = nostart ] && exit 3
   echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":1,"access":"full"}'
@@ -76,7 +82,7 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
     while [ ! -f '`+gate+`.release' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done
     rm -f '`+gate+`.release'
   fi
-  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok"'"$cost$warn"'}'
+  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"ok"'"$cost$usage$warn"'}'
   echo '{"v":1,"type":"done","exit_code":0}'`)
 	withCoderCaps(t, append(monomind.CoderCapabilities, monomind.CapAgentExecFullAccessTools, monomind.CapAgentExecAccessRead)...)
 	withCoderScan(t, orgScan(true))
@@ -180,4 +186,35 @@ func TestMissionLeadCompactionIsChargedOnce(t *testing.T) {
 	wantSpend(t, "the compacted turn", meter, conv, 0.5)
 	meter, conv = turn("t2")
 	wantSpend(t, "the turn after it", meter, conv, 0.6)
+}
+
+// A resume claude did not restore counts from zero: a higher cost over fewer tokens is the turn's own, and the
+// mission's meter and the conversation's spend are charged all of it (#1744).
+func TestMissionLeadTurnNotRestoredIsChargedInFull(t *testing.T) {
+	turn := leadSpendMission(t, "0.41 - - 900\n0.45 - - 300\n0.5 - - 400\n")
+	meter, conv := turn("t1")
+	wantSpend(t, "turn 1", meter, conv, 0.41)
+	meter, conv = turn("t2")
+	wantSpend(t, "the resume from zero", meter, conv, 0.86)
+	meter, conv = turn("t3")
+	wantSpend(t, "the restored turn after it", meter, conv, 0.91)
+}
+
+// The compaction is judged by the same rule: one that counted from zero is added to its turn, and the next turn is
+// judged against what the compaction reported.
+func TestMissionLeadCompactionNotRestoredIsAddedWhole(t *testing.T) {
+	turn := leadSpendMission(t, "0.41 warn - 900\n0.5 - - 100\n0.9 - - 400\n")
+	meter, conv := turn("t1")
+	wantSpend(t, "the compacted turn", meter, conv, 0.91)
+	meter, conv = turn("t2")
+	wantSpend(t, "the turn after it", meter, conv, 1.31)
+}
+
+// A runtime that reports no counters leaves nothing to prove a restore with.
+func TestMissionLeadTurnsWithoutCountersAreChargedInFull(t *testing.T) {
+	turn := leadSpendMission(t, "0.41 - - nousage\n0.85 - - nousage\n")
+	meter, conv := turn("t1")
+	wantSpend(t, "turn 1", meter, conv, 0.41)
+	meter, conv = turn("t2")
+	wantSpend(t, "turn 2", meter, conv, 1.26)
 }

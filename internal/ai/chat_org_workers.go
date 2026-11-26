@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/ai/chatevents"
 )
 
 // Dynamic-org workers kept per conversation (#230, migration 060): the
@@ -41,10 +43,11 @@ type OrgWorker struct {
 	MissionTask    int64 `json:"mission_task,omitempty"`
 	// MissionClaims is the claim number of the task the worker started under (migration 147).
 	MissionClaims int64 `json:"mission_claims,omitempty"`
-	// CostSession is the claude session of the worker's last reported cost, and CostUSD the total it had reached
-	// (migration 174). Both are empty for a worker that reported no claude cost.
-	CostSession string  `json:"cost_session,omitempty"`
-	CostUSD     float64 `json:"cost_usd,omitempty"`
+	// CostSession is the claude session of the worker's last reported cost, CostUSD the total it had reached and
+	// CostModels its token counters (migration 174). All are empty for a worker that reported no claude cost.
+	CostSession string                                `json:"cost_session,omitempty"`
+	CostUSD     float64                               `json:"cost_usd,omitempty"`
+	CostModels  map[string]chatevents.CoderModelUsage `json:"cost_models,omitempty"`
 }
 
 // OrgWorkerRetired is the outcome of a worker the operator retired: its session is dropped and it
@@ -71,11 +74,19 @@ func (s *AIStore) SaveOrgWorker(profileID, conversationID string, w OrgWorker) e
 	if w.Builtin {
 		builtin = 1
 	}
+	costModels := ""
+	if len(w.CostModels) > 0 {
+		b, err := json.Marshal(w.CostModels)
+		if err != nil {
+			return fmt.Errorf("save org worker %s: %w", w.AgentID, err)
+		}
+		costModels = string(b)
+	}
 	_, err := s.db.Exec(`INSERT INTO ai_chat_org_workers
 		(profile_id, conversation_id, agent_id, parent_id, turn_id, role, agent_type, category, access, skills,
 		 runtime, model, effort, session_id, cwd, report, outcome, allow_spawn, builtin, purposes, updated_at, mission_session, mission_task, mission_claims,
-		 cost_session, cost_usd)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 cost_session, cost_usd, cost_models)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(conversation_id, agent_id) DO UPDATE SET
 		parent_id = excluded.parent_id, turn_id = excluded.turn_id, role = excluded.role, agent_type = excluded.agent_type,
 		category = excluded.category, access = excluded.access, skills = excluded.skills, runtime = excluded.runtime,
@@ -86,11 +97,11 @@ func (s *AIStore) SaveOrgWorker(profileID, conversationID string, w OrgWorker) e
 		outcome = CASE WHEN (ai_chat_org_workers.outcome = 'retired' AND excluded.mission_session = ai_chat_org_workers.mission_session AND excluded.mission_task = ai_chat_org_workers.mission_task AND excluded.mission_claims <= ai_chat_org_workers.mission_claims) THEN 'retired' ELSE excluded.outcome END,
 		allow_spawn = excluded.allow_spawn, builtin = excluded.builtin, purposes = excluded.purposes, updated_at = excluded.updated_at,
 		mission_session = excluded.mission_session, mission_task = excluded.mission_task, mission_claims = excluded.mission_claims,
-		cost_session = excluded.cost_session, cost_usd = excluded.cost_usd
+		cost_session = excluded.cost_session, cost_usd = excluded.cost_usd, cost_models = excluded.cost_models
 		WHERE profile_id = excluded.profile_id`,
 		profileID, conversationID, w.AgentID, w.ParentID, w.TurnID, w.Role, w.AgentType, w.Category, w.Access, string(skills),
 		w.Runtime, w.Model, w.Effort, w.SessionID, w.Cwd, w.Report, w.Outcome, allow, builtin, w.Purposes,
-		time.Now().UTC().Format(orgWorkerTime), w.MissionSession, w.MissionTask, w.MissionClaims, w.CostSession, w.CostUSD)
+		time.Now().UTC().Format(orgWorkerTime), w.MissionSession, w.MissionTask, w.MissionClaims, w.CostSession, w.CostUSD, costModels)
 	if err != nil {
 		return fmt.Errorf("save org worker %s: %w", w.AgentID, err)
 	}
@@ -129,7 +140,7 @@ func (s *AIStore) ListOrgWorkers(profileID, conversationID string, limit int) ([
 	}
 	rows, err := s.db.Query(`SELECT agent_id, parent_id, turn_id, role, agent_type, category, access, skills,
 		runtime, model, effort, session_id, cwd, report, outcome, allow_spawn, builtin, purposes, updated_at, mission_session, mission_task, mission_claims,
-		cost_session, cost_usd
+		cost_session, cost_usd, cost_models
 		FROM ai_chat_org_workers WHERE profile_id = ? AND conversation_id = ?
 		ORDER BY updated_at DESC, agent_id DESC LIMIT ?`, profileID, conversationID, limit)
 	if err != nil {
@@ -139,14 +150,17 @@ func (s *AIStore) ListOrgWorkers(profileID, conversationID string, limit int) ([
 	var out []OrgWorker
 	for rows.Next() {
 		var w OrgWorker
-		var skills string
+		var skills, models string
 		var allow, builtin int
 		if err := rows.Scan(&w.AgentID, &w.ParentID, &w.TurnID, &w.Role, &w.AgentType, &w.Category, &w.Access, &skills,
 			&w.Runtime, &w.Model, &w.Effort, &w.SessionID, &w.Cwd, &w.Report, &w.Outcome, &allow, &builtin, &w.Purposes, &w.UpdatedAt, &w.MissionSession, &w.MissionTask, &w.MissionClaims,
-			&w.CostSession, &w.CostUSD); err != nil {
+			&w.CostSession, &w.CostUSD, &models); err != nil {
 			return nil, fmt.Errorf("read org worker: %w", err)
 		}
 		_ = json.Unmarshal([]byte(skills), &w.Skills)
+		if json.Unmarshal([]byte(models), &w.CostModels) != nil {
+			w.CostModels = nil // none stored, or unreadable: nothing to compare with
+		}
 		w.AllowSpawn, w.Builtin = allow != 0, builtin != 0
 		out = append(out, w)
 	}

@@ -36,9 +36,10 @@ func TestDynamicOrgResumedWorkerCostsTheConversationOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	check := func(turn, reported string, want float64) {
+	check := func(turn, reported, tokens string, want float64) {
 		t.Helper()
 		t.Setenv("ORG_WORKER_COST", reported)
+		t.Setenv("ORG_WORKER_TOKENS", tokens)
 		if out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", turn, "--", "where is the cache?"); err != nil {
 			t.Fatalf("%s: %v\n%s", turn, err, out)
 		}
@@ -46,11 +47,14 @@ func TestDynamicOrgResumedWorkerCostsTheConversationOnce(t *testing.T) {
 			t.Fatalf("after %s the conversation spent %v (%v), want %v", turn, got, err, want)
 		}
 	}
-	check("turn-1", "0.4", 0.4)
+	check("turn-1", "0.4", "400", 0.4)
 	t.Setenv("ORG_LEAD_CALL", `{"v":1,"type":"tool_call","id":"c1","name":"org_message","args":{"agent_id":"w1","text":"and eviction?"}}`)
 	t.Setenv("ORG_LEAD_CALL2", `{"v":1,"type":"tool_call","id":"c2","name":"org_wait","args":{"agent_ids":["w1"],"timeout_s":30}}`)
-	check("turn-2", "0.7", 0.7)
-	check("turn-3", "0.9", 0.9)
+	// Restored: the counters kept with the stored worker did not fall, so each turn adds the increase.
+	check("turn-2", "0.7", "700", 0.7)
+	check("turn-3", "0.9", "900", 0.9)
+	// Not restored: a higher cost over fewer tokens is the run's own.
+	check("turn-4", "0.95", "100", 1.85)
 }
 
 type discardEvents struct{}
@@ -68,7 +72,8 @@ func TestTaskWorkersPoolCountsAResumedClaudeRunOnce(t *testing.T) {
 		total := totals[len(caps)]
 		caps = append(caps, o.BudgetUSD)
 		on(monomind.Event{Type: monomind.EventSession, SessionID: "s1"})
-		return &monomind.TurnResult{SawDone: true, ResultText: "ok", StopReason: monomind.StopEndTurn, SessionID: "s1", CostUSD: total, HasCostUSD: true}, nil
+		return &monomind.TurnResult{SawDone: true, ResultText: "ok", StopReason: monomind.StopEndTurn, SessionID: "s1", CostUSD: total, HasCostUSD: true,
+			ModelUsage: map[string]monomind.ModelUsage{"opus": {Input: int64(total * 1000), Output: 1}}}, nil
 	}
 	_, exec, _, _ := taskWorkers(st.DB, cfg, r.convID, "turn-1", coderSettings{}, &opts, inner)
 	m := dynorg.Model{Runtime: "claude", Model: "opus", FullAccess: true, Resume: true, ReportsCost: true}

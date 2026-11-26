@@ -19,7 +19,7 @@ func (j *turnJournal) rememberWorker(v dynorg.Veteran) {
 		Access: v.Access, Skills: v.Skills, Runtime: v.Runtime, Model: v.Model, Effort: v.Effort, SessionID: v.Session,
 		Cwd: v.Cwd, Report: v.Report, Outcome: v.Outcome, AllowSpawn: v.AllowSpawn,
 		Builtin: v.Builtin, Purposes: v.Purposes,
-		CostSession: v.CostSession, CostUSD: v.CostUSD,
+		CostSession: v.CostSession, CostUSD: v.CostUSD, CostModels: v.CostModels,
 		MissionSession: v.MissionSession, MissionTask: v.MissionTask, MissionClaims: v.MissionClaims,
 	})
 	if err != nil {
@@ -46,7 +46,7 @@ func (j *turnJournal) veterans() []dynorg.Veteran {
 			Access: w.Access, Skills: w.Skills, Runtime: w.Runtime, Model: w.Model, Effort: w.Effort, Session: w.SessionID,
 			Cwd: w.Cwd, Report: w.Report, Outcome: w.Outcome, AllowSpawn: w.AllowSpawn,
 			Builtin: w.Builtin, Purposes: w.Purposes,
-			CostSession: w.CostSession, CostUSD: w.CostUSD,
+			CostSession: w.CostSession, CostUSD: w.CostUSD, CostModels: w.CostModels,
 			MissionSession: w.MissionSession, MissionTask: w.MissionTask, MissionClaims: w.MissionClaims,
 		})
 	}

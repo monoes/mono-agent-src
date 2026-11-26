@@ -369,6 +369,9 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 			c.noteStarted(w, acct)
 		}
 		own := base.own(run)
+		if base.pending(run) {
+			own.CostUSD, own.HasCostUSD = 0, false
+		}
 		if w.task != nil {
 			c.liveSpend(w, m, &own)
 		}

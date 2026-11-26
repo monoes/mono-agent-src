@@ -21,11 +21,9 @@ func TestSpendOfResumedClaudeTurnsIsTheDeltaOfTheSameSession(t *testing.T) {
 	m, _ := master(t, st, "coding")
 	c := m.ConversationID
 	base := time.Now().Add(-time.Hour)
+	// A restored total comes with token counters that did not fall.
 	for i, cost := range []string{"0.057", "0.203", "0.219", "0.268"} {
-		turn := "t" + string(rune('a'+i))
-		addTurn(t, st, c, turn, "completed", "x", base.Add(time.Duration(i)*time.Minute))
-		event(t, st, c, turn, 1, "session.bound", `{"runtime":"claude","sessionId":"s1"}`)
-		event(t, st, c, turn, 2, "usage.updated", `{"agentId":"","costUsd":`+cost+`}`)
+		journalClaudeTurn(t, st, c, "t"+string(rune('a'+i)), base.Add(time.Duration(i)*time.Minute), claudeTurn{"s1", cost, every(100 * (i + 1))})
 	}
 	stampEvents(t, st)
 	spent, err := st.Spent("p", c)
@@ -41,19 +39,22 @@ func TestSpendDeltaIsTakenOnlyWithinOneSession(t *testing.T) {
 	m, _ := master(t, st, "coding")
 	c := m.ConversationID
 	base := time.Now().Add(-time.Hour)
-	turns := []struct{ id, session, cost string }{
-		{"t1", "s1", "0.5"},
-		{"t2", "s2", "0.3"}, // another session: charged in full
-		{"t3", "s1", "0.7"}, // s1 again: +0.2
-		{"t4", "s1", "0.1"}, // fell: not a running total, charged in full
-		{"t5", "", "0.4"},   // no session bound: charged in full
+	turns := []struct{ id, session, cost, tokens string }{
+		{"t1", "s1", "0.5", every(500)},
+		{"t2", "s2", "0.3", every(300)}, // another session: charged in full
+		{"t3", "s1", "0.7", every(700)}, // s1 again: +0.2
+		{"t4", "s1", "0.1", every(100)}, // fell: not a running total, charged in full
+		{"t5", "", "0.4", every(900)},   // no session bound: charged in full
 	}
 	for i, x := range turns {
-		addTurn(t, st, c, x.id, "completed", "x", base.Add(time.Duration(i)*time.Minute))
+		at := base.Add(time.Duration(i) * time.Minute)
 		if x.session != "" {
-			event(t, st, c, x.id, 1, "session.bound", `{"runtime":"claude","sessionId":"`+x.session+`"}`)
+			journalClaudeTurn(t, st, c, x.id, at, claudeTurn{x.session, x.cost, x.tokens})
+			continue
 		}
+		addTurn(t, st, c, x.id, "completed", "x", at)
 		event(t, st, c, x.id, 2, "usage.updated", `{"agentId":"","costUsd":`+x.cost+`}`)
+		event(t, st, c, x.id, 3, "notice", usageNotice(x.tokens))
 	}
 	stampEvents(t, st)
 	want := 0.5 + 0.3 + 0.2 + 0.1 + 0.4
