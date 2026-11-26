@@ -45,12 +45,23 @@
   const profileOf = (msg) => (Core().validProfile(msg && msg.profile) ? msg.profile.trim() : "");
   const withProfile = (params, profile) => (profile ? Object.assign({}, params, { profile }) : params);
 
+  // These decide approvals or read the cards: only the side panel may ask.
+  const PANEL_ONLY = new Set(["chat_ui_action", "chat_ui_sync", "chat_ui_journal"]);
+
+  /** fromPanel: this extension's side panel (Chromium names it by id and url only). */
+  function fromPanel(sender) {
+    if (!sender || !chrome.runtime.id || sender.id !== chrome.runtime.id) return false;
+    const panel = chrome.runtime.getURL("sidepanel.html");
+    const url = String(sender.url || "");
+    return !!panel && (url === panel || url.startsWith(`${panel}?`) || url.startsWith(`${panel}#`));
+  }
+
   function install(d) {
     deps = d || {};
     chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       if (!msg || typeof msg.type !== "string") return false;
       const handler = handlers[msg.type];
-      if (!handler) return false;
+      if (!handler || (PANEL_ONLY.has(msg.type) && !fromPanel(sender))) return false;
       handler(msg)
         .then((result) => respond(result))
         .catch((err) => respond({ ok: false, error: err.message || String(err), code: err.code }));
