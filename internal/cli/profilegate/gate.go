@@ -21,6 +21,9 @@ var globalWhenFlag = map[string]string{
 	"api key list":            "all-profiles",
 	"capture list":            "all-profiles",
 	"profile documents index": "all-profiles",
+	// The user's cross-profile list of pending approvals; the command refuses
+	// whatever is not the operator.
+	"hil pending": "all",
 }
 
 // Mode is what the gate does with a scoped command that names no profile.

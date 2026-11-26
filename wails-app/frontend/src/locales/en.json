@@ -3611,5 +3611,23 @@
     "curlImporting": "Importing…",
     "curlImport": "Import (replaces the request settings)",
     "curlCancel": "Cancel"
+  },
+  "hilAll": {
+    "thisProfile": "This profile",
+    "allProfiles": "All profiles",
+    "readOnly": "Read only. Switch to an item's profile to approve or reject it.",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "empty": "Nothing is waiting in any profile.",
+    "error": "Could not list every profile: {{error}}",
+    "badAnswer": "unexpected answer",
+    "profile": "Profile: {{name}}",
+    "send": "{{action}} via {{channel}} to {{recipient}}",
+    "since": "Waiting since {{when}}",
+    "from": "From {{account}}",
+    "via": "Via {{host}}",
+    "subject": "Subject: {{subject}}",
+    "attachment": "Attachment: {{name}}",
+    "unreviewable": "Can't be reviewed: {{reason}}"
   }
 }
