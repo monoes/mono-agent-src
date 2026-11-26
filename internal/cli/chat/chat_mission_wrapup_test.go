@@ -184,22 +184,49 @@ func TestMissionWrapUpUnknownCost(t *testing.T) {
 	}
 }
 
-// The operator's pause grants nothing and changes nothing: the chat goes on as it did, uncharged and unbriefed.
-func TestMissionOperatorPauseHasNoWrapUp(t *testing.T) {
-	r := newLeadSpendRig(t, "7\n14\n", true)
+// The operator's pause lifts no limit: the lead's turns on a spent mission it paused run under the same allowance,
+// are charged and counted against it, and are refused once it is used.
+func TestMissionOperatorPauseKeepsTheWrapUpLimit(t *testing.T) {
+	r := newLeadSpendRig(t, "2\n7\n", true)
 	if _, err := r.store.PauseSession(context.Background(), "default", r.session, leadOperator); err != nil {
 		t.Fatal(err)
 	}
 	exhaust(t, r, 6)
+	if err := r.send("t1"); err != nil {
+		t.Fatal(err)
+	}
+	wantAllowance(t, r, "turn 1", 8, 2, 3)
+	if p := r.systemPrompt(t); !strings.Contains(p, "MISSION BUDGET USED UP") || strings.Contains(p, "mission_task_finish") {
+		t.Errorf("the brief under the operator's pause: %s", p)
+	}
+	if err := r.send("t2"); err != nil {
+		t.Fatal(err)
+	}
+	wantAllowance(t, r, "turn 2", 13, 7, 0)
+	if err := r.send("t3"); err == nil || !strings.Contains(err.Error(), "wrap-up allowance is used up") {
+		t.Fatalf("the turn after the allowance: %v", err)
+	}
+	if n := len(r.execs(t)); n != 2 {
+		t.Fatalf("the runtime was started %d times, want 2", n)
+	}
+	wantMeter(t, r, "the refusal", 13, tasks.SessionPaused)
+}
+
+// The operator's pause of a mission with money left changes nothing: the chat goes on uncharged and unbriefed.
+func TestMissionOperatorPauseUnspentHasNoWrapUp(t *testing.T) {
+	r := newLeadSpendRig(t, "2\n4\n", true)
+	if _, err := r.store.PauseSession(context.Background(), "default", r.session, leadOperator); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"t1", "t2"} {
 		if err := r.send(id); err != nil {
 			t.Fatal(err)
 		}
 		if p := r.systemPrompt(t); strings.Contains(p, "MISSION BUDGET USED UP") {
-			t.Error("the operator's pause got the wrap-up brief")
+			t.Error("an unspent mission got the wrap-up brief")
 		}
 	}
-	wantMeter(t, r, "two turns", 6, tasks.SessionPaused)
+	wantMeter(t, r, "two turns", 0, tasks.SessionPaused)
 }
 
 // `chat history spend-cap` reports the allowance as what the next message runs under, and says when it is used up.

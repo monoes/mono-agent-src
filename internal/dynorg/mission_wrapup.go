@@ -68,19 +68,26 @@ func (c *Conductor) refusePaidWork(ctx context.Context, tool string) error {
 	if w == nil {
 		return nil
 	}
+	open := "report (mission_report), hand back your own tasks (mission_task_finish), replan (mission_replan) and ask the user to raise the budget"
+	if !w.HandBack {
+		open = "report (mission_report) and ask the user to raise the budget and resume the mission they paused"
+	}
 	return fmt.Errorf("%s is refused: mission #%d has spent its budget ($%.2f of $%.2f) and starts no new paid work. "+
-		"Under the wrap-up allowance you report (mission_report), hand back your own tasks (mission_task_finish), replan (mission_replan) and ask the user to raise the budget",
-		tool, se.ID, se.SpentUSD, se.BudgetUSD)
+		"Under the wrap-up allowance you %s", tool, se.ID, se.SpentUSD, se.BudgetUSD, open)
 }
 
 // WrapUpPrompt tells the lead, for a turn admitted under the allowance, that the budget is used up, what is left of
 // the allowance and what is still open to it. profile is the id the user's commands name.
 func WrapUpPrompt(profile string, se tasks.Session, w tasks.WrapUp) string {
+	steps := fmt.Sprintf("Wrap up or finish now, in as few steps as you can: report where the mission stands (mission_report), hand back the tasks you hold (%s, with your result or a question), "+
+		"bring the plan up to date for whoever goes on (%s), and tell the user what is left and ask them for more budget", ToolMissionTaskFinish, ToolMissionReplan)
+	if !w.HandBack {
+		steps = "The user also paused the mission, so you cannot hand tasks back: do no further work on it, report where it stands (mission_report), and tell the user what is left and ask them for more budget"
+	}
 	return fmt.Sprintf("\n\nMISSION BUDGET USED UP. Mission #%d %q has spent $%.2f of its $%.2f budget. You have a wrap-up allowance of $%.2f, "+
 		"of which $%.2f is left; what this turn costs counts against it, and once it is used up no further message runs until the user raises the budget. "+
-		"Wrap up or finish now, in as few steps as you can: report where the mission stands (mission_report), hand back the tasks you hold (%s, with your result or a question), "+
-		"bring the plan up to date for whoever goes on (%s), and tell the user what is left and ask them for more budget: they raise it with "+
+		"%s: they raise it with "+
 		"`monoagentcli --profile %s task session budget %d --usd AMOUNT` and then `monoagentcli --profile %s task session resume %d` (you cannot). "+
 		"No worker, verifier or session starts, and you must not start other paid work from your shell.",
-		se.ID, se.Title, se.SpentUSD, se.BudgetUSD, w.AllowanceUSD, w.LeftUSD, ToolMissionTaskFinish, ToolMissionReplan, profile, se.ID, profile, se.ID)
+		se.ID, se.Title, se.SpentUSD, se.BudgetUSD, w.AllowanceUSD, w.LeftUSD, steps, profile, se.ID, profile, se.ID)
 }

@@ -11,7 +11,8 @@ import (
 // refuse its lead. The lead may still spend WrapUpAllowanceUSD on its own turns to wrap up or finish the work, once
 // per exhaustion; workers get nothing. A turn holds all that is left from its start until its cost is known, so a
 // turn that dies or reports no cost keeps the hold and two turns are never given the same money. Raising the budget
-// gives the next exhaustion a new allowance: a turn counts only against budgets up to the one it ran under.
+// gives the next exhaustion a new allowance: a turn counts only against budgets up to the one it ran under. The limit
+// holds whoever paused the spent mission; the operator's pause only closes the lead's hand-back (WrapUp.HandBack).
 
 // WrapUpAllowanceUSD is what the lead may spend on its own turns after the budget is spent.
 const WrapUpAllowanceUSD = 5.0
@@ -30,18 +31,22 @@ type WrapUp struct {
 	SpentUSD     float64 `json:"spent_usd"` // what the lead's wrap-up turns cost
 	HeldUSD      float64 `json:"held_usd"`  // held by turns whose cost is not known: running, or ended without one
 	LeftUSD      float64 `json:"left_usd"`  // what a new turn may use
+	// HandBack: the mission runs or the scheduler's budget halt paused it, so the lead may hand its tasks back. Never
+	// after the operator's pause.
+	HandBack bool `json:"hand_back"`
 }
 
-// Lasts says whether the turns so far have left any of the allowance: the lead's hand-back tools work while it does,
+// Lasts says whether the lead's hand-back tools work: HandBack, and the turns so far have left some of the allowance,
 // including inside the turn that holds the rest.
-func (w WrapUp) Lasts() bool { return toMicros(w.SpentUSD) < toMicros(w.AllowanceUSD) }
+func (w WrapUp) Lasts() bool { return w.HandBack && toMicros(w.SpentUSD) < toMicros(w.AllowanceUSD) }
 
-// wrapUpTx is the allowance of se, or nil when none applies: only a session with a budget it has spent, running or
-// halted by the scheduler. An operator's pause or stop, a draft and a closed session have none.
+// wrapUpTx is the allowance of se, or nil when none applies: only a session with a budget it has spent that runs or is
+// paused, by anyone. A stopped session, a draft and a closed session have none.
 func (s *Store) wrapUpTx(ctx context.Context, x dbx, se Session) (*WrapUp, error) {
 	if se.Archived || se.BudgetUSD <= 0 || toMicros(se.SpentUSD) < toMicros(se.BudgetUSD) {
 		return nil, nil
 	}
+	handBack := true
 	switch se.State {
 	case SessionRunning:
 	case SessionPaused:
@@ -50,9 +55,7 @@ func (s *Store) wrapUpTx(ctx context.Context, x dbx, se Session) (*WrapUp, error
 			ORDER BY id DESC LIMIT 1), '')`, se.ID).Scan(&by); err != nil {
 			return nil, fmt.Errorf("tasks: reading who paused session #%d: %w", se.ID, err)
 		}
-		if by != ConductorName {
-			return nil, nil
-		}
+		handBack = by == ConductorName
 	default:
 		return nil, nil
 	}
@@ -63,7 +66,7 @@ func (s *Store) wrapUpTx(ctx context.Context, x dbx, se Session) (*WrapUp, error
 		return nil, fmt.Errorf("tasks: reading the wrap-up allowance of session #%d: %w", se.ID, err)
 	}
 	left := max(toMicros(WrapUpAllowanceUSD)-spent-held, 0)
-	return &WrapUp{SessionID: se.ID, AllowanceUSD: WrapUpAllowanceUSD, SpentUSD: fromMicros(spent), HeldUSD: fromMicros(held), LeftUSD: fromMicros(left)}, nil
+	return &WrapUp{SessionID: se.ID, AllowanceUSD: WrapUpAllowanceUSD, SpentUSD: fromMicros(spent), HeldUSD: fromMicros(held), LeftUSD: fromMicros(left), HandBack: handBack}, nil
 }
 
 // handBackBy is writableBy for the writes that hand a task back (its evidence and its finish): the lead of a mission
