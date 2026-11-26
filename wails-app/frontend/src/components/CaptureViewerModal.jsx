@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n.js'
 import { X, ExternalLink, AlertTriangle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -30,11 +32,11 @@ export function initialCaptureTab(view) {
 export function summaryStatusText(st) {
   if (!st || !st.status) return ''
   switch (st.status) {
-    case 'done': return st.runtime ? `Summary by ${st.runtime}` : 'Summary'
-    case 'pending': return `Summary queued${st.runtime ? ` (${st.runtime})` : ''}`
-    case 'running': return `Summary being written${st.runtime ? ` by ${st.runtime}` : ''}…`
-    case 'stalled': return 'Summary never finished (the bridge stopped before writing it)'
-    case 'error': return `Summary failed${st.error ? `: ${st.error}` : ''}`
+    case 'done': return st.runtime ? i18n.t('ui6PagesViewers.summary_by', { runtime: st.runtime }) : i18n.t('ui6PagesViewers.summary')
+    case 'pending': return st.runtime ? i18n.t('ui6PagesViewers.summary_queued_runtime', { runtime: st.runtime }) : i18n.t('ui6PagesViewers.summary_queued')
+    case 'running': return st.runtime ? i18n.t('ui6PagesViewers.summary_writing_by', { runtime: st.runtime }) : i18n.t('ui6PagesViewers.summary_writing')
+    case 'stalled': return i18n.t('ui6PagesViewers.summary_stalled')
+    case 'error': return st.error ? i18n.t('ui6PagesViewers.summary_failed_error', { error: st.error }) : i18n.t('ui6PagesViewers.summary_failed')
     default: return st.status
   }
 }
@@ -47,6 +49,7 @@ const tabStyle = (active) => ({
 })
 
 export default function CaptureViewerModal({ doc, onClose }) {
+  const { t } = useTranslation()
   const overlayRef = useRef(null)
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
@@ -72,7 +75,7 @@ export default function CaptureViewerModal({ doc, onClose }) {
       onClick={(e) => { if (e.target === overlayRef.current) onClose() }}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Capture preview" style={{
+      <div role="dialog" aria-modal="true" aria-label={t('ui6PagesViewers.capture_preview')} style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         padding: 20, width: 860, maxWidth: '92vw', maxHeight: '88vh',
         display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
@@ -83,16 +86,16 @@ export default function CaptureViewerModal({ doc, onClose }) {
               {view?.title || doc.filename}
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={url}>
-              Saved from the browser extension{doc.created_at ? ` · ${doc.created_at}` : ''}{url ? ` · ${url}` : ''}
+              {t('ui6PagesViewers.saved_from_extension')}{doc.created_at ? ` · ${doc.created_at}` : ''}{url ? ` · ${url}` : ''}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             {url && (
-              <button onClick={() => WailsApp.OpenURL(url)} title="Open the original page in your browser" style={{ ...tabStyle(false), color: '#00b4d8', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <ExternalLink size={12} /> Open original
+              <button onClick={() => WailsApp.OpenURL(url)} title={t('ui6PagesViewers.open_original_title')} style={{ ...tabStyle(false), color: '#00b4d8', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <ExternalLink size={12} /> {t('ui6PagesViewers.open_original')}
               </button>
             )}
-            <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 2 }}>
+            <button onClick={onClose} aria-label={t('ui6PagesViewers.close')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 2 }}>
               <X size={16} />
             </button>
           </div>
@@ -102,19 +105,19 @@ export default function CaptureViewerModal({ doc, onClose }) {
           <div role="tablist" style={{ display: 'flex', gap: 6 }}>
             {(view.summary || view.summary_status) && (
               <button role="tab" aria-selected={tab === 'summary'} onClick={() => setTab('summary')} style={tabStyle(tab === 'summary')}>
-                Summary{view.summary ? '' : ' (not ready)'}
+                {view.summary ? t('ui6PagesViewers.summary') : t('ui6PagesViewers.tab_summary_not_ready')}
               </button>
             )}
             <button role="tab" aria-selected={tab === 'text'} disabled={!view.readable} onClick={() => setTab('text')} style={{ ...tabStyle(tab === 'text'), opacity: view.readable ? 1 : 0.4 }}>
-              Text{view.readable ? '' : ' (none found)'}
+              {view.readable ? t('ui6PagesViewers.tab_text') : t('ui6PagesViewers.tab_text_none')}
             </button>
             {view.transcript && (
               <button role="tab" aria-selected={tab === 'transcript'} onClick={() => setTab('transcript')} style={tabStyle(tab === 'transcript')}>
-                Transcript
+                {t('ui6PagesViewers.tab_transcript')}
               </button>
             )}
             <button role="tab" aria-selected={tab === 'screenshot'} disabled={!view.screenshot} onClick={() => setTab('screenshot')} style={{ ...tabStyle(tab === 'screenshot'), opacity: view.screenshot ? 1 : 0.4 }}>
-              Screenshot
+              {t('ui6PagesViewers.tab_screenshot')}
             </button>
           </div>
         )}
@@ -129,7 +132,7 @@ export default function CaptureViewerModal({ doc, onClose }) {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{error}</span>
             </div>
           ) : view === null ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', color: '#334155', fontFamily: 'var(--font-mono)', fontSize: 11 }}>Loading…</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', color: '#334155', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{t('ui6PagesViewers.loading')}</div>
           ) : tab === 'summary' ? (
             <div style={{ width: '100%', maxHeight: '70vh', overflow: 'auto', padding: '14px 18px', fontSize: 13, color: '#e2e8f0' }}>
               {view.summary_status && view.summary_status.status !== 'done' && (
@@ -144,13 +147,13 @@ export default function CaptureViewerModal({ doc, onClose }) {
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{view.transcript}</ReactMarkdown>
             </div>
           ) : tab === 'screenshot' && view.screenshot ? (
-            <img src={view.screenshot} alt={`Screenshot of ${view.title || doc.filename}`} style={{ width: '100%', height: 'auto', display: 'block', alignSelf: 'flex-start' }} />
+            <img src={view.screenshot} alt={t('ui6PagesViewers.screenshot_of', { name: view.title || doc.filename })} style={{ width: '100%', height: 'auto', display: 'block', alignSelf: 'flex-start' }} />
           ) : view.readable ? (
             <div style={{ width: '100%', maxHeight: '70vh', overflow: 'auto', padding: '14px 18px', fontSize: 13, color: '#e2e8f0' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{view.readable}</ReactMarkdown>
             </div>
           ) : (
-            <div style={{ margin: 'auto', color: '#475569', fontFamily: 'var(--font-mono)', fontSize: 11 }}>This capture has no text or screenshot to show.</div>
+            <div style={{ margin: 'auto', color: '#475569', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{t('ui6PagesViewers.capture_empty')}</div>
           )}
         </div>
       </div>

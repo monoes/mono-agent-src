@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X, ExternalLink, AlertTriangle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -84,6 +85,7 @@ const fmtBytes = (b) => {
 // kind never get here: the caller tells the user and hands off to
 // WailsApp.OpenPathWithOS instead of opening this modal.
 export default function FileViewerModal({ doc, onClose }) {
+  const { t } = useTranslation()
   const overlayRef = useRef(null)
   const [content, setContent] = useState(null) // data URL (image/pdf) or raw text (html/text)
   const [error, setError] = useState(null)
@@ -117,7 +119,7 @@ export default function FileViewerModal({ doc, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label="File preview" style={{
+      <div role="dialog" aria-modal="true" aria-label={t('ui6PagesViewers.file_preview')} style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         padding: 20, width: 760, maxWidth: '92vw', maxHeight: '88vh',
         display: 'flex', flexDirection: 'column', gap: 12,
@@ -133,7 +135,7 @@ export default function FileViewerModal({ doc, onClose }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             <button
               onClick={handleOpenWithOS}
-              title="Open with system default application"
+              title={t('ui6PagesViewers.open_system_title')}
               style={{
                 background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)',
                 borderRadius: 6, padding: '5px 10px', color: '#00b4d8',
@@ -141,7 +143,7 @@ export default function FileViewerModal({ doc, onClose }) {
                 display: 'flex', alignItems: 'center', gap: 5,
               }}
             >
-              <ExternalLink size={12} /> Open Externally
+              <ExternalLink size={12} /> {t('ui6PagesViewers.open_externally')}
             </button>
             <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 2 }}>
               <X size={16} />
@@ -161,7 +163,7 @@ export default function FileViewerModal({ doc, onClose }) {
             </div>
           ) : content === null ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', color: '#334155', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-              Loading…
+              {t('ui6PagesViewers.loading')}
             </div>
           ) : kind === 'image' ? (
             <img src={content} alt={doc.filename} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', margin: 'auto', display: 'block' }} />

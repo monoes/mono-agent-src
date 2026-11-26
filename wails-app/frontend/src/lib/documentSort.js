@@ -1,20 +1,22 @@
 // Sorting, labelling and filtering for the Documents page. Pure functions,
 // kept out of Documents.jsx so they can be unit-tested without rendering.
 
-// Human labels for vault_documents.source. Anything not listed (a custom
-// `upload-document --source`) is shown as stored.
-const SOURCE_LABELS = {
-  extension: 'Browser extension',
-  crawl: 'Web crawl',
-  monobrowse: 'Monobrowse',
-  upload: 'Upload',
-  discovered: 'Profile folder',
-  generated: 'Generated',
+import i18n from '../i18n.js'
+
+// Human labels (locale keys) for vault_documents.source. Anything not listed
+// (a custom `upload-document --source`) is shown as stored.
+const SOURCE_LABEL_KEYS = {
+  extension: 'ui6PagesDocs.source_extension',
+  crawl: 'ui6PagesDocs.source_crawl',
+  monobrowse: 'ui6PagesDocs.source_monobrowse',
+  upload: 'ui6PagesDocs.source_upload',
+  discovered: 'ui6PagesDocs.source_discovered',
+  generated: 'ui6PagesDocs.source_generated',
 }
 
 export function sourceLabel(source) {
-  if (!source) return 'Unknown'
-  return SOURCE_LABELS[source] || source
+  if (!source) return i18n.t('ui6PagesDocs.source_unknown')
+  return Object.hasOwn(SOURCE_LABEL_KEYS, source) ? i18n.t(SOURCE_LABEL_KEYS[source]) : source
 }
 
 // True for a row backed by a browser capture (an inbox envelope) rather

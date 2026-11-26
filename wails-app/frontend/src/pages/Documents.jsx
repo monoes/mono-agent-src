@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Upload, Search, Trash2, Plus, X, Sparkles, CheckCircle2, AlertTriangle, XCircle, Eye, PlayCircle, ExternalLink } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n.js'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { api, notify, onMonomindInitEvent, onDocumentsChanged } from '../services/api.js'
@@ -57,6 +59,7 @@ export function isMonomindMissing(indexError) {
 }
 
 function TagChip({ tag, onClick, onRemove, active }) {
+  const { t } = useTranslation()
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -68,15 +71,15 @@ function TagChip({ tag, onClick, onRemove, active }) {
     }}>
       <span
         role={onClick ? 'button' : undefined}
-        title={onClick ? `Filter by ${tag.name}` : undefined}
+        title={onClick ? t('ui6PagesDocs.filter_by_name', { name: tag.name }) : undefined}
         style={{ cursor: onClick ? 'pointer' : 'default', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}
         onClick={onClick && ((e) => { e.stopPropagation(); onClick() })}
       >{tag.name}</span>
       {onRemove && (
         <button
           type="button"
-          aria-label={`Remove tag ${tag.name}`}
-          title="Remove tag"
+          aria-label={t('ui6PagesDocs.remove_tag_named', { name: tag.name })}
+          title={t('ui6PagesDocs.remove_tag')}
           style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex' }}
           onClick={(e) => { e.stopPropagation(); onRemove() }}
         ><X size={10} /></button>
@@ -87,6 +90,7 @@ function TagChip({ tag, onClick, onRemove, active }) {
 
 // Inline "+ tag" box: type a name (existing tags are suggested), Enter adds.
 function AddTagBox({ doc, knownTags, onAdd }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const listId = `doc-tags-${doc.id}`
@@ -105,8 +109,8 @@ function AddTagBox({ doc, knownTags, onAdd }) {
     return (
       <button
         type="button"
-        aria-label={`Add tag to ${doc.filename}`}
-        title="Add tag"
+        aria-label={t('ui6PagesDocs.add_tag_to', { file: doc.filename })}
+        title={t('ui6PagesDocs.add_tag')}
         style={{ ...btnStyle, padding: '1px 6px' }}
         onClick={(e) => { e.stopPropagation(); done.current = false; setOpen(true) }}
       ><Plus size={10} /></button>
@@ -116,10 +120,10 @@ function AddTagBox({ doc, knownTags, onAdd }) {
     <>
       <input
         autoFocus
-        aria-label={`New tag for ${doc.filename}`}
+        aria-label={t('ui6PagesDocs.new_tag_for', { file: doc.filename })}
         list={listId}
         style={{ ...inputStyle, width: 110, padding: '2px 6px', fontSize: 10 }}
-        placeholder="tag name"
+        placeholder={t('ui6PagesDocs.tag_name')}
         value={name}
         onClick={(e) => e.stopPropagation()}
         onChange={e => setName(e.target.value)}
@@ -137,6 +141,7 @@ function AddTagBox({ doc, knownTags, onAdd }) {
 }
 
 export default function Documents({ isActive = true }) {
+  const { t } = useTranslation()
   const [docs, setDocs] = useState([])
   const [error, setError] = useState(null)
   const [query, setQuery] = useState('')
@@ -190,12 +195,12 @@ export default function Documents({ isActive = true }) {
   const handleAddTag = async (docId, name) => {
     try {
       const tag = await WailsApp.AddDocumentTag(docId, name)
-      if (!tag) { notify('tag', `Could not tag with "${name}" (a document can have at most 10 tags).`); return }
+      if (!tag) { notify(i18n.t('ui6PagesDocs.op_tag'), i18n.t('ui6PagesDocs.tag_refused', { name })); return }
       setDocs(cur => cur.map(d => d.id !== docId || (d.tags || []).some(t => t.id === tag.id)
         ? d
         : { ...d, tags: [...(d.tags || []), tag].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })) }))
     } catch (e) {
-      notify('tag', 'Tagging failed: ' + e)
+      notify(i18n.t('ui6PagesDocs.op_tag'), i18n.t('ui6PagesDocs.tag_failed', { error: String(e) }))
     }
   }
   const handleRemoveTag = async (docId, tagId) => {
@@ -203,7 +208,7 @@ export default function Documents({ isActive = true }) {
       await WailsApp.RemoveDocumentTag(docId, tagId)
       setDocs(cur => cur.map(d => d.id !== docId ? d : { ...d, tags: (d.tags || []).filter(t => t.id !== tagId) }))
     } catch (e) {
-      notify('tag', 'Removing the tag failed: ' + e)
+      notify(i18n.t('ui6PagesDocs.op_tag'), i18n.t('ui6PagesDocs.remove_tag_failed', { error: String(e) }))
     }
   }
 
@@ -211,7 +216,7 @@ export default function Documents({ isActive = true }) {
     try {
       setDocs((await WailsApp.ListProfileDocuments()) || [])
     } catch (e) {
-      setError('Failed to load documents: ' + e)
+      setError(i18n.t('ui6PagesDocs.load_failed', { error: String(e) }))
     }
   }, [])
 
@@ -230,7 +235,7 @@ export default function Documents({ isActive = true }) {
     if (payload.kind === 'error') {
       initRunningRef.current = false
       setInitStatus('error')
-      notify('initialize monomind', payload.message || 'failed')
+      notify(i18n.t('ui6PagesDocs.op_init'), payload.message || i18n.t('ui6PagesDocs.failed'))
     } else if (payload.kind === 'done') {
       initRunningRef.current = false
       setInitStatus('idle')
@@ -247,14 +252,14 @@ export default function Documents({ isActive = true }) {
     let message = ''
     try {
       const r = await api.initializeMonomindProfile()
-      if (r && r.error) message = r.login_required ? `${r.error} — sign in to monoes.me, then try again.` : r.error
+      if (r && r.error) message = r.login_required ? i18n.t('ui6PagesDocs.sign_in_retry', { error: r.error }) : r.error
     } catch (e) {
       message = e?.message || String(e)
     }
     if (message && initRunningRef.current) {
       initRunningRef.current = false
       setInitStatus('error')
-      notify('initialize monomind', message)
+      notify(i18n.t('ui6PagesDocs.op_init'), message)
     }
   }
 
@@ -264,23 +269,23 @@ export default function Documents({ isActive = true }) {
     setUploading(true)
     try {
       const r = await WailsApp.UploadProfileDocuments(paths)
-      if (r.failed.length) notify('upload', `${r.failed.length} of ${paths.length} uploads failed: ${r.failed.slice(0, 3).join('; ')}`)
-      else if (r.unindexed) notify('upload', `Uploaded, but ${r.unindexed} not indexed for search (monomind missing or indexing failed).`)
+      if (r.failed.length) notify(i18n.t('ui6PagesDocs.op_upload'), i18n.t('ui6PagesDocs.uploads_failed', { failed: r.failed.length, total: paths.length, details: r.failed.slice(0, 3).join('; ') }))
+      else if (r.unindexed) notify(i18n.t('ui6PagesDocs.op_upload'), i18n.t('ui6PagesDocs.uploaded_unindexed', { n: r.unindexed }))
     } catch (e) {
-      notify('upload', 'Upload failed: ' + e)
+      notify(i18n.t('ui6PagesDocs.op_upload'), i18n.t('ui6PagesDocs.upload_failed', { error: String(e) }))
     } finally {
       setUploading(false)
       load()
     }
   }
 
-  const handleUpload = async () => uploadPaths(await WailsApp.OpenAnyFilesPicker('Select documents to upload'))
+  const handleUpload = async () => uploadPaths(await WailsApp.OpenAnyFilesPicker(i18n.t('ui6PagesDocs.pick_documents')))
   const handleUploadFolder = async () => {
     let paths
     try {
-      paths = await WailsApp.OpenFolderFilesPicker('Select a folder to upload')
+      paths = await WailsApp.OpenFolderFilesPicker(i18n.t('ui6PagesDocs.pick_folder'))
     } catch (e) {
-      notify('upload', String(e)) // e.g. another dialog is still open: answer or close it first
+      notify(i18n.t('ui6PagesDocs.op_upload'), String(e)) // e.g. another dialog is still open: answer or close it first
       return
     }
     return uploadPaths(paths)
@@ -294,14 +299,14 @@ export default function Documents({ isActive = true }) {
     try {
       const result = await WailsApp.IndexProfileDocument(id)
       if (!result.indexed) {
-        notify('index', isMonomindMissing(result.index_error)
-          ? "Not indexed — monomind isn't installed."
-          : 'Indexing failed: ' + result.index_error)
+        notify(i18n.t('ui6PagesDocs.op_index'), isMonomindMissing(result.index_error)
+          ? i18n.t('ui6PagesDocs.not_indexed_no_monomind')
+          : i18n.t('ui6PagesDocs.indexing_failed', { error: String(result.index_error) }))
       }
       load()
       return result.indexed
     } catch (e) {
-      notify('index', 'Indexing failed: ' + e)
+      notify(i18n.t('ui6PagesDocs.op_index'), i18n.t('ui6PagesDocs.indexing_failed', { error: String(e) }))
       return false
     } finally {
       setIndexingIds(s => { const n = new Set(s); n.delete(id); return n })
@@ -331,7 +336,7 @@ export default function Documents({ isActive = true }) {
   const runBulkIndex = async (candidateDocs) => {
     const toIndex = candidateDocs.filter(d => !d.indexed || d.stale)
     if (toIndex.length === 0) {
-      notify('index', 'Nothing to index — already up to date.')
+      notify(i18n.t('ui6PagesDocs.op_index'), i18n.t('ui6PagesDocs.nothing_to_index'))
       return
     }
     setBulkBusy('index')
@@ -342,9 +347,9 @@ export default function Documents({ isActive = true }) {
       if (!ok) failed++
       setBulkProgress(p => ({ ...p, done: p.done + 1 }))
     }
-    notify('index', failed > 0
-      ? `Indexed ${toIndex.length - failed} of ${toIndex.length} document${toIndex.length === 1 ? '' : 's'} (${failed} failed).`
-      : `Indexed ${toIndex.length} document${toIndex.length === 1 ? '' : 's'}.`)
+    notify(i18n.t('ui6PagesDocs.op_index'), failed > 0
+      ? i18n.t('ui6PagesDocs.indexed_partial', { count: toIndex.length, done: toIndex.length - failed, failed })
+      : i18n.t('ui6PagesDocs.indexed_done', { count: toIndex.length }))
     setBulkBusy(null)
   }
 
@@ -355,20 +360,24 @@ export default function Documents({ isActive = true }) {
   const runBulkDelete = async (toDelete) => {
     if (toDelete.length === 0) return
     const discovered = toDelete.filter(d => d.source === 'discovered')
-    const label = toDelete.length === 1 ? `"${toDelete[0].filename}"` : `${toDelete.length} documents`
+    const question = toDelete.length === 1
+      ? i18n.t('ui6PagesDocs.confirm_delete_one', { name: toDelete[0].filename })
+      : i18n.t('ui6PagesDocs.confirm_delete_many', { n: toDelete.length })
     const captures = toDelete.filter(isCapture).length
-    const captureNote = captures > 0 ? ` Browser captures are deleted with all their saved files.` : ''
+    const captureNote = captures > 0 ? ` ${i18n.t('ui6PagesDocs.capture_note')}` : ''
     const discoveredNote = discovered.length > 0
-      ? ` ${discovered.length === toDelete.length ? (discovered.length === 1 ? 'It is' : 'They are') : `${discovered.length} of them ${discovered.length === 1 ? 'is' : 'are'}`} in your profile folder: ${discovered.length === 1 ? 'it is' : 'they are'} removed from MonoAgent (the "Show excluded" list brings ${discovered.length === 1 ? 'it' : 'them'} back) and the file stays on disk.`
+      ? ` ${discovered.length === toDelete.length
+        ? i18n.t('ui6PagesDocs.discovered_all', { count: discovered.length })
+        : i18n.t('ui6PagesDocs.discovered_some', { count: discovered.length })}`
       : ''
     const answer = await confirm(
-      `Delete ${label}? This removes ${toDelete.length === 1 ? 'it' : 'them'} from the knowledge index too.${captureNote}${discoveredNote}`,
+      `${question}${captureNote}${discoveredNote}`,
       {
-        title: 'Delete Documents', confirmLabel: 'Delete', danger: true,
+        title: i18n.t('ui6PagesDocs.delete_documents_title'), confirmLabel: i18n.t('ui6PagesDocs.delete'), danger: true,
         ...(discovered.length > 0 && {
           checkbox: {
-            label: 'Also delete the file from the profile folder on disk',
-            warning: 'This permanently deletes the file from your disk. It cannot be undone.',
+            label: i18n.t('ui6PagesDocs.delete_file_label'),
+            warning: i18n.t('ui6PagesDocs.delete_file_warning'),
           },
         }),
       },
@@ -387,7 +396,7 @@ export default function Documents({ isActive = true }) {
         deletedIds.add(d.id)
       } catch (e) {
         failed++
-        notify('delete', `Failed to delete "${d.filename}": ${e}`)
+        notify(i18n.t('ui6PagesDocs.op_delete'), i18n.t('ui6PagesDocs.delete_one_failed', { name: d.filename, error: String(e) }))
       }
       setBulkProgress(p => ({ ...p, done: p.done + 1 }))
     }
@@ -395,7 +404,7 @@ export default function Documents({ isActive = true }) {
     loadExcluded()
     setSelectedIds(s => { const n = new Set(s); deletedIds.forEach(id => n.delete(id)); return n })
     if (failed === 0) {
-      notify('delete', `Deleted ${toDelete.length} document${toDelete.length === 1 ? '' : 's'}.`)
+      notify(i18n.t('ui6PagesDocs.op_delete'), i18n.t('ui6PagesDocs.deleted_done', { count: toDelete.length }))
     }
     setBulkBusy(null)
   }
@@ -413,18 +422,18 @@ export default function Documents({ isActive = true }) {
       await loadExcluded()
       load()
     } catch (e) {
-      notify('restore', `Restore failed: ${e}`)
+      notify(i18n.t('ui6PagesDocs.op_restore'), i18n.t('ui6PagesDocs.restore_failed', { error: String(e) }))
     }
   }
 
   const handleDelete = async (id, filename, capture = false) => {
-    const note = capture ? ' The saved page (all of its captured files) is deleted too.' : ''
-    if (!(await confirm(`Delete "${filename}"? This removes it from the knowledge index too.${note}`, { title: 'Delete Document', confirmLabel: 'Delete', danger: true }))) return
+    const note = capture ? ` ${i18n.t('ui6PagesDocs.saved_page_note')}` : ''
+    if (!(await confirm(`${i18n.t('ui6PagesDocs.confirm_delete_one', { name: filename })}${note}`, { title: i18n.t('ui6PagesDocs.delete_document_title'), confirmLabel: i18n.t('ui6PagesDocs.delete'), danger: true }))) return
     try {
       await WailsApp.DeleteProfileDocument(id)
       load()
     } catch (e) {
-      notify('delete', 'Delete failed: ' + e)
+      notify(i18n.t('ui6PagesDocs.op_delete'), i18n.t('ui6PagesDocs.delete_failed', { error: String(e) }))
     }
   }
 
@@ -440,11 +449,12 @@ export default function Documents({ isActive = true }) {
       setViewingDoc({ ...d, filename: name })
       return
     }
-    const reason = d.size_bytes > maxInlinePreviewBytes
-      ? `"${d.filename}" is too large to preview in-app`
-      : `No built-in viewer for ${documentType(d).toUpperCase() || 'this kind of'} files`
-    notify('open', `${reason} — opening "${d.filename}" with your system's default application.`)
-    WailsApp.OpenPathWithOS(d.path).catch(e => notify('open', `Could not open "${d.filename}": ${e}`))
+    const type = documentType(d).toUpperCase()
+    const name2 = d.filename
+    notify(i18n.t('ui6PagesDocs.op_open'), d.size_bytes > maxInlinePreviewBytes
+      ? i18n.t('ui6PagesDocs.too_large', { name: name2 })
+      : type ? i18n.t('ui6PagesDocs.no_viewer', { type, name: name2 }) : i18n.t('ui6PagesDocs.no_viewer_unknown', { name: name2 }))
+    WailsApp.OpenPathWithOS(d.path).catch(e => notify(i18n.t('ui6PagesDocs.op_open'), i18n.t('ui6PagesDocs.open_failed', { name: d.filename, error: String(e) })))
   }
 
   const handleSearch = async (e) => {
@@ -455,7 +465,7 @@ export default function Documents({ isActive = true }) {
     try {
       setResults(await WailsApp.SearchProfileKnowledge(query))
     } catch (e) {
-      setError('Search failed: ' + e)
+      setError(i18n.t('ui6PagesDocs.search_failed', { error: String(e) }))
     } finally {
       setSearching(false)
     }
@@ -464,52 +474,52 @@ export default function Documents({ isActive = true }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 16, gap: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>Documents</h2>
+        <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>{t('ui6PagesDocs.title')}</h2>
         <div style={{ flex: 1 }} />
         {selectedIds.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{selectedIds.size} selected</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('ui6PagesDocs.n_selected', { n: selectedIds.size })}</span>
             <button
               style={btnStyle}
               disabled={bulkBusy !== null}
               onClick={() => runBulkIndex(docs.filter(d => selectedIds.has(d.id)))}
             >
-              <PlayCircle size={13} /> {bulkBusy === 'index' ? `Indexing… (${bulkProgress.done}/${bulkProgress.total})` : `Index selected (${selectedIds.size})`}
+              <PlayCircle size={13} /> {bulkBusy === 'index' ? t('ui6PagesDocs.indexing_progress', { done: bulkProgress.done, total: bulkProgress.total }) : t('ui6PagesDocs.index_selected', { n: selectedIds.size })}
             </button>
             <button
               style={{ ...btnStyle, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
               disabled={bulkBusy !== null}
               onClick={() => runBulkDelete(docs.filter(d => selectedIds.has(d.id)))}
             >
-              <Trash2 size={13} /> {bulkBusy === 'delete' ? `Deleting… (${bulkProgress.done}/${bulkProgress.total})` : `Delete selected (${selectedIds.size})`}
+              <Trash2 size={13} /> {bulkBusy === 'delete' ? t('ui6PagesDocs.deleting_progress', { done: bulkProgress.done, total: bulkProgress.total }) : t('ui6PagesDocs.delete_selected', { n: selectedIds.size })}
             </button>
           </div>
         )}
         <button style={btnStyle} disabled={bulkBusy !== null} onClick={() => runBulkIndex(docs)}>
-          <PlayCircle size={13} /> {bulkBusy === 'index' ? `Indexing… (${bulkProgress.done}/${bulkProgress.total})` : 'Index all'}
+          <PlayCircle size={13} /> {bulkBusy === 'index' ? t('ui6PagesDocs.indexing_progress', { done: bulkProgress.done, total: bulkProgress.total }) : t('ui6PagesDocs.index_all')}
         </button>
-        <button style={btnStyle} disabled={uploading} onClick={handleUpload}><Upload size={13} /> {uploading ? 'Uploading…' : 'Upload'}</button>
-        <button style={btnStyle} disabled={uploading} onClick={handleUploadFolder}><Upload size={13} /> Upload folder</button>
+        <button style={btnStyle} disabled={uploading} onClick={handleUpload}><Upload size={13} /> {uploading ? t('ui6PagesDocs.uploading') : t('ui6PagesDocs.upload')}</button>
+        <button style={btnStyle} disabled={uploading} onClick={handleUploadFolder}><Upload size={13} /> {t('ui6PagesDocs.upload_folder')}</button>
       </div>
 
       <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8 }}>
-        <input style={{ ...inputStyle, flex: 1 }} placeholder="Search your uploaded documents..." value={query} onChange={e => setQuery(e.target.value)} />
-        <button type="submit" style={btnStyle} disabled={searching}><Search size={13} /> Search</button>
+        <input style={{ ...inputStyle, flex: 1 }} placeholder={t('ui6PagesDocs.search_placeholder')} value={query} onChange={e => setQuery(e.target.value)} />
+        <button type="submit" style={btnStyle} disabled={searching}><Search size={13} /> {t('ui6PagesDocs.search')}</button>
         <select
-          aria-label="Filter by source"
+          aria-label={t('ui6PagesDocs.filter_source')}
           className="filter-select"
           style={{ fontFamily: 'var(--font-mono)', fontSize: 11, colorScheme: 'dark' }}
           value={sourceFilter}
           onChange={e => setSourceFilter(e.target.value)}
         >
-          <option value="">All sources</option>
+          <option value="">{t('ui6PagesDocs.all_sources')}</option>
           {sources.map(src => <option key={src} value={src}>{sourceLabel(src)}</option>)}
         </select>
       </form>
 
       {knownTags.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} aria-label="Filter by tag">
-          <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tags</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} aria-label={t('ui6PagesDocs.filter_tag')}>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{t('ui6PagesDocs.tags')}</span>
           {knownTags.map(t => (
             <TagChip
               key={t.id}
@@ -519,7 +529,7 @@ export default function Documents({ isActive = true }) {
             />
           ))}
           {tagFilter.length > 0 && (
-            <button type="button" style={{ ...btnStyle, padding: '1px 8px' }} onClick={() => setTagFilter([])}>Clear</button>
+            <button type="button" style={{ ...btnStyle, padding: '1px 8px' }} onClick={() => setTagFilter([])}>{t('ui6PagesDocs.clear')}</button>
           )}
         </div>
       )}
@@ -534,20 +544,20 @@ export default function Documents({ isActive = true }) {
           <Sparkles size={14} color="#f59e0b" style={{ flexShrink: 0 }} />
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>
             {initStatus === 'running'
-              ? 'Setting up monomind for this profile — this can take a minute or two…'
-              : 'Monomind isn\'t set up for this profile yet — uploaded documents won\'t be searchable until it is.'}
+              ? t('ui6PagesDocs.init_running')
+              : t('ui6PagesDocs.init_needed')}
           </div>
           {initStatus === 'running' ? (
             <div className="spinner" style={{ width: 14, height: 14 }} />
           ) : (
-            <button style={{ ...btnStyle, padding: '4px 10px', flexShrink: 0 }} onClick={startMonomindInit}>Initiate monomind</button>
+            <button style={{ ...btnStyle, padding: '4px 10px', flexShrink: 0 }} onClick={startMonomindInit}>{t('ui6PagesDocs.init_button')}</button>
           )}
         </div>
       )}
 
       {results && (
         <div style={{ maxHeight: '30%', overflow: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: 8 }}>
-          {results.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No matching content found.</div>}
+          {results.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('ui6PagesDocs.no_results')}</div>}
           {results.map((r, i) => (
             <div key={i} style={{ fontSize: 11, padding: '4px 0', borderBottom: i < results.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
               <span style={{ color: '#00b4d8' }}>[{r.score.toFixed(2)}]</span> <span style={{ color: 'var(--text-muted)' }}>{r.path}</span>
@@ -564,19 +574,19 @@ export default function Documents({ isActive = true }) {
               <th style={{ padding: '6px 8px' }}>
                 <input
                   type="checkbox"
-                  aria-label="Select all documents"
+                  aria-label={t('ui6PagesDocs.select_all')}
                   style={{ accentColor: '#00b4d8', width: 14, height: 14 }}
                   checked={allVisibleSelected}
                   onChange={toggleSelectAll}
                 />
               </th>
-              <SortableTh label="Name" sortKey="name" sort={sort} onSort={onSort} />
-              <SortableTh label="Type" sortKey="type" sort={sort} onSort={onSort} />
-              <th style={{ padding: '6px 8px' }}>Tags</th>
-              <SortableTh label="Source" sortKey="source" sort={sort} onSort={onSort} />
-              <th style={{ padding: '6px 8px' }}>Size</th>
-              <SortableTh label="Date" sortKey="date" sort={sort} onSort={onSort} />
-              <th style={{ padding: '6px 8px' }}>Knowledge Graph</th>
+              <SortableTh label={t('ui6PagesDocs.col_name')} sortKey="name" sort={sort} onSort={onSort} />
+              <SortableTh label={t('ui6PagesDocs.col_type')} sortKey="type" sort={sort} onSort={onSort} />
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesDocs.tags')}</th>
+              <SortableTh label={t('ui6PagesDocs.col_source')} sortKey="source" sort={sort} onSort={onSort} />
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesDocs.col_size')}</th>
+              <SortableTh label={t('ui6PagesDocs.col_date')} sortKey="date" sort={sort} onSort={onSort} />
+              <th style={{ padding: '6px 8px' }}>{t('ui6PagesDocs.col_graph')}</th>
               <th style={{ padding: '6px 8px' }} />
             </tr>
           </thead>
@@ -590,14 +600,14 @@ export default function Documents({ isActive = true }) {
                 <td style={{ padding: '8px' }}>
                   <input
                     type="checkbox"
-                    aria-label={`Select ${d.filename}`}
+                    aria-label={t('ui6PagesDocs.select_file', { file: d.filename })}
                     style={{ accentColor: '#00b4d8', width: 14, height: 14 }}
                     checked={selectedIds.has(d.id)}
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleSelected(d.id)}
                   />
                 </td>
-                <td style={{ padding: '8px' }} title="Double-click to view">
+                <td style={{ padding: '8px' }} title={t('ui6PagesDocs.double_click')}>
                   <div>{d.filename}</div>
                   {d.summary_status && (
                     <div
@@ -605,7 +615,7 @@ export default function Documents({ isActive = true }) {
                       title={summaryStatusText({ status: d.summary_status })}
                       style={{ fontSize: 10, color: ['error', 'stalled'].includes(d.summary_status) ? '#f87171' : d.summary_status === 'done' ? '#10b981' : '#94a3b8' }}
                     >
-                      {{ done: 'Summary ready', pending: 'Summary queued', running: 'Summarizing…', error: 'Summary failed', stalled: 'Summary stalled' }[d.summary_status] || d.summary_status}
+                      {{ done: t('ui6PagesDocs.summary_done'), pending: t('ui6PagesDocs.summary_pending'), running: t('ui6PagesDocs.summary_running'), error: t('ui6PagesDocs.summary_error'), stalled: t('ui6PagesDocs.summary_stalled') }[d.summary_status] || d.summary_status}
                     </div>
                   )}
                   {d.url && (
@@ -632,57 +642,57 @@ export default function Documents({ isActive = true }) {
                     if (state === 'indexed') {
                       return (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#10b981', fontSize: 10 }}>
-                          <CheckCircle2 size={12} /> Indexed
+                          <CheckCircle2 size={12} /> {t('ui6PagesDocs.indexed')}
                         </span>
                       )
                     }
                     if (state === 'stale') {
                       return (
                         <span
-                          title={d.index_error || 'Content changed on disk since last index'}
+                          title={d.index_error || t('ui6PagesDocs.stale_title')}
                           style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f59e0b', fontSize: 10, cursor: 'help' }}
                         >
-                          <AlertTriangle size={12} /> Stale
+                          <AlertTriangle size={12} /> {t('ui6PagesDocs.stale')}
                         </span>
                       )
                     }
                     if (state === 'monomind_not_set_up') {
                       return (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f59e0b', fontSize: 10 }}>
-                          <Sparkles size={12} /> Monomind not set up
+                          <Sparkles size={12} /> {t('ui6PagesDocs.monomind_not_set_up')}
                         </span>
                       )
                     }
                     return (
                       <span
-                        title={d.index_error || 'Not yet indexed'}
+                        title={d.index_error || t('ui6PagesDocs.not_yet_indexed')}
                         style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: 10, cursor: d.index_error ? 'help' : 'default' }}
                       >
-                        <XCircle size={12} /> {isMonomindMissing(d.index_error) ? 'Monomind not installed' : 'Not indexed'}
+                        <XCircle size={12} /> {isMonomindMissing(d.index_error) ? t('ui6PagesDocs.monomind_not_installed') : t('ui6PagesDocs.not_indexed')}
                       </span>
                     )
                   })()}
                 </td>
                 <td style={{ padding: '8px', display: 'flex', gap: 6 }}>
-                  <button style={{ ...btnStyle, padding: '4px 8px' }} title="View" onClick={(e) => { e.stopPropagation(); handleOpenDocument(d) }}>
+                  <button style={{ ...btnStyle, padding: '4px 8px' }} title={t('ui6PagesDocs.view')} onClick={(e) => { e.stopPropagation(); handleOpenDocument(d) }}>
                     <Eye size={12} />
                   </button>
                   {d.url && (
-                    <button style={{ ...btnStyle, padding: '4px 8px' }} title="Open the original page" onClick={(e) => { e.stopPropagation(); api.openURL(d.url) }}>
+                    <button style={{ ...btnStyle, padding: '4px 8px' }} title={t('ui6PagesDocs.open_original_page')} onClick={(e) => { e.stopPropagation(); api.openURL(d.url) }}>
                       <ExternalLink size={12} />
                     </button>
                   )}
                   {(d.stale || !d.indexed) && (
                     <button
                       style={{ ...btnStyle, padding: '4px 8px' }}
-                      title={d.stale ? 'Re-index' : 'Index'}
+                      title={d.stale ? t('ui6PagesDocs.reindex') : t('ui6PagesDocs.index')}
                       disabled={indexingIds.has(d.id) || bulkBusy !== null}
                       onClick={(e) => { e.stopPropagation(); handleIndex(d.id) }}
                     >
                       {indexingIds.has(d.id) ? <div className="spinner" style={{ width: 12, height: 12 }} /> : <PlayCircle size={12} />}
                     </button>
                   )}
-                  <button style={{ ...btnStyle, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '4px 8px' }} title={isCapture(d) ? 'Delete this capture' : d.source === 'discovered' ? 'Remove from MonoAgent' : 'Delete'} aria-label={`Delete ${d.filename}`} onClick={(e) => { e.stopPropagation(); d.source === 'discovered' ? runBulkDelete([d]) : handleDelete(d.id, d.filename, isCapture(d)) }}>
+                  <button style={{ ...btnStyle, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '4px 8px' }} title={isCapture(d) ? t('ui6PagesDocs.delete_capture') : d.source === 'discovered' ? t('ui6PagesDocs.remove_from_app') : t('ui6PagesDocs.delete')} aria-label={t('ui6PagesDocs.delete_file_named', { file: d.filename })} onClick={(e) => { e.stopPropagation(); d.source === 'discovered' ? runBulkDelete([d]) : handleDelete(d.id, d.filename, isCapture(d)) }}>
                     <Trash2 size={12} />
                   </button>
                 </td>
@@ -690,7 +700,7 @@ export default function Documents({ isActive = true }) {
             ))}
             {visibleDocs.length === 0 && (
               <tr><td colSpan={9} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
-                {docs.length === 0 ? 'No documents yet.' : 'No documents match the current filters.'}
+                {docs.length === 0 ? t('ui6PagesDocs.empty') : t('ui6PagesDocs.empty_filtered')}
               </td></tr>
             )}
           </tbody>
@@ -700,14 +710,14 @@ export default function Documents({ isActive = true }) {
       {excluded.length > 0 && (
         <div style={{ marginTop: 12, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
           <button style={{ ...btnStyle, padding: '3px 8px' }} onClick={() => setShowExcluded(v => !v)}>
-            {showExcluded ? 'Hide excluded' : `Show excluded (${excluded.length})`}
+            {showExcluded ? t('ui6PagesDocs.hide_excluded') : t('ui6PagesDocs.show_excluded', { n: excluded.length })}
           </button>
           {showExcluded && (
-            <ul aria-label="Excluded documents" style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+            <ul aria-label={t('ui6PagesDocs.excluded_list')} style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
               {excluded.map(item => (
                 <li key={item.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', color: 'var(--text-muted)' }}>
                   <span style={{ flex: 1 }} title={item.path}>{item.relative_path || item.filename}</span>
-                  <button style={{ ...btnStyle, padding: '3px 8px' }} aria-label={`Restore ${item.relative_path || item.filename}`} onClick={() => handleRestore(item)}>Restore</button>
+                  <button style={{ ...btnStyle, padding: '3px 8px' }} aria-label={t('ui6PagesDocs.restore_named', { name: item.relative_path || item.filename })} onClick={() => handleRestore(item)}>{t('ui6PagesDocs.restore')}</button>
                 </li>
               ))}
             </ul>
