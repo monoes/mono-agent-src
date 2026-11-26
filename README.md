@@ -196,7 +196,7 @@ More ready-to-run workflows (RSS→AI→email, Sheets→Gmail, Stripe→Sheets s
 - Reference items in prompts and posts as `{{@img-001}}`
 - Save audio and video from a web page with the browser extension; audio and video in a profile folder are tracked only if you switch `media scan on` (off by default)
 - Audio and video play in the app; images get a fullscreen editor — crop, resize, rotate, filters
-- AI background removal (U2-Net) plus a full image-processing node set
+- A full image-processing node set
 - Profile-scoped: each workspace sees only its own vault
 
 </td>
@@ -369,7 +369,7 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 <details>
 <summary><strong>🖼️ Image Processing & Media Vault (9 nodes)</strong></summary>
 
-`image.info` · `image.resize` · `image.crop` · `image.thumbnail` · `image.convert` · `image.adjust` · `image.remove_background` (U2-Net AI) · `image.vault_get` · `image.vault_save`
+`image.info` · `image.resize` · `image.crop` · `image.thumbnail` · `image.convert` · `image.adjust` · `image.vault_get` · `image.vault_save`
 
 </details>
 
