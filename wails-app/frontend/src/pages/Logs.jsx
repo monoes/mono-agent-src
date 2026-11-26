@@ -4,6 +4,7 @@ import { Terminal, Trash2, ArrowDown } from 'lucide-react'
 import RefreshButton from '../components/RefreshButton.jsx'
 import SendToCoderButton from '../components/SendToCoderButton.jsx'
 import { selectionText } from '../components/SendToCoderApi.js'
+import i18nOr from '../lib/i18nOr.js'
 
 const LEVEL_COLORS = {
   INFO:   { level: 'log-level-info',   msg: 'log-msg-info' },
@@ -144,7 +145,7 @@ export default function Logs({ logs, onClear, onRefresh }) {
                   <span className={colors.msg}>{entry.message}</span>
                   {entry.level?.toUpperCase() === 'ERROR' && (
                     <SendToCoderButton label={t('logsBody.askCoder')} goal={t('logsBody.askGoal')}
-                      context={[selectionText(`[${entry.source || 'SYS'}] ${entry.message}`)]} origin={{ page: 'logs', label: 'Logs' }}
+                      context={[selectionText(`[${entry.source || 'SYS'}] ${entry.message}`)]} origin={{ page: 'logs', label: i18nOr('ui6PagesMsgs.logs') }}
                       className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} />
                   )}
                 </div>

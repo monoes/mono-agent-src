@@ -3,6 +3,8 @@
 // or can be picked as an image; audio and video play in the detail view; the
 // rest show as files.
 
+import i18nOr from './i18nOr.js'
+
 // The image extensions the vault treats as images (internal/imagescan
 // AllowedExtensions).
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'])
@@ -37,5 +39,5 @@ export function vaultFileKind(item) {
   const name = String(item?.filename || '')
   const dot = name.lastIndexOf('.')
   const ext = dot >= 0 ? name.slice(dot + 1).toUpperCase() : ''
-  return ext && ext.length <= 4 ? ext : 'FILE'
+  return ext && ext.length <= 4 ? ext : i18nOr('ui6PagesImages.file_kind')
 }
