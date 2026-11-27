@@ -4455,6 +4455,28 @@ item that sends a message only at `full`, or at `mid` with a tier the user
 lowered for that class; the chat, an agent or a workflow can't lower a tier or
 set level `full`.
 
+### Chat cards (A2UI)
+
+Chats can show interactive cards (A2UI v1.0). An agent in an Org mode chat
+draws its own with the `ui_render` tool; its buttons only send a message back
+and decide nothing. MonoAgent builds the cards for pending approvals,
+team-member questions and missions from the real records, and only those can
+decide something. Ids starting `hil-`, `send-`, `ask-` and `mission-` are
+reserved for them.
+
+```bash
+monoagentcli chat ui show <conversation> --profile work       # a chat's open cards as text (read only)
+monoagentcli chat ui sync-hil <conversation> --profile work   # draw or close the approval cards of a chat
+```
+
+`chat ui action <conversation> --action -` (a button press, the envelope on
+stdin) is the user's alone, like every approval from a chat: it refuses an
+agent, the chat's runs and a workflow's processes. `hil approve|reject
+--if-digest <d>` decides only while the item is still as `hil list --json`
+showed it (its `digest`). A chat offers no Approve for an item it cannot show
+whole, for a send with attachments, or for a browser-submit, site or pairing
+item.
+
 People staged for outreach (saved with category `pending_approval` and a
 drafted introduction) have their own queue, the one the app shows on Human
 in Loop:
