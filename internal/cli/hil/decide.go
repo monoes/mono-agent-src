@@ -8,6 +8,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/extension"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/hilsend"
 )
 
@@ -39,6 +40,7 @@ func twoStepItem(nodeConfig string) bool {
 // caller saw it. It returns the data it checked, to guard the write with.
 func (d Deps) checkDigest(cmd *cobra.Command, db *sql.DB, id string) (readonly, editable string, err error) {
 	var nc, status string
+	hilscrub.Ensure(cmd.Context(), db, d.ProfileID()) // a secret value must not be read, or digested, unscrubbed
 	err = db.QueryRowContext(cmd.Context(), `SELECT readonly_data, editable_data, COALESCE(node_config, ''), status FROM hil_pending
 		WHERE id = ? AND profile_id = ?`, id, d.ProfileID()).Scan(&readonly, &editable, &nc, &status)
 	if err != nil || status != "pending" {
