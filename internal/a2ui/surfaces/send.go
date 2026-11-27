@@ -42,7 +42,7 @@ func stateTone(s hilsend.State) string {
 // left out, Send returns ErrTooLarge. The editable text and subject of a
 // pending item are never cut either. On the other cards, recipient, account
 // and detail lines are cut with Truncated.
-func Send(p hilsend.Payload) ([][]byte, error) {
+func Send(p hilsend.Payload, digest string) ([][]byte, error) {
 	if err := checkID("send", p.ID); err != nil {
 		return nil, err
 	}
@@ -57,10 +57,10 @@ func Send(p hilsend.Payload) ([][]byte, error) {
 			return nil, err
 		}
 	}
-	return shrinking(func(textCap int) ([][]byte, error) { return buildSend(p, text, subject, textCap) })
+	return shrinking(func(textCap int) ([][]byte, error) { return buildSend(p, digest, text, subject, textCap) })
 }
 
-func buildSend(p hilsend.Payload, text, subject string, textCap int) ([][]byte, error) {
+func buildSend(p hilsend.Payload, digest, text, subject string, textCap int) ([][]byte, error) {
 	pending := p.State == hilsend.StatePending
 	canApprove := pending && p.Unreviewable == ""
 	b := newBuilder()
@@ -103,7 +103,7 @@ func buildSend(p hilsend.Payload, text, subject string, textCap int) ([][]byte, 
 		body = append(body, "unrev")
 	}
 
-	ctx := map[string]any{"id": p.ID}
+	ctx := decisionContext(p.ID, digest)
 	b.data["send"] = map[string]any{"text": text, "subject": subject}
 	if pending && subject != "" && !p.SubjectReadOnly {
 		b.add("subject", "TextField", map[string]any{"label": "Subject", "value": bind("/send/subject"), "variant": "shortText"})
@@ -130,7 +130,7 @@ func buildSend(p hilsend.Payload, text, subject string, textCap int) ([][]byte, 
 		b.button(btnApprove, "Approve", "primary", "hil.approve", ctx)
 	}
 	if pending {
-		b.button(btnReject, "Reject", "danger", "hil.reject", map[string]any{"id": p.ID})
+		b.button(btnReject, "Reject", "danger", "hil.reject", decisionContext(p.ID, digest))
 		if canApprove {
 			b.row("actions", btnApprove, btnReject)
 		} else {

@@ -158,8 +158,13 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		return err
 	}
 	surfaceID, approve := a.SurfaceID, cmd.Kind == "hil.approve"
-	if ref.Digest == "" {
+	// The digest is the pressed card's own, not the newest journaled one: a view
+	// still showing an older card must not decide with what it shows.
+	if cmd.Digest == "" {
 		return errors.New("this card does not say what it showed: wait for it to be drawn again")
+	}
+	if cmd.Digest != ref.Digest {
+		return errors.New("this card was drawn again since you pressed it: look at it, then press again")
 	}
 	args := []string{"hil", "reject", cmd.ID}
 	if approve {
@@ -184,7 +189,7 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		e.finish(conv, inProgress, surfaceID, sendingNote, "info")
 	}
 	// The command decides the item only while it is what the card showed.
-	out, err := e.run(ctx, append(args, "--if-digest", ref.Digest)...)
+	out, err := e.run(ctx, append(args, "--if-digest", cmd.Digest)...)
 	if err != nil {
 		decided := strings.Contains(err.Error(), hilsend.ErrDecided.Error())
 		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending, decided)
@@ -388,7 +393,6 @@ func typedLike(orig any, s string) any {
 
 type listedHIL struct {
 	surfaces.HILItem
-	Digest   string           `json:"digest"`
 	Redacted bool             `json:"redacted"`
 	Kind     string           `json:"kind"`
 	Send     *hilsend.Payload `json:"send"`

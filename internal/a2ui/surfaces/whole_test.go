@@ -110,7 +110,7 @@ func TestSendApprovalNeverCutsOrOmits(t *testing.T) {
 	} {
 		p := samplePayload()
 		mut(&p)
-		if msgs, err := Send(p); !errors.Is(err, ErrTooLarge) {
+		if msgs, err := Send(p, "d1"); !errors.Is(err, ErrTooLarge) {
 			t.Errorf("%s: want ErrTooLarge, got err %v and %d messages", name, err, len(msgs))
 		}
 		// The same record is still shown, cut, where nobody can approve it.
@@ -121,7 +121,7 @@ func TestSendApprovalNeverCutsOrOmits(t *testing.T) {
 			q := samplePayload()
 			mut(&q)
 			change(&q)
-			msgs, err := Send(q)
+			msgs, err := Send(q, "d1")
 			if err != nil {
 				t.Errorf("%s, %s: %v", name, state, err)
 				continue

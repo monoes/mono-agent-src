@@ -234,7 +234,7 @@ func buildItemSurface(it listedHIL) (chatevents.UIRef, [][]byte, error) {
 			errors.New("it holds a reply link that chat does not show: decide it in Communications")
 	}
 	if it.Kind == "send" && it.Send != nil {
-		msgs, err := surfaces.Send(*it.Send)
+		msgs, err := surfaces.Send(*it.Send, it.Digest)
 		return chatevents.UIRef{Kind: surfaces.RefSend, ID: it.Send.ID, Digest: it.Digest}, msgs, err
 	}
 	msgs, err := surfaces.HIL(it.HILItem)

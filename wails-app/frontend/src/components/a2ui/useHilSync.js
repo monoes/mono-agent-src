@@ -1,7 +1,8 @@
 // While a conversation view is open, asks the CLI to surface pending HIL items
 // as cards (`chat ui sync-hil`): once on open, then every 10 s while the window
 // is visible and focused. Never two calls at once; a failure only warns.
-// onChanged runs when the CLI added or closed a card, to read it.
+// onChanged then reads the cards, after every sync: another window or the side
+// panel may have drawn one again, which this sync does not report.
 import { useEffect, useRef } from 'react'
 import { api } from '../../services/api.js'
 
@@ -20,9 +21,9 @@ export function useHilSync(conversationId, onChanged, enabled = HIL_SYNC_ENABLED
       if (inflight || stopped || document.hidden || !focused) return
       inflight = true
       try {
-        const r = await api.chatUISyncHIL(conversationId)
-        if (!stopped && (r?.surfaced?.length || r?.resolved?.length)) await changedRef.current?.()
-      } catch (e) { console.warn('a2ui: sync-hil failed', e) } finally { inflight = false }
+        await api.chatUISyncHIL(conversationId).catch(e => console.warn('a2ui: sync-hil failed', e))
+        if (!stopped) await changedRef.current?.()
+      } catch (e) { console.warn('a2ui: reading the cards failed', e) } finally { inflight = false }
     }
     const onFocus = () => { focused = true }
     const onBlur = () => { focused = false }

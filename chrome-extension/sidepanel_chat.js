@@ -179,13 +179,15 @@
   let uiSyncing = false;
   const panelVisible = () => document.visibilityState !== "hidden";
   async function uiSyncTick() {
-    if (!ui || uiSyncing || !panelVisible() || availability !== "ready" || !chat.conversation || active) return;
-    flushUiQueue(); // a press made here before another chat was shown
+    if (!ui || uiSyncing || !panelVisible() || availability !== "ready" || !chat.conversation) return;
     uiSyncing = true;
     const mine = loadSeq;
     try {
-      await ask({ type: "chat_ui_sync", profile, conversationId: chat.conversation });
-      // Read even when this sync changed nothing: the desktop app writes journal turns too.
+      if (!active) {
+        flushUiQueue(); // a press made here before another chat was shown
+        await ask({ type: "chat_ui_sync", profile, conversationId: chat.conversation });
+      }
+      // Read even when nothing was synced: the desktop app writes journal turns too, a running reply or not.
       if (mine === loadSeq) await uiJournal();
     } finally {
       uiSyncing = false;

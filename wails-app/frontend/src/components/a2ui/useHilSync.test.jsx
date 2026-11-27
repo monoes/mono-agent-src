@@ -11,15 +11,19 @@ afterEach(() => { vi.useRealTimers() })
 
 describe('useHilSync', () => {
   const onChanged = vi.fn()
-  it('reads the cards only when the CLI added or closed one', async () => {
+  // Another window or the side panel may have drawn a card again: this sync then
+  // finds nothing to do, and only the journal says there is a newer card.
+  it('reads the journal after every sync, whatever the sync did or if it failed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     onChanged.mockClear()
-    api.chatUISyncHIL.mockResolvedValueOnce({ surfaced: [], resolved: [] }).mockResolvedValueOnce({ surfaced: ['hil-1'], resolved: [] }).mockResolvedValue({ surfaced: [], resolved: ['hil-1'] })
+    api.chatUISyncHIL.mockResolvedValueOnce({ surfaced: [], resolved: [] }).mockRejectedValueOnce(new Error('busy')).mockResolvedValue({})
     renderHook(() => useHilSync('c1', onChanged))
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(onChanged).not.toHaveBeenCalled()
+    expect(onChanged).toHaveBeenCalledTimes(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(HIL_SYNC_MS) })
     await act(async () => { await vi.advanceTimersByTimeAsync(HIL_SYNC_MS) })
-    expect(onChanged).toHaveBeenCalledTimes(2)
+    expect(onChanged).toHaveBeenCalledTimes(3)
+    warn.mockRestore()
   })
   it('syncs on open then every 10s, and stops on unmount', async () => {
     api.chatUISyncHIL.mockResolvedValue({})

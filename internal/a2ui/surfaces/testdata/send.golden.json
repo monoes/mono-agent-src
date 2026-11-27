@@ -73,6 +73,7 @@
         "action": {
           "event": {
             "context": {
+              "_digest": "d1",
               "id": "7c1e",
               "subject": {
                 "@path": "/send/subject"
@@ -98,6 +99,7 @@
         "action": {
           "event": {
             "context": {
+              "_digest": "d1",
               "id": "7c1e"
             },
             "name": "hil.reject"

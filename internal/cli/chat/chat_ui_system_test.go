@@ -86,13 +86,29 @@ func (r *sysRig) surfaceNow(t *testing.T, id string) *a2ui.Surface {
 
 func (r *sysRig) press(t *testing.T, name, surface, button string, ctx map[string]any) (UIActionResult, error) {
 	t.Helper()
+	// As a renderer does: the button's literal digest goes with the press,
+	// unless the test says what to send.
+	if _, set := ctx[surfaces.DigestKey]; !set {
+		if s := r.surfaceNow(t, surface); s != nil {
+			action, _ := s.Components[button]["action"].(map[string]any)
+			ev, _ := action["event"].(map[string]any)
+			declared, _ := ev["context"].(map[string]any)
+			if d, ok := declared[surfaces.DigestKey]; ok {
+				with := map[string]any{surfaces.DigestKey: d}
+				for k, v := range ctx {
+					with[k] = v
+				}
+				ctx = with
+			}
+		}
+	}
 	raw, _ := json.Marshal(map[string]any{"version": "1.0", "action": map[string]any{"name": name, "surfaceId": surface,
 		"sourceComponentId": button, "timestamp": "2026-11-24T10:00:00Z", "context": ctx}})
 	return r.uiRig.press(t, string(raw))
 }
 
 func hilItem() surfaces.HILItem {
-	return surfaces.HILItem{ID: "482", NodeName: "Send DM", WorkflowName: "Outreach",
+	return surfaces.HILItem{ID: "482", Digest: "d1", NodeName: "Send DM", WorkflowName: "Outreach",
 		ReadonlyData: map[string]any{"to": "@sara"},
 		EditableData: map[string]any{"message": "Hi", "delay_minutes": float64(5)}}
 }
@@ -197,7 +213,7 @@ func TestSendApprovalPassesTextAndReportsAFailedSend(t *testing.T) {
 	r := newSysRig(t)
 	p := hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Channel: "instagram",
 		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada", Subject: "Hello"}
-	msgs, err := surfaces.Send(p)
+	msgs, err := surfaces.Send(p, "d1")
 	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, msgs, err)
 	r.cli.outputs["hil approve"] = `{"id":"7c1e","state":"failed","error":"rate limited"}`
 	res, _ := r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi Ada, edited", "subject": "Hello"})
@@ -213,7 +229,7 @@ func TestSendApprovalPassesTextAndReportsAFailedSend(t *testing.T) {
 	// the edit round-trips whole at the returned-string cap
 	r2 := newSysRig(t)
 	p.Text = strings.Repeat("é", 10<<10)
-	m2, err := surfaces.Send(p)
+	m2, err := surfaces.Send(p, "d1")
 	r2.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, m2, err)
 	r2.cli.outputs["hil approve"] = `{"state":"sent"}`
 	res, _ = r2.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": p.Text, "subject": "Hello"})
@@ -478,7 +494,7 @@ func TestAPressThatDidNotHappenShowsTheRealState(t *testing.T) {
 		{"approve", "", "No longer pending"},
 	} {
 		r := newSysRig(t)
-		msgs, err := surfaces.Send(send)
+		msgs, err := surfaces.Send(send, "d1")
 		r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, msgs, err)
 		r.cli.outputs["hil "+c.button] = fmt.Sprintf(`{"id":"7c1e","state":%q,"error":"boom"}`, c.state)
 		r.cli.outputs["hil list"] = `[]`
@@ -620,7 +636,7 @@ func TestTheChatJournalNeverHoldsAReplyToken(t *testing.T) {
 		}
 	}
 
-	msgs, err := surfaces.Send(hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Text: "Hi"})
+	msgs, err := surfaces.Send(hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Text: "Hi"}, "d1")
 	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, msgs, err)
 	r.cli.outputs["hil approve"] = fmt.Sprintf(`{"id":"7c1e","state":"failed","error":"POST %s refused"}`, resume)
 	press, _ := r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi"})
@@ -641,7 +657,7 @@ func TestTheChatJournalNeverHoldsAReplyToken(t *testing.T) {
 func sendCard(t *testing.T, r *sysRig) {
 	t.Helper()
 	msgs, err := surfaces.Send(hilsend.Payload{Kind: "send", ID: "7c1e", State: hilsend.StatePending, Action: hilsend.ActionDM, Channel: "instagram",
-		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada"})
+		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada"}, "d1")
 	r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, msgs, err)
 }
 
@@ -822,5 +838,49 @@ func TestAPressOnASendDecidedElsewhereShowsItsState(t *testing.T) {
 	syncHIL(t, r)
 	if got := r.surfaceNow(t, "send-7c1e").Components["note"]["text"]; got != "Already approved, and sending failed: boom. This press changed nothing, edits included" {
 		t.Fatalf("%v", got)
+	}
+}
+
+// The digest a press decides with is the pressed card's own, carried by its
+// button: a view that still shows an older card cannot decide the item with
+// the text it shows, although a newer card is journaled.
+func TestAPressOnAnOlderCardDecidesNothing(t *testing.T) {
+	r := newSysRig(t)
+	startChat(t, r)
+	r.cli.outputs["hil list"] = listedWith("d1", "old text")
+	syncHIL(t, r)
+	r.cli.outputs["hil list"] = listedWith("d2", "newer text from another window")
+	syncHIL(t, r)
+	r.cli.outputs["hil approve"] = `{"id":"482","status":"approved"}`
+	r.cli.outputs["hil reject"] = `{"id":"482","status":"rejected"}`
+	for name, ctx := range map[string]map[string]any{
+		"the old card":  {"id": "482", "message": "old text", "delay_minutes": "5", surfaces.DigestKey: "d1"},
+		"no digest":     {"id": "482", "message": "old text", "delay_minutes": "5", surfaces.DigestKey: ""},
+		"a made-up one": {"id": "482", "message": "old text", "delay_minutes": "5", surfaces.DigestKey: "zz"},
+	} {
+		for _, verb := range []string{"approve", "reject"} {
+			c := ctx
+			if verb == "reject" {
+				c = map[string]any{"id": "482", surfaces.DigestKey: ctx[surfaces.DigestKey]}
+			}
+			res, err := r.press(t, "hil."+verb, "hil-482", "btn-"+verb, c)
+			if err != nil || res.Outcome != "rejected" {
+				t.Fatalf("%s, %s: %+v %v", name, verb, res, err)
+			}
+		}
+	}
+	if r.cli.called("hil", "approve")+r.cli.called("hil", "reject") != 0 {
+		t.Fatalf("an old card decided: %v", r.cli.calls)
+	}
+	if s := r.surfaceNow(t, "hil-482"); !hasButton(s) || !strings.Contains(fmt.Sprint(s.Data), "newer text") {
+		t.Fatalf("the current card was touched: %+v", s)
+	}
+	// the current card carries the current digest and decides with it
+	res, _ := r.press(t, "hil.approve", "hil-482", "btn-approve", map[string]any{"id": "482", "message": "newer text from another window", "delay_minutes": "5"})
+	if res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+	if last := strings.Join(r.cli.calls[len(r.cli.calls)-1], " "); !strings.HasSuffix(last, "--if-digest d2") {
+		t.Fatal(last)
 	}
 }
