@@ -145,6 +145,8 @@ func (e *sysEnv) run(ctx context.Context, args ...string) ([]byte, error) {
 const (
 	sendingNote = "Approved by you. Sending now: this can take a while"
 	refSending  = "sending"
+	// refSendingElsewhere marks the note of a send somebody else approved.
+	refSendingElsewhere = "sending-elsewhere"
 )
 
 // hil runs hil.approve and hil.reject: `hil approve|reject <id>`. A press is
@@ -169,6 +171,14 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 	}
 	sending := approve && ref.Kind == surfaces.RefSend
 	if sending {
+		// Not said to be sending when it was decided before the press.
+		if _, err := e.pendingItem(ctx, ref.ID); errors.Is(err, errNotPending) {
+			if state, sendError := e.sendState(ctx, ref.ID); state != "" && state != hilsend.StatePending {
+				e.finishElsewhere(conv, ref, surfaceID, state, sendError)
+				note, _ := elsewhereNote(state, sendError)
+				return errors.New(e.redact(ctx, note))
+			}
+		}
 		inProgress := ref
 		inProgress.State = refSending
 		e.finish(conv, inProgress, surfaceID, sendingNote, "info")
@@ -176,7 +186,8 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 	// The command decides the item only while it is what the card showed.
 	out, err := e.run(ctx, append(args, "--if-digest", ref.Digest)...)
 	if err != nil {
-		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending)
+		decided := strings.Contains(err.Error(), hilsend.ErrDecided.Error())
+		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending, decided)
 		return errors.New(e.redact(ctx, err.Error()))
 	}
 	// A send prints its card ({state, error}), anything else {status}.
@@ -206,7 +217,7 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 	case state != hilsend.StatePending:
 		e.finish(conv, ref, surfaceID, note, tone)
 	case sending:
-		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending)
+		e.afterFailure(ctx, conv, ref, surfaceID, approve, sending, false)
 	}
 	return errors.New(e.redact(ctx, note))
 }
@@ -214,8 +225,9 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 // afterFailure puts the card right after a command that decided nothing it can
 // tell of: the card of an item that still waits stays, drawn anew if the item
 // changed or the card was replaced by the in-progress note; an item that waits
-// no more gets a note with its state.
-func (e *sysEnv) afterFailure(ctx context.Context, conv uiConv, ref chatevents.UIRef, surfaceID string, approve, sending bool) {
+// no more gets a note with its state. decided says the command found the item
+// decided elsewhere, so nothing of that state is this press's doing.
+func (e *sysEnv) afterFailure(ctx context.Context, conv uiConv, ref chatevents.UIRef, surfaceID string, approve, sending, decided bool) {
 	it, err := e.pendingItem(ctx, ref.ID)
 	switch {
 	case err == nil && (sending || it.Digest != ref.Digest):
@@ -224,6 +236,10 @@ func (e *sysEnv) afterFailure(ctx context.Context, conv uiConv, ref chatevents.U
 		note, tone := "No longer pending", "neutral"
 		if ref.Kind == surfaces.RefSend {
 			if state, sendError := e.sendState(ctx, ref.ID); state != "" {
+				if decided {
+					e.finishElsewhere(conv, ref, surfaceID, state, sendError)
+					return
+				}
 				note, tone = outcomeNote(approve, state, sendError)
 			}
 		}
@@ -231,6 +247,33 @@ func (e *sysEnv) afterFailure(ctx context.Context, conv uiConv, ref chatevents.U
 	case err != nil && sending:
 		e.finish(conv, ref, surfaceID, "The outcome of this send is not known: check Communications", "warning")
 	}
+}
+
+// finishElsewhere shows the state of a send decided elsewhere; one still being
+// sent keeps its note until sync-hil reads how it ends.
+func (e *sysEnv) finishElsewhere(conv uiConv, ref chatevents.UIRef, surfaceID string, state hilsend.State, sendError string) {
+	ref.State = ""
+	if state == hilsend.StateApproved {
+		ref.State = refSendingElsewhere
+	}
+	note, tone := elsewhereNote(state, sendError)
+	e.finish(conv, ref, surfaceID, note, tone)
+}
+
+// elsewhereNote says what became of a send that a press did not decide.
+func elsewhereNote(state hilsend.State, sendError string) (text, tone string) {
+	text, tone = "No longer pending", "neutral"
+	switch state {
+	case hilsend.StateSent:
+		text, tone = "Already sent", "warning"
+	case hilsend.StateApproved:
+		text, tone = "Already approved and being sent", "info"
+	case hilsend.StateRejected:
+		text = "Already rejected, nothing was sent"
+	case hilsend.StateFailed:
+		text, tone = "Already approved, and sending failed: "+sendError, "danger"
+	}
+	return text + ". This press changed nothing, edits included", tone
 }
 
 // sendState is a send item's state, "" when it cannot be read.

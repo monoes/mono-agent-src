@@ -110,7 +110,7 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		pending[surfaceOfItem(it)] = true
 	}
 	for _, id := range liveCardIDs(replay) {
-		if ref := refOfSurface(evs, id); !pending[id] && ref.State == refSending {
+		if ref := refOfSurface(evs, id); !pending[id] && (ref.State == refSending || ref.State == refSendingElsewhere) {
 			// An approved send's note stays until the item says how it ended.
 			state, sendError := e.sendState(ctx, ref.ID)
 			if state == "" || state == hilsend.StateApproved || state == hilsend.StatePending {
@@ -119,6 +119,9 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 			note, tone := outcomeNote(true, state, sendError)
 			if state == hilsend.StateSent {
 				note, tone = "Sent", "success"
+			}
+			if ref.State == refSendingElsewhere && state != hilsend.StateSent {
+				note, tone = elsewhereNote(state, sendError)
 			}
 			ref.State = ""
 			if msgs, err := surfaces.ResolvedNotice(id, e.redact(ctx, note), tone); err == nil {

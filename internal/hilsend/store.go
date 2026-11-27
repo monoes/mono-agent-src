@@ -51,6 +51,9 @@ var (
 	// ErrChanged: a decision named the digest of a card (Edit.IfDigest) and
 	// the item is no longer what that card showed.
 	ErrChanged = errors.New("this item changed since its card was drawn: look at it again, then decide")
+	// ErrDecided: a decision named the digest of a card of an item that no
+	// longer waits: it was decided elsewhere, and nothing was done.
+	ErrDecided = errors.New("this send was already decided elsewhere, so this decision did nothing")
 	// ErrUnreviewable: an approve (always-allow included) of a card that
 	// can't show all the step would send (too large, or a draft's). It can
 	// only be rejected, or the step changed and run again.

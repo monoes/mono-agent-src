@@ -217,7 +217,7 @@ func TestSendApprovalPassesTextAndReportsAFailedSend(t *testing.T) {
 	r2.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1"}, m2, err)
 	r2.cli.outputs["hil approve"] = `{"state":"sent"}`
 	res, _ = r2.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": p.Text, "subject": "Hello"})
-	if res.Outcome != "accepted" || !strings.Contains(r2.cli.calls[0][4], p.Text) {
+	if res.Outcome != "accepted" || !strings.Contains(r2.cli.calls[len(r2.cli.calls)-1][4], p.Text) {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -756,5 +756,71 @@ func TestTheRunningTurnsQuestionIsFoundBehindNewerTurns(t *testing.T) {
 	turn, qid, err := openQuestionOf(r.store, "default", r.conv.ID, "w1")
 	if err != nil || turn != "live" || qid != "q1" {
 		t.Fatalf("turn %q question %q: %v", turn, qid, err)
+	}
+}
+
+// A send decided elsewhere before the press: the card says what happened to it
+// and never that this press approved it.
+func TestAPressOnASendDecidedElsewhereShowsItsState(t *testing.T) {
+	decided := errors.New("send item 7c1e: " + hilsend.ErrDecided.Error())
+	for _, c := range []struct{ button, state, note string }{
+		{"approve", "sent", "Already sent. This press changed nothing, edits included"},
+		{"approve", "approved", "Already approved and being sent. This press changed nothing, edits included"},
+		{"approve", "rejected", "Already rejected, nothing was sent. This press changed nothing, edits included"},
+		{"approve", "failed", "Already approved, and sending failed: boom. This press changed nothing, edits included"},
+		{"reject", "sent", "Already sent. This press changed nothing, edits included"},
+	} {
+		// pending at the check before the press, and gone before the command; or gone already
+		for _, listed := range []string{`[]`, sendListed} {
+			r := newSysRig(t)
+			sendCard(t, r)
+			r.cli.outputs["hil list"] = listed
+			r.cli.outputs["hil show"] = fmt.Sprintf(`{"id":"7c1e","state":%q,"error":"boom"}`, c.state)
+			r.cli.errs["hil "+c.button] = decided
+			if listed == sendListed {
+				// decided between the check and the command
+				ran := false
+				r.cfg.RunCLI = func(ctx context.Context, args ...string) ([]byte, error) {
+					if args[1] == "list" && ran {
+						return []byte(`[]`), nil
+					}
+					ran = ran || args[1] == c.button
+					return r.cli.run(ctx, args...)
+				}
+			}
+			ctx := map[string]any{"id": "7c1e"}
+			if c.button == "approve" {
+				ctx["text"] = "my edit"
+			}
+			res, err := r.press(t, "hil."+c.button, "send-7c1e", "btn-"+c.button, ctx)
+			if err != nil || res.Outcome != "rejected" {
+				t.Fatalf("%v: %+v %v", c, res, err)
+			}
+			s := r.surfaceNow(t, "send-7c1e")
+			if s == nil || hasButton(s) || s.Components["note"]["text"] != c.note {
+				t.Fatalf("%v: card %v", c, s.Components["note"])
+			}
+			if listed == `[]` && r.cli.called("hil", c.button) != 0 && c.button == "approve" {
+				t.Fatalf("%v: approve ran for an item that does not wait", c)
+			}
+			evs, _ := r.store.UIEvents("default", r.conv.ID)
+			for _, ev := range evs {
+				if listed == `[]` && strings.Contains(string(ev.Payload), "Sending now") {
+					t.Fatalf("%v: the card claimed to be sending", c)
+				}
+			}
+		}
+	}
+	// Someone else's send in progress is settled without calling it yours.
+	r := newSysRig(t)
+	startChat(t, r)
+	sendCard(t, r)
+	r.cli.outputs["hil list"] = `[]`
+	r.cli.outputs["hil show"] = `{"id":"7c1e","state":"approved"}`
+	r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "x"})
+	r.cli.outputs["hil show"] = `{"id":"7c1e","state":"failed","error":"boom"}`
+	syncHIL(t, r)
+	if got := r.surfaceNow(t, "send-7c1e").Components["note"]["text"]; got != "Already approved, and sending failed: boom. This press changed nothing, edits included" {
+		t.Fatalf("%v", got)
 	}
 }
