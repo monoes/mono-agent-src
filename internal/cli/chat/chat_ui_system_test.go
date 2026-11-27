@@ -927,3 +927,39 @@ func TestAnItemDecidedOnTheApprovalsPageHasNoApproveInChat(t *testing.T) {
 		t.Fatalf("sync left the old card: %+v", s)
 	}
 }
+
+// A send whose command died stays "sending" in the queue: after long enough its
+// card says the outcome is unknown, once, offers no send, and still settles if
+// the item ever says how it ended.
+func TestACardStuckOnSendingSaysTheOutcomeIsUnknown(t *testing.T) {
+	for _, state := range []string{refSending, refSendingElsewhere} {
+		r := newSysRig(t)
+		startChat(t, r)
+		msgs, err := surfaces.ResolvedNotice("send-7c1e", sendingNote, "info")
+		r.show(t, chatevents.UIRef{Kind: surfaces.RefSend, ID: "7c1e", Digest: "d1", State: state}, msgs, err)
+		r.cli.outputs["hil list"] = `[]`
+		r.cli.outputs["hil show"] = `{"id":"7c1e","state":"approved"}`
+		note := func() string { return fmt.Sprint(r.surfaceNow(t, "send-7c1e").Components["note"]["text"]) }
+		if res := syncHIL(t, r); len(res.Resolved) != 0 || note() != sendingNote {
+			t.Fatalf("a send in progress: %+v %q", res, note())
+		}
+		old := sendingUnknownAfter
+		sendingUnknownAfter = 0
+		res := syncHIL(t, r)
+		again := syncHIL(t, r)
+		sendingUnknownAfter = old
+		if fmt.Sprint(res.Resolved) != "[send-7c1e]" || len(again.Resolved) != 0 || note() != unknownOutcomeNote || hasButton(r.surfaceNow(t, "send-7c1e")) {
+			t.Fatalf("%s: %+v %+v %q", state, res, again, note())
+		}
+		if !strings.Contains(unknownOutcomeNote, "unknown") || !strings.Contains(unknownOutcomeNote, "Communications") {
+			t.Fatal(unknownOutcomeNote)
+		}
+		r.cli.outputs["hil show"] = `{"id":"7c1e","state":"sent"}`
+		if res := syncHIL(t, r); fmt.Sprint(res.Resolved) != "[send-7c1e]" || note() != "Sent" {
+			t.Fatalf("a late outcome: %+v %q", res, note())
+		}
+		if r.cli.called("hil", "approve") != 0 {
+			t.Fatal("something was sent")
+		}
+	}
+}

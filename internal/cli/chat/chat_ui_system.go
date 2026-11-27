@@ -147,6 +147,9 @@ const (
 	refSending  = "sending"
 	// refSendingElsewhere marks the note of a send somebody else approved.
 	refSendingElsewhere = "sending-elsewhere"
+	// refSendingUnknown marks the note of a send not heard of for too long.
+	refSendingUnknown  = "sending-unknown"
+	unknownOutcomeNote = "The outcome of this send is unknown: check Communications and the destination. It is not sent again"
 )
 
 // hil runs hil.approve and hil.reject: `hil approve|reject <id>`. A press is
