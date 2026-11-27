@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/monoes/mono-agent/internal/hilscrub"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -51,6 +52,14 @@ type hilItem struct {
 	EditableData map[string]interface{} `json:"editable_data"`
 	NodeConfig   map[string]interface{} `json:"node_config"`
 	CreatedAt    string                 `json:"created_at"`
+	// Digest fingerprints the item's content (hilsend.Digest), for `hil
+	// approve|reject --if-digest`.
+	Digest string `json:"digest,omitempty"`
+	// Redacted: a reply link's token was hidden in this item, so what is shown
+	// is not all there is.
+	Redacted bool `json:"redacted,omitempty"`
+	// NoChatApprove: the item can only be approved on the approvals page.
+	NoChatApprove bool `json:"no_chat_approve,omitempty"`
 	// PersonID, PersonName and HilRef are set when the item has a row in
 	// Communications (hil_ref is this item's id), so the GUI can link to both.
 	PersonID   string `json:"person_id,omitempty"`
@@ -68,7 +77,7 @@ type hilItem struct {
 }
 
 func (d Deps) newHILListCmd() *cobra.Command {
-	var suggest, resuggest bool
+	var suggest, resuggest, redact bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List pending Human-in-Loop items",
@@ -115,6 +124,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 					&it.Status, &roRaw, &edRaw, &cfgRaw, &it.CreatedAt, &it.WorkflowName); err != nil {
 					return fmt.Errorf("scanning HIL item: %w", err)
 				}
+				it.Digest, it.NoChatApprove = hilsend.Digest(roRaw, edRaw, cfgRaw), twoStepItem(cfgRaw)
 				// Rows the scrub could not rewrite are shown masked.
 				prof := d.ProfileID()
 				roRaw, edRaw, cfgRaw = hilscrub.Mask(db.DB, prof, it.ID, roRaw), hilscrub.Mask(db.DB, prof, it.ID, edRaw), hilscrub.Mask(db.DB, prof, it.ID, cfgRaw)
@@ -137,12 +147,12 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			if suggest || resuggest {
 				suggestHILItems(cmd.Context(), db.DB, d.ProfileID(), items, resuggest)
 			}
-			if opgate.Refusal() != "" {
+			if redact || opgate.Refusal() != "" {
 				hideReplyTokens(cmd.Context(), db.DB, items)
 			}
 
 			if d.JSONOutput() {
-				enc := json.NewEncoder(os.Stdout)
+				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				if items == nil {
 					items = []hilItem{}
@@ -187,6 +197,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&redact, "redact", false, "Hide reply links' tokens as an agent sees the list, and mark those items (what chat cards are drawn from)")
 	cmd.Flags().BoolVar(&suggest, "suggest", false, "Add TypeSafe Jev's suggestion to each item (computed and stored when missing; needs 'jev enable hil')")
 	cmd.Flags().BoolVar(&resuggest, "resuggest", false, "Recompute and store every suggestion (implies --suggest)")
 	return cmd
@@ -202,7 +213,26 @@ func hideReplyTokens(ctx context.Context, db *sql.DB, items []hilItem) {
 	}
 	rr := workflow.NewReplyRedactor(ctx, db, ids...)
 	for i := range items {
-		items[i].ReadonlyData, items[i].EditableData = rr.Map(items[i].ReadonlyData), rr.Map(items[i].EditableData)
+		it := &items[i]
+		shown := func() string {
+			b, _ := json.Marshal([]any{it.ReadonlyData, it.EditableData, it.Send})
+			return string(b)
+		}
+		before := shown()
+		it.ReadonlyData, it.EditableData = rr.Map(it.ReadonlyData), rr.Map(it.EditableData)
+		if it.Send != nil {
+			// The card repeats the row's data: hide the same there.
+			var doc map[string]interface{}
+			var send hilsend.Payload
+			raw, _ := json.Marshal(it.Send)
+			if json.Unmarshal(raw, &doc) == nil {
+				raw, _ = json.Marshal(rr.Map(doc))
+				if json.Unmarshal(raw, &send) == nil {
+					it.Send = &send
+				}
+			}
+		}
+		it.Redacted = shown() != before
 	}
 }
 
@@ -349,27 +379,20 @@ func (d Deps) newHILApproveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			res, err := db.DB.Exec(
-				`UPDATE hil_pending SET status='approved', edited_data=?, updated_at=CURRENT_TIMESTAMP
-				 WHERE id=? AND status='pending' AND profile_id = ?`,
-				editedData, args[0], d.ProfileID(),
-			)
-			if err != nil {
-				return fmt.Errorf("approving HIL item: %w", err)
-			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				return d.NotFound("HIL item %q not found or already resolved", args[0])
+			if err := d.decideItem(cmd, db.DB, args[0], `status='approved', edited_data=?`, editedData); err != nil {
+				return err
 			}
 			_ = commsync.SetStatus(cmd.Context(), db.DB, args[0], commsync.Approved, commsync.Detail{Edited: check})
-			return printDecision(d.JSONOutput(), args[0], "approved")
+			return printDecision(cmd.OutOrStdout(), d.JSONOutput(), args[0], "approved")
 		},
 	}
 	cmd.Flags().StringVar(&editedData, "data", "", "JSON object overriding the item's editable data")
+	addIfDigest(cmd)
 	return cmd
 }
 
 func (d Deps) newHILRejectCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "reject <id>",
 		Short:   "Reject a pending Human-in-Loop item (the workflow errors out)",
 		Example: `  monoagentcli hil reject 1a2b3c4d`,
@@ -391,21 +414,15 @@ func (d Deps) newHILRejectCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			res, err := db.DB.Exec(
-				`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP
-				 WHERE id=? AND status='pending' AND profile_id = ?`,
-				args[0], d.ProfileID(),
-			)
-			if err != nil {
-				return fmt.Errorf("rejecting HIL item: %w", err)
-			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				return d.NotFound("HIL item %q not found or already resolved", args[0])
+			if err := d.decideItem(cmd, db.DB, args[0], `status='rejected'`); err != nil {
+				return err
 			}
 			_ = commsync.SetStatus(cmd.Context(), db.DB, args[0], commsync.Rejected, commsync.Detail{})
-			return printDecision(d.JSONOutput(), args[0], "rejected")
+			return printDecision(cmd.OutOrStdout(), d.JSONOutput(), args[0], "rejected")
 		},
 	}
+	addIfDigest(cmd)
+	return cmd
 }
 
 // noDaemonHint follows a decision when no daemon is running: the paused run
@@ -415,22 +432,22 @@ const noDaemonHint = "No daemon is running, so the paused run stays WAITING unti
 
 // printDecision reports an approved or rejected item, with noDaemonHint
 // when no daemon will resume its run (a "hint" field with --json).
-func printDecision(jsonOut bool, id, status string) error {
+func printDecision(w io.Writer, jsonOut bool, id, status string) error {
 	_, live := daemonhb.Read()
 	if jsonOut {
 		rec := map[string]string{"id": id, "status": status}
 		if !live {
 			rec["hint"] = noDaemonHint
 		}
-		return json.NewEncoder(os.Stdout).Encode(rec)
+		return json.NewEncoder(w).Encode(rec)
 	}
 	verb := "Approved"
 	if status == "rejected" {
 		verb = "Rejected"
 	}
-	fmt.Printf("%s HIL item %s\n", verb, id)
+	fmt.Fprintf(w, "%s HIL item %s\n", verb, id)
 	if !live {
-		fmt.Printf("Hint: %s\n", noDaemonHint)
+		fmt.Fprintf(w, "Hint: %s\n", noDaemonHint)
 	}
 	return nil
 }

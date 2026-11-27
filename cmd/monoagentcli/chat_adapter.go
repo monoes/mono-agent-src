@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -23,6 +26,7 @@ func chatDeps(cfg *globalConfig) chatcli.Deps {
 		RequireOperator:   cfg.requireOperator,
 		OperatorRefusal:   opgate.Refusal,
 		PublicationPrompt: func() string { return publicationAgentPrompt(cfg) },
+		RunCLI:            func(ctx context.Context, args ...string) ([]byte, error) { return runCLIInProcess(ctx, cfg, args) },
 	}
 	if doomsdayChat != nil { // only an engine built with the open-ended mode
 		doomsdayChat(cfg, &d)
@@ -45,3 +49,25 @@ var capabilityProbe = chatcli.CapabilityProbe
 type coderSettings = chatcli.Settings
 
 func loadCoderSettings(db *sql.DB) (coderSettings, error) { return chatcli.LoadSettings(db) }
+
+// runCLIInProcess runs one command through a fresh root command, with the database and the profile
+// of cfg named explicitly and --json set, and returns what it printed to stdout.
+func runCLIInProcess(ctx context.Context, cfg *globalConfig, args []string) ([]byte, error) {
+	root := newRootCmd()
+	full := []string{"--json"}
+	if cfg.DBPath != "" {
+		full = append(full, "--db-path", cfg.DBPath)
+	}
+	if cfg.ProfileID != "" {
+		full = append(full, "--profile", cfg.ProfileID)
+	}
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(io.Discard)
+	root.SetArgs(append(full, args...))
+	root.SilenceUsage = true
+	if err := root.ExecuteContext(ctx); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSpace(out.Bytes()), nil
+}

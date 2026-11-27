@@ -103,6 +103,22 @@ export const TOPICS = [
     danger: { level: 3, quip: 'ui6SetHelp.hil_danger' },
   },
   {
+    id: 'cards',
+    emoji: '🃏',
+    title: 'ui6SetHelp.cards_title',
+    blurb: 'ui6SetHelp.cards_blurb',
+    quip: 'ui6SetHelp.cards_quip',
+    steps: [
+      step('ui6SetHelp.cards_s1', go('communications')),
+      step('ui6SetHelp.cards_s2', go('communications')),
+      step('ui6SetHelp.cards_s3', go('communications')),
+      step('ui6SetHelp.cards_s4', go('tasks')),
+      step('ui6SetHelp.cards_s5', go('communications')),
+      step('ui6SetHelp.cards_s6', go('communications')),
+      step('ui6SetHelp.cards_s7', go('communications')),
+    ],
+  },
+  {
     id: 'orgs',
     emoji: '🏢',
     title: 'ui6SetHelp.orgs_title',

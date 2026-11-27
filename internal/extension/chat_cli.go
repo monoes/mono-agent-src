@@ -68,12 +68,20 @@ func chatTurnArgv(s ChatTurnSpec) []string {
 
 // run execs the CLI to completion and returns stdout.
 func (b *cliChatBackend) run(ctx context.Context, args ...string) ([]byte, error) {
+	return b.runStdin(ctx, nil, args...)
+}
+
+// runStdin is run with stdin fed to the command (none when nil).
+func (b *cliChatBackend) runStdin(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	bin, err := b.binary()
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.WaitDelay = monomindWaitDelay
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -234,7 +242,7 @@ func readTurn(r interface{ Read([]byte) (int, error) }, onEvent func(ChatEvent))
 		if rec.Type == chatevents.EventTurnFinished {
 			finished = true
 		}
-		onEvent(ChatEvent{Seq: rec.Seq, Type: string(rec.Type), Payload: rec.Payload})
+		onEvent(ChatEvent{Seq: rec.Seq, Type: string(rec.Type), Payload: rec.Payload, At: rec.At})
 	}
 	return finished, admitted, first
 }
@@ -249,22 +257,21 @@ func (b *cliChatBackend) finish(spec ChatTurnSpec, st chatevents.TurnStatus, rea
 
 func (b *cliChatBackend) ListEvents(ctx context.Context, profile, conversation, turn string, afterSeq int64) (ChatEventsPage, error) {
 	if turn == "" {
-		out, err := b.run(ctx, append(chatBase(profile), "chat", "history", "turns", "--limit=1", "--", conversation)...)
+		turns, err := b.turnIDs(ctx, profile, conversation)
 		if err != nil {
 			return ChatEventsPage{}, err
 		}
-		var turns struct {
-			Items []struct {
-				ID string `json:"id"`
-			} `json:"items"`
+		// "The latest turn" is the latest one of the conversation itself: the
+		// cards' own journal turns are read with chat.ui_journal.
+		for _, id := range turns {
+			if !isJournalTurn(id) {
+				turn = id
+				break
+			}
 		}
-		if json.Unmarshal(out, &turns) != nil {
-			return ChatEventsPage{}, errors.New("chat history turns returned unreadable output")
-		}
-		if len(turns.Items) == 0 {
+		if turn == "" {
 			return ChatEventsPage{Events: []ChatEvent{}}, nil
 		}
-		turn = turns.Items[0].ID
 	}
 	out, err := b.run(ctx, append(chatBase(profile), "chat", "history", "events",
 		"--after-seq="+strconv.FormatInt(afterSeq, 10), "--", conversation, turn)...)
@@ -282,7 +289,7 @@ func (b *cliChatBackend) ListEvents(ctx context.Context, profile, conversation, 
 	}
 	res := ChatEventsPage{Turn: turn, Events: make([]ChatEvent, 0, len(page.Items)), TurnActive: page.Turn.Status == "active"}
 	for _, r := range page.Items {
-		res.Events = append(res.Events, ChatEvent{Seq: r.Seq, Type: string(r.Type), Payload: r.Payload})
+		res.Events = append(res.Events, ChatEvent{Seq: r.Seq, Type: string(r.Type), Payload: r.Payload, At: r.At})
 	}
 	return res, nil
 }

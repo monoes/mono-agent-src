@@ -104,6 +104,11 @@ func (s *AIStore) GetTurn(turnID, profileID string) (Turn, error) {
 	return t, nil
 }
 
+// ActiveTurn is the conversation's running turn, ErrTurnNotFound when none is.
+func (s *AIStore) ActiveTurn(conversationID, profileID string) (Turn, error) {
+	return s.activeTurnForConversation(conversationID, profileID)
+}
+
 // activeTurnForConversation returns conversationID's currently active turn,
 // if any — CreateTurn's admission-check helper (see
 // ErrTurnOwnedByOtherInstance). Returns ErrTurnNotFound when none is
@@ -159,8 +164,20 @@ func (s *AIStore) QueryActiveTurns() ([]Turn, error) {
 }
 
 // ListTurns returns a conversation's turns newest-first, scoped to
-// profileID.
+// profileID. Card turns are not among them (see ListCardTurns).
 func (s *AIStore) ListTurns(conversationID, profileID, cursor string, limit int) ([]Turn, string, error) {
+	return s.listTurns(conversationID, profileID, cursor, limit, "NOT "+cardTurnSQL)
+}
+
+// ListAllTurns is ListTurns with the card turns too: for whatever must see
+// every turn the conversation holds, such as deleting it and cleaning up after
+// its turns.
+func (s *AIStore) ListAllTurns(conversationID, profileID, cursor string, limit int) ([]Turn, string, error) {
+	return s.listTurns(conversationID, profileID, cursor, limit, "1 = 1")
+}
+
+// listTurns pages a conversation's turns matching only, a constant SQL condition.
+func (s *AIStore) listTurns(conversationID, profileID, cursor string, limit int, only string) ([]Turn, string, error) {
 	if profileID == "" {
 		return nil, "", ErrProfileRequired
 	}
@@ -169,7 +186,7 @@ func (s *AIStore) ListTurns(conversationID, profileID, cursor string, limit int)
 	}
 	args := []any{conversationID, profileID}
 	q := `SELECT id, conversation_id, profile_id, owner_instance_id, prompt, status, reason, last_committed_seq, created_at, updated_at
-		FROM ai_chat_turns WHERE conversation_id = ? AND profile_id = ?`
+		FROM ai_chat_turns WHERE conversation_id = ? AND profile_id = ? AND ` + only
 	if cursor != "" {
 		q += ` AND created_at || '|' || id < ?`
 		args = append(args, cursor)

@@ -161,7 +161,7 @@ func lastLine(s string) string {
 }
 
 // chatCLITimeout bounds one history call (the CLI migrates the DB on open).
-const chatCLITimeout = 60 * time.Second
+var chatCLITimeout = 60 * time.Second
 
 // chatAdmissionTimeout bounds how long StartChatTurn waits for the turn
 // process to register its turn.

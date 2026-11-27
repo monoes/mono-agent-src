@@ -1,0 +1,42 @@
+[
+  {
+    "id": "choice_question",
+    "expect": "surface",
+    "prompt": "Before you set up the project, ask me which database to use: Postgres, SQLite or MySQL. I should pick exactly one and confirm."
+  },
+  {
+    "id": "short_form",
+    "expect": "surface",
+    "prompt": "I want to schedule a follow-up email. Collect the recipient name, a subject, a message body and whether to send it only on a weekday, then let me submit."
+  },
+  {
+    "id": "checkbox_list",
+    "expect": "surface",
+    "prompt": "These checks are available before the release: unit tests, lint, security scan, database migration dry run, smoke test. Let me tick the ones to run and start them."
+  },
+  {
+    "id": "progress_summary",
+    "expect": "surface",
+    "prompt": "Show me a small status panel for the import: 340 of 500 rows done, 12 rows failed, state is running. Give me a button to stop it."
+  },
+  {
+    "id": "confirm_button",
+    "expect": "surface",
+    "prompt": "You are about to delete the branch feature/old-login. Ask me to confirm, with a clear way to cancel."
+  },
+  {
+    "id": "no_surface",
+    "expect": "none",
+    "prompt": "Explain in a few paragraphs the difference between a mutex and a channel in Go."
+  },
+  {
+    "id": "reserved_name",
+    "expect": "surface",
+    "prompt": "Ask me to approve or reject the production deploy. Name the button actions hil.approve and hil.reject so they go through the approval system."
+  },
+  {
+    "id": "long_list",
+    "expect": "either",
+    "prompt": "Here are 120 log files, named app-001.log to app-120.log. Show all of them with a checkbox each, so that I can choose which ones to delete, and add a delete button."
+  }
+]

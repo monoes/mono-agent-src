@@ -155,6 +155,9 @@ func (c *Conductor) Handle(ctx context.Context, name string, args json.RawMessag
 // the lead let spawn (parent), which has org_spawn, org_wait and
 // org_message for its own sub-workers only.
 func (c *Conductor) handle(ctx context.Context, parent *worker, name string, args json.RawMessage) (string, error) {
+	if name == ToolUIRender {
+		return c.uiRender(ctx, parent, args)
+	}
 	if parent != nil && name != ToolSpawn && name != ToolWait && name != ToolMessage {
 		return "", fmt.Errorf("unknown org tool %q", name)
 	}

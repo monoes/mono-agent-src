@@ -1,0 +1,150 @@
+{
+  "createSurface": {
+    "catalogId": "https://monoes.me/a2ui/catalogs/mono/v1/catalog.json",
+    "components": [
+      {
+        "component": "Text",
+        "id": "title",
+        "text": "Ship the docs",
+        "variant": "body"
+      },
+      {
+        "component": "Badge",
+        "id": "round",
+        "text": "Plan, round 1",
+        "tone": "info"
+      },
+      {
+        "component": "Text",
+        "id": "goal",
+        "text": "Rewrite the install guide",
+        "variant": "caption"
+      },
+      {
+        "component": "Text",
+        "id": "tasks-line",
+        "text": "6 tasks",
+        "variant": "body"
+      },
+      {
+        "component": "Progress",
+        "id": "est",
+        "label": "Estimated of budget (USD)",
+        "max": {
+          "@path": "/mission/budget"
+        },
+        "value": {
+          "@path": "/mission/estimated"
+        }
+      },
+      {
+        "component": "Progress",
+        "id": "prog",
+        "label": "Tasks done",
+        "max": {
+          "@path": "/mission/total"
+        },
+        "value": {
+          "@path": "/mission/done"
+        }
+      },
+      {
+        "component": "Text",
+        "id": "summary",
+        "text": {
+          "@path": "/mission/summary"
+        },
+        "variant": "caption"
+      },
+      {
+        "component": "Divider",
+        "id": "div"
+      },
+      {
+        "component": "Text",
+        "id": "how",
+        "text": "To approve and start this plan in the Tasks tab, open this mission there.",
+        "variant": "body"
+      },
+      {
+        "component": "Text",
+        "id": "btn-edit-l",
+        "text": "Edit plan"
+      },
+      {
+        "action": {
+          "event": {
+            "context": {
+              "sessionId": "17"
+            },
+            "name": "mission.edit"
+          }
+        },
+        "child": "btn-edit-l",
+        "component": "Button",
+        "id": "btn-edit",
+        "variant": "default"
+      },
+      {
+        "component": "Text",
+        "id": "btn-stop-l",
+        "text": "Stop"
+      },
+      {
+        "action": {
+          "event": {
+            "context": {
+              "sessionId": "17"
+            },
+            "name": "mission.stop"
+          }
+        },
+        "child": "btn-stop-l",
+        "component": "Button",
+        "id": "btn-stop",
+        "variant": "danger"
+      },
+      {
+        "children": [
+          "btn-edit",
+          "btn-stop"
+        ],
+        "component": "Row",
+        "id": "actions"
+      },
+      {
+        "children": [
+          "title",
+          "round",
+          "goal",
+          "tasks-line",
+          "est",
+          "prog",
+          "summary",
+          "div",
+          "how",
+          "actions"
+        ],
+        "component": "Column",
+        "id": "body"
+      },
+      {
+        "child": "body",
+        "component": "Card",
+        "id": "root"
+      }
+    ],
+    "dataModel": {
+      "mission": {
+        "budget": 10,
+        "done": 0,
+        "estimated": 4.5,
+        "spent": 0,
+        "summary": "Waiting for approval",
+        "total": 6
+      }
+    },
+    "surfaceId": "mission-17"
+  },
+  "version": "1.0"
+}

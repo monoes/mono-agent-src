@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -37,6 +38,8 @@ func isForeignActiveTurn(t ai.Turn, instanceID string) bool {
 type chatTurnListItem struct {
 	ai.Turn
 	OwnedByThisInstance bool `json:"ownedByThisInstance"`
+	// Events are a card turn's, which GetChatCardTurns gives with it.
+	Events []chatevents.Event `json:"events,omitempty"`
 }
 
 // CreateChatConversation creates a new scoped agent conversation.
@@ -210,8 +213,34 @@ func (a *App) ListChatConversations(cursor string, limit int) string {
 }
 
 type chatTurnPage struct {
-	Items      []ai.TurnRecord `json:"items"`
-	NextCursor string          `json:"next_cursor"`
+	Items []struct {
+		ai.TurnRecord
+		Events []chatevents.Record `json:"events"` // card turns, with --events
+	} `json:"items"`
+	NextCursor string `json:"next_cursor"`
+}
+
+// maxCardTurns is the page of card turns a conversation view reads.
+const maxCardTurns = 200
+
+// GetChatCardTurns returns the turns that only carry cards (presses, synced
+// approvals), newest first and each with its events, from one CLI run;
+// GetChatTurns leaves them out. seen are turn ids the caller already has.
+func (a *App) GetChatCardTurns(conversationID string, seen []string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	more := []string{"--cards", "--events"}
+	var skip []string
+	for _, id := range seen {
+		if cliTokenPattern.MatchString(id) && !strings.Contains(id, ",") && len(skip) < maxCardTurns {
+			skip = append(skip, id)
+		}
+	}
+	if len(skip) > 0 {
+		more = append(more, "--skip", strings.Join(skip, ","))
+	}
+	return a.chatTurns(conversationID, "", maxCardTurns, more...)
 }
 
 // GetChatTurns returns one conversation's turns, most recent first. Each
@@ -221,10 +250,16 @@ func (a *App) GetChatTurns(conversationID, cursor string, limit int) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
+	return a.chatTurns(conversationID, cursor, limit)
+}
+
+// chatTurns runs `chat history turns` with any more flags.
+func (a *App) chatTurns(conversationID, cursor string, limit int, more ...string) string {
 	if a.chatSup == nil {
 		return `{"items":[]}`
 	}
 	args := []string{"chat", "history", "turns", conversationID, "--limit", strconv.Itoa(clampChatLimit(limit))}
+	args = append(args, more...)
 	if cursor != "" {
 		args = append(args, "--cursor", cursor)
 	}
@@ -245,7 +280,11 @@ func (a *App) GetChatTurns(conversationID, cursor string, limit int) string {
 		if t.Status == "active" && isHostOwner(t.OwnerInstanceID) {
 			a.chatSup.followHostTurn(hostPID, conversationID, t.ID, t.LastCommittedSeq)
 		}
-		out = append(out, chatTurnListItem{Turn: t, OwnedByThisInstance: !isForeignActiveTurn(t, a.chatSup.instanceID)})
+		item := chatTurnListItem{Turn: t, OwnedByThisInstance: !isForeignActiveTurn(t, a.chatSup.instanceID)}
+		for _, e := range r.Events {
+			item.Events = append(item.Events, e.Event())
+		}
+		out = append(out, item)
 	}
 	b, _ := json.Marshal(map[string]any{"items": out, "nextCursor": page.NextCursor})
 	return string(b)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -38,6 +37,15 @@ func (d Deps) decideIfBrowserSubmit(cmd *cobra.Command, id string, approve bool)
 		return false, nil
 	}
 	var itemID, status string
+	if ifDigest(cmd) != "" && twoStepItem(nc) {
+		if approve {
+			return true, d.InvalidInput("HIL item %q cannot be approved from a chat card: approve it in Communications", id)
+		}
+		// A rejection is checked before it is made: these items are written once, when asked.
+		if _, _, err := d.checkDigest(cmd, db.DB, id); err != nil {
+			return true, err
+		}
+	}
 	if claim, ok := extension.IsPairCard(nc); ok {
 		return d.decidePairCard(cmd, db.DB, id, claim, approve)
 	}
@@ -66,13 +74,13 @@ func (d Deps) decideIfBrowserSubmit(cmd *cobra.Command, id string, approve bool)
 	}
 	// No workflow run waits on it, so printDecision's daemon hint does not apply.
 	if d.JSONOutput() {
-		return true, json.NewEncoder(os.Stdout).Encode(map[string]string{"id": itemID, "status": status})
+		return true, json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"id": itemID, "status": status})
 	}
 	verb := "Rejected"
 	if approve {
 		verb = "Approved"
 	}
-	fmt.Printf("%s HIL item %s\n", verb, itemID)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s HIL item %s\n", verb, itemID)
 	return true, nil
 }
 
@@ -192,12 +200,12 @@ func (d Deps) decidePairCard(cmd *cobra.Command, db *sql.DB, cardID, claim strin
 	}
 	_ = extension.SettlePairCards(cmd.Context(), db, c.ID, status)
 	if d.JSONOutput() {
-		return true, json.NewEncoder(os.Stdout).Encode(map[string]string{"id": cardID, "status": status})
+		return true, json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"id": cardID, "status": status})
 	}
 	verb := "Denied"
 	if approve {
 		verb = "Approved"
 	}
-	fmt.Printf("%s HIL item %s\n", verb, cardID)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s HIL item %s\n", verb, cardID)
 	return true, nil
 }

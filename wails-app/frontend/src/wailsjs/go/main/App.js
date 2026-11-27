@@ -578,12 +578,24 @@ export function GetChatEvents(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetChatEvents'](arg1, arg2, arg3, arg4);
 }
 
+export function ChatUIAction(arg1, arg2) {
+  return window['go']['main']['App']['ChatUIAction'](arg1, arg2);
+}
+
+export function ChatUISyncHIL(arg1) {
+  return window['go']['main']['App']['ChatUISyncHIL'](arg1);
+}
+
 export function GetChatMissionToggle(arg1) {
   return window['go']['main']['App']['GetChatMissionToggle'](arg1);
 }
 
 export function GetChatModeOptions(arg1) {
   return window['go']['main']['App']['GetChatModeOptions'](arg1);
+}
+
+export function GetChatCardTurns(arg1, arg2) {
+  return window['go']['main']['App']['GetChatCardTurns'](arg1, arg2);
 }
 
 export function GetChatTurns(arg1, arg2, arg3) {

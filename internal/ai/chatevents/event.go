@@ -48,6 +48,13 @@ const (
 	EventMissionPlan    EventType = "mission.plan"
 	// EventMissionReport is the final report of a finished mission.
 	EventMissionReport EventType = "mission.report"
+
+	// A2UI (docs/plans/a2ui-integration.html): an agent or the host draws an
+	// interactive surface in the chat. One ui.surface event carries one A2UI
+	// v1.0 agent-to-renderer message; clients fold them in seq order per
+	// surface. ui.action records the user pressing one of its buttons.
+	EventUISurface EventType = "ui.surface"
+	EventUIAction  EventType = "ui.action"
 )
 
 // Event is one journaled/emitted line — the outer envelope. Payload is kept
@@ -504,4 +511,46 @@ type MissionReportPayload struct {
 	Report    string  `json:"report"`
 	// CloseProposed says the mission is ready and waits for the operator to close it.
 	CloseProposed bool `json:"closeProposed"`
+}
+
+// UISurfacePayload is ui.surface's payload: one validated A2UI v1.0
+// agent-to-renderer message (createSurface, updateComponents,
+// updateDataModel or deleteSurface). Clients rebuild a surface by applying
+// its messages in seq order, so replay restores it.
+type UISurfacePayload struct {
+	SurfaceID string `json:"surfaceId"`
+	// Provenance is "system" for a surface the host built from a real record
+	// (a HIL item, a mission) and "agent" for one the model authored.
+	Provenance string `json:"provenance"`
+	// AgentID is the dynamic-org worker that authored it; empty for the lead.
+	AgentID string `json:"agentId,omitempty"`
+	// Ref ties a system surface to the record it was built from, such as
+	// {"kind":"hil","id":"482"} or {"kind":"mission","id":"17"}.
+	Ref *UIRef `json:"ref,omitempty"`
+	// Message is the raw A2UI envelope, {"version":"1.0","<kind>":{...}}.
+	Message json.RawMessage `json:"message"`
+}
+
+// UIRef names the record a system surface was built from.
+type UIRef struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	// Digest is the record's content digest as the surface shows it (approval
+	// cards): a press decides the record only while it still has it.
+	Digest string `json:"digest,omitempty"`
+	// State is "sending" on the note shown while an approved send runs.
+	State string `json:"state,omitempty"`
+}
+
+// UIActionPayload is ui.action's payload: the user pressed a button on a
+// surface. Outcome says what the host did with it: "accepted" (delivered to
+// the agent or run), "rejected" (failed the guard, with Reason) or "stale"
+// (the surface was already closed).
+type UIActionPayload struct {
+	SurfaceID         string         `json:"surfaceId"`
+	Name              string         `json:"name"`
+	SourceComponentID string         `json:"sourceComponentId"`
+	Context           map[string]any `json:"context,omitempty"`
+	Outcome           string         `json:"outcome"`
+	Reason            string         `json:"reason,omitempty"`
 }

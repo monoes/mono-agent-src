@@ -552,7 +552,7 @@ var afterBackgroundRound = func() {}
 // recorded as left running, and whether one of its turns is still active.
 func conversationBackgroundRefs(store *ai.AIStore, profileID, conversationID string) (refs []chatevents.ProcessRef, active bool, err error) {
 	for cursor := ""; ; {
-		turns, next, err := store.ListTurns(conversationID, profileID, cursor, 200)
+		turns, next, err := store.ListAllTurns(conversationID, profileID, cursor, 200)
 		if err != nil {
 			return nil, false, chatStoreErr(err)
 		}

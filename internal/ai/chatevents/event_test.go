@@ -179,3 +179,19 @@ func TestMissionReportEventShape(t *testing.T) {
 		t.Errorf("closeProposed %v", raw["closeProposed"])
 	}
 }
+
+func TestUIEventsRoundTrip(t *testing.T) {
+	msg := json.RawMessage(`{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`)
+	ev, err := New("p", "c", "t", 7, time.Unix(0, 0), EventUISurface,
+		UISurfacePayload{SurfaceID: "s1", Provenance: "system", Ref: &UIRef{Kind: "hil", ID: "482"}, Message: msg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got UISurfacePayload
+	if err := json.Unmarshal(ev.Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	if ev.Type != "ui.surface" || EventUIAction != "ui.action" || string(got.Message) != string(msg) || got.Ref.ID != "482" {
+		t.Fatalf("round trip lost data: %s %+v", ev.Type, got)
+	}
+}

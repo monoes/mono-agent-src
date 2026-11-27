@@ -18,7 +18,7 @@ class Node_ {
   constructor(tag) {
     this.tag = tag; this.children = []; this.parentNode = null; this.dataset = {}; this.attrs = {};
     this.listeners = {}; this._text = ""; this.hidden = false; this.disabled = false; this.value = "";
-    this.className = ""; this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0; this.title = "";
+    this.className = ""; this.style = {}; this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0; this.title = "";
   }
   get nextSibling() { const i = this.parentNode ? this.parentNode.children.indexOf(this) : -1; return i >= 0 ? this.parentNode.children[i + 1] || null : null; }
   appendChild(c) { if (c.tag === "#fragment") { for (const k of [...c.children]) this.appendChild(k); return c; } c.remove?.(); c.parentNode = this; this.children.push(c); return c; }
@@ -29,6 +29,7 @@ class Node_ {
   replaceWith(n) { const p = this.parentNode; const i = p.children.indexOf(this); n.remove?.(); n.parentNode = p; p.children[i] = n; this.parentNode = null; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return this.attrs[k]; }
+  removeAttribute(k) { delete this.attrs[k]; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   fire(t, e = {}) {
     const ev = Object.assign({ preventDefault() { ev.prevented = true; } }, e);
@@ -42,7 +43,7 @@ class Node_ {
 
 const IDS = ["chat-log", "chat-empty", "chat-input", "chat-send", "chat-stop", "chat-new", "chat-fill", "chat-card", "chat-files", "chat-summarize", "chat-page", "chat-attach", "chat-attach-input", "chat-attached", "chat-notice", "chat-state"];
 
-function setup({ replies = {}, stored = {}, pageNow = { tabId: 5, url: "https://a.example/p", title: "A page" }, profile = "p-work", record = null } = {}) {
+function setup({ replies = {}, stored = {}, pageNow = { tabId: 5, url: "https://a.example/p", title: "A page" }, profile = "p-work", record = null, a2ui = false } = {}) {
   const els = {};
   for (const id of IDS) els[id] = new Node_(id);
   els["chat-log"].appendChild(els["chat-empty"]);
@@ -65,14 +66,16 @@ function setup({ replies = {}, stored = {}, pageNow = { tabId: 5, url: "https://
   let onMessage = null;
   const chrome = {
     runtime: { onMessage: { addListener: (fn) => (onMessage = fn) } },
-    storage: { local: { get: async (k) => Object.fromEntries([].concat(k).filter((x) => x in store).map((x) => [x, store[x]])), set: async (o) => Object.assign(store, o) } },
+    storage: { local: { get: async (k) => Object.fromEntries([].concat(k).filter((x) => x in store).map((x) => [x, store[x]])), set: async (o) => Object.assign(store, o), remove: async (k) => delete store[k] } },
   };
   const env = { document: doc, chrome, ask, profiles: { current: { id: profile } }, page: pageNow, here: { windowId: 1 }, CustomEvent: class { constructor(t) { this.type = t; } } };
+  const timers = [];
+  if (a2ui) Object.assign(env, { setInterval: (fn, ms) => (timers.push({ fn, ms, live: true }), timers.length), clearInterval: (id) => { if (timers[id - 1]) timers[id - 1].live = false; } });
   if (record) env.MonoPanelRecord = record;
   doc.dispatchEvent = (e) => sent.push({ event: e.type });
-  const sandbox = loadExtensionScripts(["chat_context.js", "chat_core.js", "chat_render.js", "private_net.js", "agent_redact.js", "chat_look.js", "chat_proposals_act.js", "chat_proposals.js", "sidepanel_chat_cards.js", "sidepanel_chat.js"], env);
+  const sandbox = loadExtensionScripts(["chat_context.js", "chat_core.js", "chat_render.js", "private_net.js", "agent_redact.js", "chat_look.js", "chat_proposals_act.js", "chat_proposals.js", ...(a2ui ? ["a2ui_model.js", "a2ui_render.js", "a2ui_timeline.js"] : []), "sidepanel_chat_cards.js", "sidepanel_chat.js"], env);
   return {
-    els, sent, store, doc, sandbox,
+    els, sent, store, doc, sandbox, timers,
     progress: (tag, seq, stage, payload) => onMessage({ type: "chat_progress", tag, progress: { stage, detail: JSON.stringify({ seq, payload }) } }),
     log: () => els["chat-log"].children.filter((c) => c !== els["chat-empty"]),
     type: (text) => (els["chat-input"].value = text),
@@ -775,3 +778,297 @@ test("replaying the answer to a lost reply spends the retry's page sharing", asy
   t.type("follow-up"); t.enter(); await settle(30);
   assert.equal(lastOf(t.sent, "chat_send").context, null, "the follow-up shares nothing by default");
 });
+
+const surfaceEvent = (message) => ({ surfaceId: "s1", provenance: "system", message });
+const CREATE = { version: "1.0", createSurface: { surfaceId: "s1", components: [{ id: "root", component: "Text", text: "Approve?" }] } };
+
+test("a2ui: a surface appears after the message that was last, stays in place as the reply grows, and a panel without ui events is unchanged", async () => {
+  let finish;
+  const t = setup({ a2ui: true, replies: { ...READY, chat_send: () => new Promise((r) => (finish = r)) } });
+  await settle();
+  t.type("go");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle();
+  const tag = lastOf(t.sent, "chat_send").tag;
+  t.progress(tag, 1, "assistant.delta", { text: "Looking" });
+  t.progress(tag, 2, "ui.surface", surfaceEvent(CREATE));
+  t.progress(tag, 3, "assistant.delta", { text: " done" });
+  await settle();
+  const kids = t.els["chat-log"].children.filter((c) => c !== t.els["chat-empty"]);
+  assert.deepEqual(kids.map((c) => c.dataset.role), ["user", "assistant", "surface"]);
+  assert.match(kids[2].textContent, /Approve\?/);
+  assert.match(kids[2].textContent, /from monoagent/);
+  // a replayed copy of the same event changes nothing
+  t.progress(tag, 2, "ui.surface", surfaceEvent(CREATE));
+  await settle();
+  assert.equal(t.els["chat-log"].children.filter((c) => c.dataset.role === "surface").length, 1);
+  finish({ ok: true, data: { conversation: "c-1", text: "Looking done" } });
+  await settle(30);
+  assert.ok(Object.keys(t.store).some((k) => k.startsWith("chatUi:")), "saved so a reopened panel redraws it");
+});
+
+test("a2ui: without the scripts a ui.surface event draws nothing and breaks nothing", async () => {
+  let finish;
+  const t = setup({ replies: { ...READY, chat_send: () => new Promise((r) => (finish = r)) } });
+  await settle();
+  t.type("go");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle();
+  const tag = lastOf(t.sent, "chat_send").tag;
+  t.progress(tag, 1, "ui.surface", surfaceEvent(CREATE));
+  t.progress(tag, 2, "assistant.delta", { text: "hi" });
+  await settle();
+  assert.deepEqual(t.log().map((c) => c.dataset.role), ["user", "assistant"]);
+  finish({ ok: true, data: { conversation: "c-1", text: "hi" } });
+  await settle(30);
+});
+
+async function openedWithSurface(replies, extra = {}) {
+  const t = setup({ a2ui: true, stored: extra.stored, replies: { ...READY, chat_events: { ok: true, turn: "t1", turn_active: false, events: [
+    { seq: 1, type: "ui.surface", payload: surfaceEvent({ version: "1.0", createSurface: { surfaceId: "s1", components: [
+      { id: "root", component: "Column", children: ["b"] }, { id: "l", component: "Text", text: "Go" },
+      { id: "b", component: "Button", child: "l", action: { event: { name: "submit_form", context: { k: "v" } } } }] } }) },
+  ] }, ...replies } });
+  t.els["chat-log"].children.length;
+  return t;
+}
+const findAll = (n, pred, out = []) => { if (pred(n)) out.push(n); for (const c of n.children || []) findAll(c, pred, out); return out; };
+const buttonOf = (t) => findAll(t.els["chat-log"], (n) => n.tag === "button")[0];
+
+test("a2ui: a button press goes to the bridge as chat_ui_action and a next_turn message is sent as the user's next message", async () => {
+  const t = await openedWithSurface({
+    chat_ui_action: { ok: true, outcome: "accepted", delivered: "next_turn", message: "[a2ui] submit_form" },
+    chat_send: { ok: true, data: { conversation: "c-1", turn: "t2", text: "done" } },
+  }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  const b = buttonOf(t);
+  assert.ok(b, "the surface drew");
+  b.fire("click");
+  await settle(40);
+  const a = lastOf(t.sent, "chat_ui_action");
+  assert.equal(a.profile, "p-work");
+  assert.equal(a.conversationId, "c-1");
+  assert.equal(a.action.version, "1.0");
+  assert.deepEqual([a.action.action.name, a.action.action.surfaceId, a.action.action.sourceComponentId], ["submit_form", "s1", "b"]);
+  const s = lastOf(t.sent, "chat_send");
+  assert.equal(s.message, "[a2ui] submit_form");
+  assert.equal(s.context, null, "no page goes with it");
+});
+
+test("a2ui: a refused or stale press shows its reason under the surface, and the note is saved", async () => {
+  const t = await openedWithSurface({ chat_ui_action: { ok: true, outcome: "stale", reason: "closed" } }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  buttonOf(t).fire("click");
+  await settle(40);
+  assert.match(t.els["chat-log"].textContent, /submit_form: stale \(closed\)/);
+  assert.equal(t.sent.filter((m) => m.type === "chat_send").length, 0);
+  assert.match(JSON.stringify(t.store["chatUi:p-work"]), /stale/);
+});
+
+test("a2ui: a next_turn message waits for a running reply, then goes out", async () => {
+  let finish;
+  const t = await openedWithSurface({
+    chat_ui_action: { ok: true, outcome: "accepted", delivered: "next_turn", message: "queued one" },
+    chat_send: () => new Promise((r) => (finish = r)),
+  }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  t.type("first");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle();
+  buttonOf(t).fire("click");
+  await settle(40);
+  assert.deepEqual(t.sent.filter((m) => m.type === "chat_send").map((m) => m.message), ["first"], "not sent while a reply runs");
+  finish({ ok: true, data: { conversation: "c-1", turn: "t2", text: "ok" } });
+  await settle(60);
+  assert.deepEqual(t.sent.filter((m) => m.type === "chat_send").map((m) => m.message), ["first", "queued one"]);
+});
+
+test("a2ui: chat_ui_sync runs when the chat opens and every 10s, never overlaps, and stops when the panel is hidden", async () => {
+  let release;
+  const calls = [];
+  const t = setup({ a2ui: true, stored: { "chatConv:p-work": "c-1" }, replies: { ...READY,
+    chat_events: { ok: true, turn: "", turn_active: false, events: [] },
+    chat_ui_sync: () => { calls.push(1); return new Promise((r) => (release = r)); } } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  assert.equal(calls.length, 1, "asked once on open");
+  const tick = t.timers.find((x) => x.live);
+  assert.equal(tick.ms, 10000);
+  tick.fn();
+  tick.fn();
+  await settle();
+  assert.equal(calls.length, 1, "a call in flight blocks the next");
+  release({ ok: true, surfaced: [], resolved: [] });
+  await settle();
+  tick.fn();
+  await settle();
+  assert.equal(calls.length, 2);
+  release({ ok: true, surfaced: [], resolved: [] });
+  await settle();
+  t.doc.visibilityState = "hidden";
+  t.doc.fire("visibilitychange");
+  assert.equal(t.timers.filter((x) => x.live).length, 0, "stopped when hidden");
+  t.doc.visibilityState = "visible";
+  t.doc.fire("visibilitychange");
+  await settle();
+  assert.equal(t.timers.filter((x) => x.live).length, 1, "back when visible");
+});
+
+test("a2ui: while a reply is running the tick still reads the cards another writer drew, without syncing", async () => {
+  let finish;
+  const t = await openedWithSurface({ chat_send: () => new Promise((r) => (finish = r)) }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  t.type("first");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle(40);
+  const count = (type) => t.sent.filter((m) => m.type === type).length;
+  const [syncs, reads] = [count("chat_ui_sync"), count("chat_ui_journal")];
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(60);
+  assert.equal(count("chat_ui_journal"), reads + 1);
+  assert.equal(count("chat_ui_sync"), syncs);
+  finish({ ok: true, data: { conversation: "c-1", turn: "t2", text: "ok" } });
+  await settle(40);
+});
+
+test("a2ui: without the scripts nothing asks for a sync", async () => {
+  const t = setup({ stored: { "chatConv:p-work": "c-1" }, replies: { ...READY, chat_events: { ok: true, turn: "", turn_active: false, events: [] } } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  assert.equal(t.sent.filter((m) => m.type === "chat_ui_sync").length, 0);
+});
+
+// Captured from the real binary through the real bridge backend (a synthetic approval in a
+// throwaway home): `chat ui sync-hil` writes each change as a finished turn of its own.
+const REAL = JSON.parse(readFileSync(join(HERE, "fixtures", "a2ui_journal_real.json"), "utf8"));
+
+/** realPanel answers the panel from the capture, through chat_core's own event reader as the worker does. */
+function realPanel({ journal, stored = {} }) {
+  let core = null;
+  const norm = (page) => core.normalizeEvents(page.events, page.turn);
+  const t = setup({
+    a2ui: true,
+    stored: { "chatConv:p-work": "c-1", ...stored },
+    replies: {
+      ...READY,
+      chat_events: () => ({ ok: true, turn: REAL.before.turn, turn_active: false, events: norm(REAL.before) }),
+      chat_ui_sync: { ok: true, surfaced: [], resolved: [] },
+      chat_ui_journal: (m) => {
+        const page = journal(m.seen);
+        return { ok: true, more: page.more, turns: page.turns.map((x) => ({ turn: x.turn, events: norm(x) })) };
+      },
+    },
+  });
+  core = t.sandbox.MonoChatCore;
+  return t;
+}
+const unseen = (page) => (seen) => ({ more: false, turns: page.turns.filter((x) => !seen.includes(x.turn)) });
+const surfacesOf = (t) => t.els["chat-log"].children.filter((c) => c.dataset.role === "surface");
+
+test("a2ui real capture: sync-hil's journal turn draws the card, and the later turn replaces it in place", async () => {
+  let page = REAL.journalAfterSync1;
+  const t = realPanel({ journal: (seen) => unseen(page)(seen) });
+  t.doc.fire("panel:profiles");
+  await settle(60);
+  assert.equal(surfacesOf(t).length, 1);
+  assert.equal(findAll(surfacesOf(t)[0], (n) => n.tag === "button").length, 2, "Approve and Reject");
+  const slot = surfacesOf(t)[0];
+  page = REAL.journalAfterSync2; // its events start at seq 1 again, in another turn
+  t.timers.find((x) => x.live).fn();
+  await settle(60);
+  assert.deepEqual(surfacesOf(t), [slot], "same place");
+  assert.equal(findAll(slot, (n) => n.tag === "button").length, 0, "the settled notice replaced the live card");
+  assert.match(slot.textContent, /No longer pending/);
+  const log = t.store["chatLog:p-work"];
+  assert.equal(log.turn, REAL.before.turn, "journal turns never move the transcript's turn");
+  assert.equal(log.lastSeq, 3);
+  assert.deepEqual(t.store["chatUi:p-work"].journal.length, 2);
+  assert.equal(lastOf(t.sent, "chat_ui_journal").seen.length, 1, "read turns are not asked for again");
+
+  // Reopened: the saved surfaces come back settled; replaying the whole journal changes nothing.
+  const u = realPanel({ journal: () => REAL.journalReopen, stored: JSON.parse(JSON.stringify(t.store)) });
+  u.doc.fire("panel:profiles");
+  await settle(60);
+  assert.equal(surfacesOf(u).length, 1);
+  assert.equal(findAll(surfacesOf(u)[0], (n) => n.tag === "button").length, 0);
+});
+
+test("a2ui real capture: a panel opening fresh folds the whole journal to the settled card", async () => {
+  const t = realPanel({ journal: unseen(REAL.journalReopen) });
+  t.doc.fire("panel:profiles");
+  await settle(60);
+  assert.equal(surfacesOf(t).length, 1);
+  assert.match(surfacesOf(t)[0].textContent, /No longer pending/);
+  assert.equal(findAll(surfacesOf(t)[0], (n) => n.tag === "button").length, 0);
+});
+
+test("a2ui: a press still in progress says so under the card and keeps its buttons locked", async () => {
+  const t = await openedWithSurface({ chat_ui_action: { ok: true, outcome: "accepted", delivered: "system", inProgress: true } }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  const b = buttonOf(t);
+  b.fire("click");
+  await settle(40);
+  assert.equal(b.getAttribute("aria-disabled"), "true");
+  assert.match(t.els["chat-log"].textContent, /Still in progress/);
+  assert.equal(t.sent.filter((m) => m.type === "chat_send").length, 0);
+});
+
+// A press belongs to the chat it was made in: a profile or chat switched
+// before it is delivered must not receive it.
+const homeAndWork = { "chatConv:p-work": "c-1", "chatConv:p-home": "c-9" };
+const switchTo = async (t, id) => { t.sandbox.profiles.current = { id }; t.doc.fire("panel:profiles"); await settle(60); };
+const pressesSent = (t) => t.sent.filter((m) => m.type === "chat_send" && m.message === "press message").map((m) => [m.profile, m.conversation]);
+
+test("a2ui: an answer that arrives after a profile switch is not sent into the other profile's chat", async () => {
+  let answer;
+  const t = await openedWithSurface({ chat_ui_action: () => new Promise((r) => (answer = r)), chat_send: { ok: true, data: { conversation: "c-1", turn: "t2", text: "done" } } }, { stored: homeAndWork });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  buttonOf(t).fire("click");
+  await settle();
+  await switchTo(t, "p-home");
+  answer({ ok: true, outcome: "accepted", delivered: "next_turn", message: "press message" });
+  await settle(60);
+  assert.deepEqual(pressesSent(t), []);
+  await switchTo(t, "p-work");
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(80);
+  assert.deepEqual(pressesSent(t), [["p-work", "c-1"]], "it goes out in its own chat");
+});
+
+test("a2ui: a queued press message does not follow the person into another profile's chat", async () => {
+  let finish;
+  let held = true;
+  const t = await openedWithSurface({
+    chat_ui_action: { ok: true, outcome: "accepted", delivered: "next_turn", message: "press message" },
+    chat_send: () => (held ? new Promise((r) => (finish = r)) : { ok: true, data: { conversation: "c-1", turn: "t3", text: "ok" } }),
+  }, { stored: homeAndWork });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  t.type("first");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle();
+  buttonOf(t).fire("click");
+  await settle(40);
+  await switchTo(t, "p-home");
+  held = false;
+  finish({ ok: true, data: { conversation: "c-1", turn: "t2", text: "ok" } });
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(80);
+  assert.deepEqual(pressesSent(t), []);
+  await switchTo(t, "p-work");
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(80);
+  assert.deepEqual(pressesSent(t), [["p-work", "c-1"]]);
+});
+

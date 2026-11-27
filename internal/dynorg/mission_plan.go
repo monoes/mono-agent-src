@@ -307,6 +307,7 @@ func (c *Conductor) planCard(ctx context.Context, m *MissionConfig, se tasks.Ses
 		TaskCount: len(plan.Tasks), EstimatedBudgetUSD: estimateBudget(plan.Tasks),
 	}
 	c.cfg.Emit.Emit(chatevents.EventMissionPlan, card)
+	c.missionPlanSurface(card, se.BudgetUSD)
 	return card, nil
 }
 
