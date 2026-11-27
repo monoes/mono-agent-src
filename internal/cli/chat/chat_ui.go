@@ -200,7 +200,7 @@ func runUIAction(ctx context.Context, cfg *Deps, sys *SystemActions, conversatio
 	if prefix := prefixOf(act.Name); surf.Prov == a2ui.FromSystem || prefix != "" {
 		return systemAction(ctx, sys, act, surf, prefix, record)
 	}
-	return agentAction(store, profileID, conversationID, act, surf, replay.Authors[act.SurfaceID], record)
+	return agentAction(store, profileID, conversationID, act, actionMessage(act, surf, surfaceHistory(evs, act.SurfaceID)), replay.Authors[act.SurfaceID], record)
 }
 
 // systemAction never runs the action: it hands it to the prefix's handler. The
@@ -228,8 +228,7 @@ func systemAction(ctx context.Context, sys *SystemActions, act a2ui.Action, surf
 // (the turn passes the answer on within a second), otherwise the next user
 // message, which the caller sends (this process cannot write a running turn's
 // journal, and a finished conversation has nothing waiting).
-func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.Action, surf *a2ui.Surface, author string, record func(*UIActionResult) (*UIActionResult, error)) (*UIActionResult, error) {
-	text := actionMessage(act, surf)
+func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.Action, text, author string, record func(*UIActionResult) (*UIActionResult, error)) (*UIActionResult, error) {
 	res := &UIActionResult{Outcome: outcomeAccepted, Delivered: "next_turn", Message: text, AgentID: author}
 	if author != "" {
 		turnID, qid, err := openQuestionOf(store, profileID, conversationID, author)
