@@ -76,13 +76,14 @@ func (c *Conductor) uiRender(ctx context.Context, w *worker, args json.RawMessag
 	if w != nil {
 		author = w.id
 	}
+	owner := SurfaceAuthor(c.cfg.TurnID, author)
 	st := c.uiStateFor()
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if err := c.uiSeed(st); err != nil {
 		return "", err
 	}
-	rendered, err := c.applyUI(st, author, a.Messages)
+	rendered, err := c.applyUI(st, owner, author, a.Messages)
 	if err != nil {
 		st.failures[author]++
 		if st.failures[author] >= uiFailureLimit {
@@ -124,7 +125,7 @@ func (c *Conductor) uiSeed(st *uiState) error {
 // check is deleted (the deleteSurface is journaled too) so the user never sees
 // a half-built one. It returns the surfaces left live, or the error text the
 // model should read.
-func (c *Conductor) applyUI(st *uiState, author string, msgs []json.RawMessage) ([]string, error) {
+func (c *Conductor) applyUI(st *uiState, owner, author string, msgs []json.RawMessage) ([]string, error) {
 	if len(msgs) == 0 {
 		return nil, errors.New("messages is empty")
 	}
@@ -135,7 +136,7 @@ func (c *Conductor) applyUI(st *uiState, author string, msgs []json.RawMessage) 
 	seen := map[string]bool{}
 	var failure error
 	for i, raw := range msgs {
-		m, err := st.reg.HandleFrom(raw, a2ui.FromAgent, author)
+		m, err := st.reg.HandleFrom(raw, a2ui.FromAgent, owner)
 		if err != nil {
 			failure = fmt.Errorf("messages[%d]: %v", i, err)
 			break
@@ -153,7 +154,7 @@ func (c *Conductor) applyUI(st *uiState, author string, msgs []json.RawMessage) 
 			continue
 		}
 		if err := s.Check(a2ui.DefaultLimits); err != nil {
-			c.dropSurface(st, author, id)
+			c.dropSurface(st, owner, author, id)
 			if failure == nil {
 				failure = fmt.Errorf("surface %q was removed: %v", id, err)
 			}
@@ -168,9 +169,9 @@ func (c *Conductor) applyUI(st *uiState, author string, msgs []json.RawMessage) 
 }
 
 // dropSurface deletes a surface that failed its check, in the registry and the journal.
-func (c *Conductor) dropSurface(st *uiState, author, id string) {
+func (c *Conductor) dropSurface(st *uiState, owner, author, id string) {
 	raw, _ := json.Marshal(map[string]any{"version": a2ui.Version, string(a2ui.KindDeleteSurface): map[string]any{"surfaceId": id}})
-	if _, err := st.reg.HandleFrom(raw, a2ui.FromAgent, author); err == nil {
+	if _, err := st.reg.HandleFrom(raw, a2ui.FromAgent, owner); err == nil {
 		c.emitUI(author, id, raw)
 	}
 }
@@ -181,12 +182,24 @@ func (c *Conductor) emitUI(author, surfaceID string, raw json.RawMessage) {
 	})
 }
 
+// SurfaceAuthor is who owns an agent surface in the registry. The lead ("") is
+// one author across turns; a worker id is only unique within its turn, as a
+// later turn can give the same id to another worker.
+func SurfaceAuthor(turnID, agentID string) string {
+	if agentID == "" {
+		return ""
+	}
+	return turnID + "/" + agentID
+}
+
 // UIReplay is the state of a conversation's surfaces rebuilt from its journal.
 type UIReplay struct {
 	Registry *a2ui.Registry
 	// Authors maps each live surface to the agent that authored it ("" for
 	// the lead and for system surfaces).
 	Authors map[string]string
+	// Turns maps each live surface to the turn that created it.
+	Turns map[string]string
 	// Closed holds the surfaces the journal created and later deleted, so an
 	// action for one of them is stale rather than forged.
 	Closed map[string]bool
@@ -198,7 +211,7 @@ type UIReplay struct {
 // surface, never open. An accepted ui.action on an agent's surface settles it.
 // Other event types are ignored.
 func RebuildRegistry(events []chatevents.Event) *UIReplay {
-	r := &UIReplay{Registry: a2ui.NewRegistry(a2ui.DefaultLimits), Authors: map[string]string{}, Closed: map[string]bool{}}
+	r := &UIReplay{Registry: a2ui.NewRegistry(a2ui.DefaultLimits), Authors: map[string]string{}, Turns: map[string]string{}, Closed: map[string]bool{}}
 	for _, ev := range events {
 		if ev.Type == chatevents.EventUIAction {
 			// An answered agent card frees its slot. A host card is settled by the notice that replaces it.
@@ -221,13 +234,13 @@ func RebuildRegistry(events []chatevents.Event) *UIReplay {
 		if p.Provenance == string(a2ui.FromSystem) {
 			prov = a2ui.FromSystem
 		}
-		m, err := r.Registry.HandleFrom(p.Message, prov, p.AgentID)
+		m, err := r.Registry.HandleFrom(p.Message, prov, SurfaceAuthor(ev.TurnID, p.AgentID))
 		if err != nil {
 			continue
 		}
 		switch m.Kind {
 		case a2ui.KindCreateSurface:
-			r.Authors[m.SurfaceID] = p.AgentID
+			r.Authors[m.SurfaceID], r.Turns[m.SurfaceID] = p.AgentID, ev.TurnID
 			delete(r.Closed, m.SurfaceID)
 		case a2ui.KindDeleteSurface:
 			delete(r.Authors, m.SurfaceID)

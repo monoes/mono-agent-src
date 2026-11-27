@@ -152,9 +152,15 @@ func TestUIActionRejectedAndStale(t *testing.T) {
 
 func TestUIActionAnswersTheWaitingWorker(t *testing.T) {
 	r := newUIRig(t)
-	r.surface(t, "agent", "w1", "submit_form")
 	if _, _, err := r.store.CreateTurn(r.conv.ID, "default", "live", "i", "go on"); err != nil {
 		t.Fatal(err)
+	}
+	// the worker's card and its question are of the same, running turn
+	for _, m := range []string{`{"version":"1.0","createSurface":{"surfaceId":"s1"}}`, strings.Replace(uiTestBody, "%s", "submit_form", 1)} {
+		p := chatevents.UISurfacePayload{SurfaceID: "s1", Provenance: "agent", AgentID: "w1", Message: json.RawMessage(m)}
+		if _, err := r.store.AppendEvent("default", r.conv.ID, "live", chatevents.EventUISurface, p); err != nil {
+			t.Fatal(err)
+		}
 	}
 	q := chatevents.AgentMessagePayload{AgentID: "w1", Direction: "question", QuestionID: "q1", From: "w1", To: "user", Text: "Which?"}
 	if _, err := r.store.AppendEvent("default", r.conv.ID, "live", chatevents.EventAgentMessage, q); err != nil {

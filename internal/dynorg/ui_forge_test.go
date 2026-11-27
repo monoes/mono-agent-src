@@ -1,6 +1,7 @@
 package dynorg
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -107,5 +108,48 @@ func TestAWorkerCannotTouchAnothersCard(t *testing.T) {
 		mk("w1", forged("s1")), mk("w2", `{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`), mk("", uiData)}))
 	if s := r.Registry.Surface("s1"); s == nil || r.Closed["s1"] || fmt.Sprint(s.Data) != "map[]" {
 		t.Fatalf("replay applied another author's events: %+v", s)
+	}
+}
+
+// A later turn's w1 is another agent than an earlier turn's: it can neither
+// change nor delete that card, live or on replay. Within one turn it can.
+func TestAReusedWorkerIDDoesNotOwnAnEarlierTurnsCard(t *testing.T) {
+	in := func(turn string, msg string) chatevents.Event {
+		evs := asEvents([]chatevents.UISurfacePayload{{SurfaceID: "s1", Provenance: "agent", AgentID: "w1", Message: []byte(msg)}})
+		evs[0].TurnID = turn
+		return evs[0]
+	}
+	del := `{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`
+	seed := []chatevents.Event{in("t1", forged("s1"))}
+	for turn, want := range map[string]bool{"t2": false, "t1": true} {
+		c, em := uiConductor(t, seed)
+		c.cfg.TurnID = turn
+		for _, m := range []string{uiData, del} {
+			_, err := c.uiRender(context.Background(), &worker{id: "w1"}, uiArgs(m))
+			if (err == nil) != want {
+				t.Errorf("live, turn %s: %s: %v", turn, m, err)
+			}
+		}
+		if got := len(uiEvents(em)) > 0; got != want {
+			t.Errorf("turn %s journaled: %v", turn, got)
+		}
+		r := RebuildRegistry(append(append([]chatevents.Event{}, seed...), in(turn, del)))
+		if gone := r.Registry.Surface("s1") == nil; gone != want {
+			t.Errorf("replay, turn %s: deleted %v", turn, gone)
+		}
+	}
+	// what a worker makes in its own turn stays its to change on replay too
+	c, em := uiConductor(t, nil)
+	c.cfg.TurnID = "t9"
+	if _, err := c.uiRender(context.Background(), &worker{id: "w1"}, uiArgs(uiCreate, uiBody, uiData)); err != nil {
+		t.Fatal(err)
+	}
+	var evs []chatevents.Event
+	for _, e := range asEvents(uiEvents(em)) {
+		e.TurnID = "t9"
+		evs = append(evs, e)
+	}
+	if s := RebuildRegistry(evs).Registry.Surface("s1"); s == nil || fmt.Sprint(s.Data) != "map[n:1]" {
+		t.Fatalf("replay of the turn's own events: %+v", s)
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/dynorg"
 )
 
 // maxButtonLabel is how much of a button's text the message quotes, in runes.
@@ -85,7 +86,7 @@ func surfaceHistory(events []chatevents.Event, surfaceID string) []*a2ui.Surface
 		if p.Provenance == string(a2ui.FromSystem) {
 			prov = a2ui.FromSystem
 		}
-		if _, err := reg.HandleFrom(p.Message, prov, p.AgentID); err != nil {
+		if _, err := reg.HandleFrom(p.Message, prov, dynorg.SurfaceAuthor(ev.TurnID, p.AgentID)); err != nil {
 			continue
 		}
 		if s := reg.Surface(surfaceID); s != nil {

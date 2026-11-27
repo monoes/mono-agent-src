@@ -89,3 +89,18 @@ func TestTheUsersOwnValuesAreStillToldApart(t *testing.T) {
 		t.Errorf("attached %s", got[lineAttached])
 	}
 }
+
+// A press on an earlier turn's card does not answer the open question of the
+// running turn's worker that has the same id.
+func TestAPressOnAnEarlierTurnsCardDoesNotAnswerANewWorker(t *testing.T) {
+	r := newSysRig(t)
+	r.surface(t, "agent", "w1", "submit_form")
+	openQuestion(t, r, "w1", "q1")
+	res, err := r.uiRig.press(t, uiPress("submit_form"))
+	if err != nil || res.Outcome != "accepted" || res.Delivered != "next_turn" || res.Message == "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if text, ok, _ := r.store.TakeAnswer("default", "live", "w1", "q1"); ok {
+		t.Fatalf("the new worker got the old card's press: %q", text)
+	}
+}
