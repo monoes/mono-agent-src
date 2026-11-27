@@ -12,7 +12,7 @@ describe('CoderUsageBar', () => {
     const states = [turn(50000, 100, 200), turn(100000, 300, 400), { coderUsage: null }]
     expect(sessionUsage(states).sum).toBe(100 + 200 + 300 + 400 + 30)
     render(<CoderUsageBar states={states} model="claude-opus" />)
-    expect(screen.getByTestId('coder-usage-context').textContent).toBe('100.0k / 200.0k · 50%')
+    expect(screen.getByTestId('coder-usage-context').textContent).toBe('100.0k / 1.00M · 10%')
     expect(screen.getByTestId('coder-usage-total').textContent).toBe('Session 1.0k tokens')
   })
   it('renders nothing before any usage', () => {
@@ -21,7 +21,11 @@ describe('CoderUsageBar', () => {
   })
   it('uses a 1M window for 1m models', () => {
     expect(contextWindowFor('claude-opus-4-7[1m]')).toBe(1_000_000)
-    expect(contextWindowFor('claude-opus')).toBe(200_000)
+    expect(contextWindowFor('claude-opus-5-5')).toBe(1_000_000)
+    expect(contextWindowFor('sonnet')).toBe(1_000_000)
+    expect(contextWindowFor('', 'claude')).toBe(1_000_000)
+    expect(contextWindowFor('gpt-6.2-sol', 'codex')).toBe(200_000)
+    expect(contextWindowFor('', 'codex')).toBe(200_000)
   })
   it('keeps the bar visible on a narrow pane: the row wraps and the track has a minimum width', () => {
     render(<CoderUsageBar states={[turn(50000, 100, 200)]} model="claude-opus" />)

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // Pin is the identity of a model as the host reports it (note 13.6 section 9). Never an alias.
@@ -35,9 +37,10 @@ func (p Pin) moving() bool {
 	return false
 }
 
-// SameModel compares (provider, model identifier): the distinctness test of Q3.
+// SameModel compares (provider, model identifier): the distinctness test of Q3. A superseded identifier is the model that
+// runs in its place.
 func (p Pin) SameModel(o Pin) bool {
-	return strings.EqualFold(p.Provider, o.Provider) && strings.EqualFold(p.Model, o.Model)
+	return strings.EqualFold(p.Provider, o.Provider) && monomind.SameModel(p.Provider, p.Model, o.Model)
 }
 
 // Criterion is the part of a charter criterion the finish needs: its id, its hash and whether a person decides.

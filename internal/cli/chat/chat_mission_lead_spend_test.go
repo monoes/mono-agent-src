@@ -63,7 +63,7 @@ func newLeadSpendRig(t *testing.T, costs string, approve bool) leadSpendRig {
   set -- $(head -n 1 '`+queue+`')
   tail -n +2 '`+queue+`' > '`+queue+`.next'; mv '`+queue+`.next' '`+queue+`'
   warn=""
-  if [ "$2" = warn ]; then warn=',"peak_context_tokens":250000,"context_warning":true'; fi
+  if [ "$2" = warn ]; then warn=',"peak_context_tokens":850000,"context_warning":true'; fi
   cost=',"cost_usd":'"$1"
   n="$4"
   [ -z "$n" ] && n=$(awk -v c="$1" 'BEGIN{printf "%d", c*1000}')

@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // Line is one separately ticked lifted-authority line (spec 3.1).
@@ -261,7 +263,7 @@ func (c Charter) Validate() error {
 	}
 	if !c.Pins.Verifier.isSet() {
 		add("pin the finishing verifier: provider, model and version are all needed")
-	} else if c.Pins.Verifier == c.Pins.Boss {
+	} else if v, b := c.Pins.Verifier, c.Pins.Boss; v.Provider == b.Provider && monomind.SameModel(v.Provider, v.Model, b.Model) {
 		add("the verifier is the boss's own model: finishing needs a distinct pinned verifier")
 	}
 	if p := c.PerAsk; p.SpendMicro < 0 || p.Tasks < 0 || p.Depth < 0 || p.RunSpendMicro < 0 || p.RunTasks < 0 {

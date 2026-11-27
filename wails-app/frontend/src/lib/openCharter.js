@@ -75,12 +75,24 @@ export function catalogChoices(catalog) {
 
 const samePin = (a, b) => a.provider === b.provider && a.model === b.model && a.version === b.version
 
-// defaultPins picks a boss (the first choice) and a verifier that is a different model; with only one model in the
-// roster the verifier stays empty and the person picks it (the charter refuses a verifier equal to the boss).
+// strength ranks a model for leading a run, lowest first: opus, fable, sonnet, any other, then the small models.
+const strength = model => {
+  const i = [/opus/i, /fable/i, /sonnet/i].findIndex(re => re.test(model))
+  if (i >= 0) return i
+  return /haiku|-luna$/i.test(model) ? 4 : 3
+}
+
+// family groups the names one model goes by: claude's alias and its ids.
+const family = c => `${c.provider}/${c.provider === 'claude' ? (/opus|fable|sonnet|haiku/i.exec(c.model)?.[0].toLowerCase() ?? c.model) : c.model}`
+
+// defaultPins picks a boss (the strongest ready choice) and a verifier that is the next strongest different model; with
+// only one model in the roster the verifier stays empty and the person picks it (the charter refuses a verifier equal to
+// the boss).
 export function defaultPins(choices) {
   const pick = c => (c ? { provider: c.provider, model: c.model, version: c.version } : emptyPin())
-  const boss = choices[0]
-  const verifier = choices.find(c => boss && !samePin(c, boss))
+  const ranked = [...choices].sort((a, b) => Number(b.ready) - Number(a.ready) || strength(a.model) - strength(b.model))
+  const boss = ranked[0]
+  const verifier = ranked.find(c => boss && !samePin(c, boss) && family(c) !== family(boss))
   return { boss: pick(boss), verifier: pick(verifier) }
 }
 

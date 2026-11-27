@@ -98,6 +98,9 @@ func (s *Store) checkModelChange(ctx context.Context, profileID, conv, model str
 	if err != nil {
 		return ch, fmt.Errorf("the roster could not be read, so no model is changed: %w", err)
 	}
+	if newest, replaced := agentroster.Replaced(roster, ch.Runtime, model); replaced {
+		return ch, fmt.Errorf("%w: %s is an older model, replaced by %s", ErrLimit, model, newest)
+	}
 	listed := false
 	for _, r := range roster {
 		if r.Runtime == ch.Runtime && r.Model == model && agentroster.Works(r.Status) {

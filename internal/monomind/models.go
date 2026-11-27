@@ -46,14 +46,6 @@ var claudeModels = []RuntimeModel{
 	{ID: "claude-fable-5-1", Label: "Fable 5.1", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
 	{ID: "claude-sonnet-5-5", Label: "Sonnet 5.5", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
 	{ID: "claude-haiku-5-5", Label: "Haiku 5.5"},
-	{ID: "claude-sonnet-5", Label: "Sonnet 5", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
-	{ID: "claude-haiku-4-5-20251001", Label: "Haiku 4.5"},
-	{ID: "claude-opus-5", Label: "Opus 5", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
-	{ID: "claude-fable-5", Label: "Fable 5", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
-	{ID: "claude-opus-4-8", Label: "Opus 4.8", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
-	{ID: "claude-opus-4-7", Label: "Opus 4.7", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
-	{ID: "claude-opus-4-6", Label: "Opus 4.6", EffortLevels: []string{"low", "medium", "high", "max"}},
-	{ID: "claude-sonnet-4-6", Label: "Sonnet 4.6", EffortLevels: []string{"low", "medium", "high", "max"}},
 }
 
 // freeOpenRouterModels are zero-cost OpenRouter models that take tools and
@@ -127,7 +119,7 @@ func ListModels(ctx context.Context, runtimeID, binary string) ([]RuntimeModel, 
 		err = nil
 	}
 	if err == nil {
-		models = withBuiltinClaude(runtimeID, models)
+		models = currentModels(runtimeID, withBuiltinClaude(runtimeID, models))
 	}
 	return models, err
 }
@@ -142,8 +134,40 @@ var ErrBuiltinModels = errors.New("the runtime's model listing failed: these are
 // ListModelsStrict is ListModels, except that it returns ErrBuiltinModels along
 // with the list when a built-in list stands in for a listing that failed. A
 // runtime with no listing command, or a monomind without agent models, is not
-// a failure: its built-in list is the answer.
+// a failure: its built-in list is the answer. A model whose replacement is
+// listed too is left out.
 func ListModelsStrict(ctx context.Context, runtimeID, binary string) ([]RuntimeModel, error) {
+	models, err := listModelsAll(ctx, runtimeID, binary)
+	return currentModels(runtimeID, models), err
+}
+
+// currentModels drops the models, and the aliases standing for them, that a
+// newer version of their family replaced, where the list offers that version
+// too. A list without it (a gateway's) keeps what it has.
+func currentModels(runtimeID string, models []RuntimeModel) []RuntimeModel {
+	if models == nil || runtimeID == "claude" && OtherClaudeProvider() {
+		return models
+	}
+	replaced := func(m RuntimeModel) bool {
+		newest, old := Superseded(runtimeID, m.ID)
+		if !old {
+			newest, old = Superseded(runtimeID, m.ResolvedID)
+		}
+		return old && slices.ContainsFunc(models, func(o RuntimeModel) bool {
+			return o.ID == newest || o.ResolvedID == newest || o.ResolvedID == "" && o.ID == ModelFamily(runtimeID, newest)
+		})
+	}
+	out := make([]RuntimeModel, 0, len(models))
+	for _, m := range models {
+		if !replaced(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// listModelsAll is the runtime's list, or the built-in one standing in for it.
+func listModelsAll(ctx context.Context, runtimeID, binary string) ([]RuntimeModel, error) {
 	if set, err := Capabilities(ctx); err == nil && set.Has(CapAgentModels) {
 		models, supported, err := listAgentModels(ctx, runtimeID)
 		switch {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/agentroster"
@@ -10,7 +11,8 @@ import (
 )
 
 // doomsdayPinChoices is the models `doomsday run` may pin, as the app's start form lists them: the validated roster's installed
-// runtimes, a runtime being the pin's provider and its version the pin's version, failed models left out, ready ones first.
+// runtimes, a runtime being the pin's provider and its version the pin's version, failed models left out, ready ones first and the
+// strongest of them before the rest.
 func doomsdayPinChoices(ctx context.Context, cfg *globalConfig) ([]doomsdaycli.Pin, error) {
 	db, err := initDB(cfg)
 	if err != nil {
@@ -42,6 +44,10 @@ func doomsdayPinChoices(ctx context.Context, cfg *globalConfig) ([]doomsdaycli.P
 				rest = append(rest, p)
 			}
 		}
+	}
+	// The first choice becomes the boss, so the strongest leads each group.
+	for _, group := range [][]doomsdaycli.Pin{ready, rest} {
+		slices.SortStableFunc(group, func(a, b doomsdaycli.Pin) int { return monomind.LeadRank(a.Model) - monomind.LeadRank(b.Model) })
 	}
 	return append(ready, rest...), nil
 }

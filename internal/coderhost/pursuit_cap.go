@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
+
+	"github.com/monoes/mono-agent/internal/modelname"
 )
 
 // The money rules of switching the loop on (S5b): what one wake-up turn may spend, the helper money the 20% rule counts, and
@@ -68,12 +69,9 @@ func (s *Store) helperCarveUnspentMicro(m pursuitMission, tree []string) (int64,
 }
 
 // pinKey is a pin without its version, trimmed and in lower case: "runtime/model@1", "Runtime/Model" and "runtime/model" are the
-// same name for the independence rule. It compares NAMES: two names for one model (a provider alias, "opus" and
-// "claude-opus-4-5") are not recognised, so the rule is not a guarantee of different weights.
-func pinKey(p string) string {
-	k, _, _ := strings.Cut(strings.TrimSpace(p), "@")
-	return strings.ToLower(strings.TrimSpace(k))
-}
+// same name for the independence rule. It compares NAMES, reading a superseded id and a claude family alias as the model that
+// runs; other names for one model are not recognised, so the rule is not a guarantee of different weights.
+func pinKey(p string) string { return modelname.CurrentPin(p) }
 
 // pursuitPinWhy says why the judge may not judge this mission, or "": its pin is empty, the deployment's rule refuses it, or it
 // equals the pin of the lead's conversation, read now. A lead whose model is not known is not shown to differ, so it waits too.

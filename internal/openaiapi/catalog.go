@@ -338,6 +338,15 @@ func (c *Catalog) Resolve(ctx context.Context, name string) (ModelInfo, error) {
 			return m, nil
 		}
 	}
+	// A model the list no longer offers answers as the one that replaced it,
+	// listed by its id or by its family's alias.
+	if _, old := monomind.Superseded(rt, model); old {
+		for _, m := range models {
+			if m.Runtime == rt && monomind.SameModel(rt, m.Model, model) {
+				return m, nil
+			}
+		}
+	}
 	return ModelInfo{}, ErrUnknownModel
 }
 

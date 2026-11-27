@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Behaviour change: agent turns no longer run older model versions.** In coder chat, mission and open-ended mode (and any other agent turn), a model that a newer version of its family replaced runs as the newest one, including Claude Code's own background work, which some versions did on Haiku 4.5. An older version leaves the model pickers, the validated roster and the OpenAI-compatible API's list once its replacement is listed or has been validated; a saved per-purpose setting, open-ended pin or API request that names it follows the replacement, and for every rule that asks for two different models (a boss and its verifier, a judge and the lead) an older version and Claude's family alias count as the same model as the newest one. A Claude set up for another provider (a gateway, Bedrock, Vertex, Foundry) keeps its own model names.
+- **Planners and leads get a strong model.** Planning, strategy, orchestrating and judging workers take the strongest ready model, and a small one (Haiku) only when nothing else is ready; the open-ended start form suggests Opus as the boss.
+- **The chat context bar shows Claude's 1M window,** and a Claude conversation is compacted near 800k tokens instead of at 200k, so long conversations keep more history and each later turn re-reads more.
 - **A release becomes "latest" only once it is signed,** so installing or updating no longer stops while a new release is being published. A failed signing or upload leaves the previous release latest.
 - **The "All profiles" approvals view includes organization approvals, questions and gates** (`org pending --all`; you only, read-only).
 - **The sandbox warning also shows on workflow step output, fit results, capture summaries, recording review, the profile AI fill and organization research workers.** Page headers no longer squeeze their subtitle when the approvals panel is open.

@@ -20,6 +20,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/missionpursuit/judgecost"
+	"github.com/monoes/mono-agent/internal/modelname"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -94,7 +95,7 @@ func Refuse(forbidden ...string) (func(pin string) bool, error) {
 			return true
 		}
 		for _, f := range set {
-			if pin == f {
+			if pin == f || modelname.CurrentPin(pin) == modelname.CurrentPin(f) {
 				return true
 			}
 		}

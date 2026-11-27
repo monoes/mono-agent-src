@@ -169,6 +169,16 @@ describe('the model choices of the roster', () => {
     expect(defaultPins([{ provider: 'a', model: 'm', version: '1', ready: true }]).verifier).toEqual(pin('', '', ''))
     expect(defaultPins([])).toEqual({ boss: pin('', '', ''), verifier: pin('', '', '') })
   })
+  it('lead with the strongest ready model, never the small one that happens to be listed first', () => {
+    const listed = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'].map(model => ({ provider: 'claude', model, version: '2', ready: true }))
+    const d = defaultPins(listed)
+    expect([d.boss.model, d.verifier.model]).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5'])
+  })
+  it('never verify the boss with another name of its own model', () => {
+    const listed = ['opus', 'claude-opus-5-5', 'haiku'].map(model => ({ provider: 'claude', model, version: '2', ready: true }))
+    const d = defaultPins(listed)
+    expect([d.boss.model, d.verifier.model]).toEqual(['opus', 'haiku'])
+  })
 })
 
 describe('catalogChoices', () => {
