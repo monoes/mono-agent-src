@@ -273,13 +273,16 @@ func (j *turnJournal) resultNoticesLocked(ev monomind.Event) {
 		_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeCoderUsage, Severity: chatevents.SeverityInfo, CoderUsage: &u})
 	}
 	var msgs []string
-	if len(ev.UnexpectedModels) > 0 {
-		msgs = append(msgs, "This turn also ran on "+strings.Join(ev.UnexpectedModels, ", ")+", not only the selected model.")
+	if others := notableModels(ev.UnexpectedModels); len(others) > 0 {
+		msgs = append(msgs, "This turn also ran on "+strings.Join(others, ", ")+", not only the selected model.")
 	}
 	if ev.ContextWarning && j.runtimeID == "claude" {
 		// Claude Code can compact its own session: the turn's end does that
 		// (compactContext) and says so; the warning only shows if it fails.
-		j.contextPeak = ev.PeakContextTokens
+		// The runner warns from 200k, long before a claude window is full.
+		if ev.PeakContextTokens >= claudeCompactAtTokens {
+			j.contextPeak = ev.PeakContextTokens
+		}
 	} else if ev.ContextWarning {
 		msgs = append(msgs, contextWarningText(ev.PeakContextTokens))
 	}
@@ -288,6 +291,24 @@ func (j *turnJournal) resultNoticesLocked(ev monomind.Event) {
 		bounded, _, _ := chatevents.BoundText(m, chatevents.MaxToolPreviewBytes)
 		_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeCoderResult, Message: bounded, Severity: chatevents.SeverityWarning})
 	}
+}
+
+// claudeCompactAtTokens is where a claude conversation is compacted: 80% of
+// the 1M window the current claude models have.
+const claudeCompactAtTokens = 800_000
+
+// notableModels is the other models a turn ran on that are worth a warning.
+// Claude Code does background work on the newest small model, which is
+// expected; any other model, and any superseded one, is reported.
+func notableModels(served []string) []string {
+	var out []string
+	for _, m := range served {
+		_, old := monomind.Superseded("claude", m)
+		if old || !strings.HasPrefix(m, "claude-haiku-") {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func contextWarningText(peak int64) string {

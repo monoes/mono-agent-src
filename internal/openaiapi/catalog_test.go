@@ -263,6 +263,21 @@ func TestCatalogResolve(t *testing.T) {
 	}
 }
 
+// A client that still names a superseded model gets the one that replaced it,
+// whether that is listed by its id or only as its family's alias.
+func TestCatalogResolvesASupersededModelToItsReplacement(t *testing.T) {
+	for _, listed := range []string{"claude-sonnet-5-5", "sonnet"} {
+		f := testFuncs(t)
+		f.Roster = func(context.Context) ([]agentroster.Result, error) {
+			return []agentroster.Result{{Runtime: "claude", Model: listed, Status: agentroster.StatusOK, ValidatedAt: time.Now()}}, nil
+		}
+		got, err := NewCatalog(f, time.Minute).Resolve(context.Background(), "claude/claude-sonnet-4-6")
+		if err != nil || monomind.ModelFamily("claude", got.Model) != "sonnet" {
+			t.Errorf("listed as %s: Resolve = %q, %v", listed, got.ID, err)
+		}
+	}
+}
+
 func TestCatalogVisibleAppliesThePolicyAndHidesAliases(t *testing.T) {
 	c := NewCatalog(testFuncs(t), time.Minute)
 	ctx := context.Background()

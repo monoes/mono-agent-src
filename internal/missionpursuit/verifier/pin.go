@@ -1,15 +1,13 @@
 package verifier
 
-import "strings"
+import "github.com/monoes/mono-agent/internal/modelname"
 
 // PinKey is a pin without its version, trimmed and in lower case: "runtime/model@1", "Runtime/Model" and "runtime/model" are
 // the same name for the independence rule. It is the rule of the pursuit judge's check in the coder host (pinKey there),
-// kept equal by one table of vectors that both packages' tests hold (pin_test.go reads the coderhost copy). It compares NAMES: two names for one model (a provider alias) are not recognised, so the rule is not
-// a guarantee of different weights.
-func PinKey(p string) string {
-	k, _, _ := strings.Cut(strings.TrimSpace(p), "@")
-	return strings.ToLower(strings.TrimSpace(k))
-}
+// kept equal by one table of vectors that both packages' tests hold (pin_test.go reads the coderhost copy). It compares NAMES: here a superseded id and a claude family alias also read as the model that runs
+// (the host hands its own check pins already read that way), but other names for one model are not recognised, so the rule is
+// not a guarantee of different weights.
+func PinKey(p string) string { return modelname.CurrentPin(p) }
 
 // Independent is the pairwise rule: the judge, the checker and the lead must each be known and all different. why is a plain
 // sentence when they are not. The lead's pin is read by the host at call time, so a lead whose model is not known (empty)

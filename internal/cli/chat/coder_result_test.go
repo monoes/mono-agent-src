@@ -17,7 +17,7 @@ import (
 
 const resultFieldsTranscript = `  echo '{"v":1,"type":"start","runtime":"claude","cwd":"/w","pid":1,"access":"full"}'
   echo '{"v":1,"type":"assistant","text":"done"}'
-  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"done","effort":"high","peak_context_tokens":250000,"context_warning":true,"unexpected_models":["claude-opus-4-1"],"model_usage":{"claude-opus-4-1":{"input":1,"output":2,"cache_read":3,"cache_creation":4}},"agent_launches":{"total":2,"review":1}}'
+  echo '{"v":1,"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","text":"done","effort":"high","peak_context_tokens":850000,"context_warning":true,"unexpected_models":["claude-opus-4-1"],"model_usage":{"claude-opus-4-1":{"input":1,"output":2,"cache_read":3,"cache_creation":4}},"agent_launches":{"total":2,"review":1}}'
   echo '{"v":1,"type":"done","exit_code":0}'`
 
 func TestCoderTurnJournalsUnexpectedModelsAndContextWarning(t *testing.T) {
@@ -41,8 +41,30 @@ func TestCoderTurnJournalsUnexpectedModelsAndContextWarning(t *testing.T) {
 			}
 		}
 	}
-	if len(got) != 2 || !strings.Contains(got[0], "claude-opus-4-1") || !strings.Contains(got[1], "250000") {
+	if len(got) != 2 || !strings.Contains(got[0], "claude-opus-4-1") || !strings.Contains(got[1], "850000") {
 		t.Errorf("coder.result notices = %q", got)
+	}
+}
+
+// The runner warns from 200k, but a claude conversation is only compacted near
+// the end of its 1M window, and the newest small model Claude Code uses for
+// its own background work is not worth a warning.
+func TestCoderTurnWithRoomLeftIsNeitherWarnedNorCompacted(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	bin, _ := writeCoderMonomind(t, strings.NewReplacer("850000", "250000", `["claude-opus-4-1"]`, `["claude-haiku-5-5"]`).Replace(resultFieldsTranscript))
+	withCoderCaps(t, monomind.CoderCapabilities...)
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true})
+	conv, _ := openTestChatStore(t, dbPath).CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", "turn-1", "--", "go")
+	if err != nil {
+		t.Fatalf("turn: %v\n%s", err, out)
+	}
+	for _, n := range parseJournaledTurn(t, out).byType(chatevents.EventNotice) {
+		var p chatevents.NoticePayload
+		json.Unmarshal(n.Payload, &p)
+		if p.Code == noticeCoderResult {
+			t.Errorf("notice: %q", p.Message)
+		}
 	}
 }
 
@@ -153,7 +175,7 @@ const compactOKTranscript = `  echo '{"v":1,"type":"session","session_id":"sess-
   echo '{"v":1,"type":"done","exit_code":0}'`
 
 func TestCompactIgnoredWhenSessionIDChanges(t *testing.T) {
-	h := newCompactHarness(t, strings.Replace(compactOKTranscript, "sess-1", "sess-other", 1), 250000)
+	h := newCompactHarness(t, strings.Replace(compactOKTranscript, "sess-1", "sess-other", 1), 850000)
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
 	notices, _ := h.events(t)
 	if got := lastNotice(notices); !strings.Contains(got, "every further call") || strings.Contains(got, "was compacted") {
@@ -162,7 +184,7 @@ func TestCompactIgnoredWhenSessionIDChanges(t *testing.T) {
 }
 
 func TestCompactJournalsItsCostIntoTheTurnTotal(t *testing.T) {
-	h := newCompactHarness(t, compactOKTranscript, 250000)
+	h := newCompactHarness(t, compactOKTranscript, 850000)
 	h.j.usage.CostUSD, h.j.usage.HasCostUSD = 0.5, true
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
 	notices, costs := h.events(t)
@@ -175,7 +197,7 @@ func TestCompactJournalsItsCostIntoTheTurnTotal(t *testing.T) {
 }
 
 func TestCompactRespectsWhatTheTurnLeftOfItsBudget(t *testing.T) {
-	h := newCompactHarness(t, compactOKTranscript, 250000)
+	h := newCompactHarness(t, compactOKTranscript, 850000)
 	h.opts.BudgetUSD = 1
 	h.j.usage.CostUSD, h.j.usage.HasCostUSD = 0.4, true
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
@@ -183,7 +205,7 @@ func TestCompactRespectsWhatTheTurnLeftOfItsBudget(t *testing.T) {
 		t.Errorf("the compaction was not capped at the remainder: %q", h.argv())
 	}
 
-	h = newCompactHarness(t, compactOKTranscript, 250000)
+	h = newCompactHarness(t, compactOKTranscript, 850000)
 	h.opts.BudgetUSD = 1
 	h.j.usage.CostUSD, h.j.usage.HasCostUSD = 1, true
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
@@ -197,7 +219,7 @@ func TestCompactRespectsWhatTheTurnLeftOfItsBudget(t *testing.T) {
 // cap, so the compaction (which would otherwise get the whole cap again) does
 // not run; an uncapped turn still compacts.
 func TestCompactIsSkippedUnderACapWhenNoCostWasReported(t *testing.T) {
-	h := newCompactHarness(t, compactOKTranscript, 250000)
+	h := newCompactHarness(t, compactOKTranscript, 850000)
 	h.opts.BudgetUSD = 1
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
 	notices, _ := h.events(t)
@@ -207,7 +229,7 @@ func TestCompactIsSkippedUnderACapWhenNoCostWasReported(t *testing.T) {
 	if got := lastNotice(notices); !strings.Contains(got, "every further call") || strings.Contains(got, "was compacted") {
 		t.Errorf("notices = %q", notices)
 	}
-	h = newCompactHarness(t, compactOKTranscript, 250000)
+	h = newCompactHarness(t, compactOKTranscript, 850000)
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
 	if !strings.Contains(h.argv(), "--resume") {
 		t.Errorf("an uncapped turn no longer compacts: %q", h.argv())
@@ -215,7 +237,7 @@ func TestCompactIsSkippedUnderACapWhenNoCostWasReported(t *testing.T) {
 }
 
 func TestCompactAfterStopSaysNothing(t *testing.T) {
-	h := newCompactHarness(t, compactOKTranscript, 250000)
+	h := newCompactHarness(t, compactOKTranscript, 850000)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	compactContext(ctx, h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, nil)
@@ -226,10 +248,10 @@ func TestCompactAfterStopSaysNothing(t *testing.T) {
 }
 
 func TestWarnedTurnThatErroredStillGetsTheWarning(t *testing.T) {
-	h := newCompactHarness(t, compactOKTranscript, 250000)
+	h := newCompactHarness(t, compactOKTranscript, 850000)
 	compactContext(context.Background(), h.j, h.opts, &monomind.TurnResult{SessionID: "sess-1"}, errors.New("exec failed"))
 	notices, _ := h.events(t)
-	if !strings.Contains(lastNotice(notices), "250000") || strings.Contains(h.argv(), "--resume") {
+	if !strings.Contains(lastNotice(notices), "850000") || strings.Contains(h.argv(), "--resume") {
 		t.Errorf("notices %q argv %q", notices, h.argv())
 	}
 }
@@ -252,7 +274,7 @@ func TestCoderTurnJournalsUsageNotice(t *testing.T) {
 			usage = p.CoderUsage
 		}
 	}
-	if usage == nil || usage.PeakContextTokens != 250000 || usage.Models["claude-opus-4-1"].CacheCreation != 4 {
+	if usage == nil || usage.PeakContextTokens != 850000 || usage.Models["claude-opus-4-1"].CacheCreation != 4 {
 		t.Errorf("coder.usage = %+v", usage)
 	}
 }

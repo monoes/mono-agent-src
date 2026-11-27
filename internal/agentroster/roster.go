@@ -1,6 +1,7 @@
 package agentroster
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -42,6 +43,19 @@ type RuntimeRoster struct {
 	Ready                      int     `json:"ready"`
 }
 
+// Replaced reports that a newer version of model's family stands in for it in
+// results: that version, or claude's alias for the family, answered.
+func Replaced(results []Result, runtime, model string) (newest string, ok bool) {
+	newest, old := monomind.Superseded(runtime, model)
+	if !old || runtime == "claude" && monomind.OtherClaudeProvider() {
+		return "", false
+	}
+	family := monomind.ModelFamily(runtime, newest)
+	return newest, slices.ContainsFunc(results, func(r Result) bool {
+		return r.Runtime == runtime && (r.Model == newest || r.Model == family) && (Works(r.Status) || r.Status == StatusRateLimited)
+	})
+}
+
 // Build groups results by runtime and computes each model's state. scan may
 // be nil (no version or install checks); with a scan, every installed
 // runtime is listed, even one never validated, and a runtime that is no
@@ -74,6 +88,11 @@ func Build(results []Result, scan *monomind.ScanResult, now time.Time, maxAge ti
 		}
 	}
 	for _, r := range results {
+		// A model whose replacement answers is not offered or staffed. Until
+		// then the old row stays, and a turn on it runs the replacement.
+		if _, replaced := Replaced(results, r.Runtime, r.Model); replaced {
+			continue
+		}
 		rr := get(r.Runtime)
 		if rr.LoginHint == "" && r.Status == StatusAuth {
 			rr.LoginHint = r.LoginHint

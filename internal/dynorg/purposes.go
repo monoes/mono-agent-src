@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/agentpurposes"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // purposePolicy is how the operator's setting for a worker's purpose
@@ -159,7 +161,7 @@ func (s *Staffer) limitToPurpose(req SpawnRequest, st *Staff, eligible *[]Model)
 			pol.author = s.Lead.Key()
 		}
 		if pol.author != "" {
-			others := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return m.Key() == pol.author })
+			others := slices.DeleteFunc(slices.Clone(*eligible), func(m Model) bool { return isModel(m, pol.author) })
 			if len(others) > 0 {
 				*eligible = others
 				pol.notes = append(pol.notes, "purpose "+pol.label+": a different model than the author "+pol.author)
@@ -183,7 +185,7 @@ func (p *purposePolicy) checkNamed(m Model, eligible []Model) error {
 	if p.limited && m.Stale {
 		return fmt.Errorf("%s is stale (not validated recently); the operator's set for %s allows: %s", m.Key(), p.label, keys(eligible))
 	}
-	if p.author != "" && m.Key() == p.author {
+	if p.author != "" && isModel(m, p.author) {
 		return fmt.Errorf("%s wrote the work this worker checks, and the operator wants %s done by a different model; use one of: %s", m.Key(), p.label, keys(eligible))
 	}
 	return nil
@@ -225,7 +227,7 @@ func (p *purposePolicy) pick(eligible, bad []Model) (Model, bool) {
 // order, else the first candidate.
 func (p *purposePolicy) firstStated(candidates []Model) Model {
 	for _, pair := range p.set.Pairs {
-		if i := slices.IndexFunc(candidates, func(m Model) bool { return m.Key() == pair.Key() }); i >= 0 {
+		if i := slices.IndexFunc(candidates, func(m Model) bool { return isModel(m, pair.Key()) }); i >= 0 {
 			return candidates[i]
 		}
 	}
@@ -256,6 +258,13 @@ func (s *Staffer) permits(all map[string]agentpurposes.Setting, purpose string, 
 		return false
 	}
 	return !slices.ContainsFunc(s.Roster, func(o Model) bool { return !o.Stale && set.Has(o.Runtime, modelID(o)) })
+}
+
+// isModel reports whether key ("runtime/model") names m, reading a superseded
+// model as the one that runs in its place.
+func isModel(m Model, key string) bool {
+	runtime, id, _ := strings.Cut(key, "/")
+	return m.Runtime == runtime && monomind.SameModel(runtime, modelID(m), id)
 }
 
 // modelID is the roster's id for a model: "default" for a runtime's own.

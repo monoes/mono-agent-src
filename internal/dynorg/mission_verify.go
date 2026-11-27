@@ -8,6 +8,8 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/tasks"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // Verification of a mission's tasks (plan 7.6, 8.5, D1). A task a worker finished waits in
@@ -45,7 +47,7 @@ func VerifierFor(s *Staffer, executor Model) (m Model, same bool, err error) {
 		executor = s.Lead
 	}
 	for _, c := range s.Roster {
-		if c.Stale || (c.Runtime == executor.Runtime && c.Model == executor.Model) || !s.permits(all, verifierPurpose, c) {
+		if c.Stale || (c.Runtime == executor.Runtime && monomind.SameModel(c.Runtime, c.Model, executor.Model)) || !s.permits(all, verifierPurpose, c) {
 			continue
 		}
 		if c.FullAccess || c.Read || c.ReadOnlySandbox {

@@ -103,13 +103,13 @@ func TestResearchWithoutAccessReadFallsBackToTheWriteLease(t *testing.T) {
 func TestRuleModelPrefersConfinedResearch(t *testing.T) {
 	cheapBare := Model{Runtime: "grok", Model: "g", FullAccess: true, CostUSD: 0.0001}
 	sandboxed := Model{Runtime: "codex", Model: "c", FullAccess: true, ReadOnlySandbox: true, CostUSD: 0.01}
-	if got := ruleModel([]Model{cheapBare, opus, haiku}, ProfileResearch, false, func(Model) float64 { return 0.75 }); got.Key() != haiku.Key() {
+	if got := ruleModel([]Model{cheapBare, opus, haiku}, ProfileResearch, false, false, func(Model) float64 { return 0.75 }); got.Key() != haiku.Key() {
 		t.Errorf("research = %s, want the cheapest read-access model %s", got.Key(), haiku.Key())
 	}
-	if got := ruleModel([]Model{cheapBare, sandboxed}, ProfileResearch, false, func(Model) float64 { return 0.75 }); got.Key() != sandboxed.Key() {
+	if got := ruleModel([]Model{cheapBare, sandboxed}, ProfileResearch, false, false, func(Model) float64 { return 0.75 }); got.Key() != sandboxed.Key() {
 		t.Errorf("research = %s, want the sandboxed model", got.Key())
 	}
-	if got := ruleModel([]Model{cheapBare, {Runtime: "x", FullAccess: true, CostUSD: 1}}, ProfileResearch, false, func(Model) float64 { return 0.75 }); got.Key() != cheapBare.Key() {
+	if got := ruleModel([]Model{cheapBare, {Runtime: "x", FullAccess: true, CostUSD: 1}}, ProfileResearch, false, false, func(Model) float64 { return 0.75 }); got.Key() != cheapBare.Key() {
 		t.Errorf("with nothing confined, research = %s, want the cheapest", got.Key())
 	}
 }

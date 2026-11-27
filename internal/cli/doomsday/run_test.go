@@ -77,6 +77,17 @@ func TestPickPins(t *testing.T) {
 	if _, _, err := PickPins([]Pin{pinA, pinA}); err == nil {
 		t.Fatal("one distinct model gave a verifier")
 	}
+	named := Pin{Provider: "claude", Model: "claude-opus-5-5", Version: "1"}
+	if b, v, err := PickPins([]Pin{pinA, named, pinB}); err != nil || b != pinA || v != pinB {
+		t.Fatalf("the boss verified by its own model's other name: %v %+v %+v", err, b, v)
+	}
+	if c, ok := otherModel([]Pin{pinA, named, pinB}, named); !ok || c != pinB {
+		t.Fatalf("the other pin of a given one: %+v %v", c, ok)
+	}
+	other := Pin{Provider: "claude", Model: "opus", Version: "2"}
+	if _, err := BuildRunCharter(RunSpec{Goal: "g", Boss: named, Verifier: other, BudgetUSD: 1}); err == nil {
+		t.Fatal("a charter let the boss's own model verify it")
+	}
 	if _, _, err := PickPins(nil); err == nil {
 		t.Fatal("no models accepted")
 	}

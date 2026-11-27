@@ -260,3 +260,21 @@ func TestLoadAllReadsOneSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// A set saved before a release keeps working: the pair names the model that now
+// runs in its place.
+func TestASetNamingASupersededModelCoversItsReplacement(t *testing.T) {
+	old := Pair{Runtime: "claude", Model: "claude-opus-4-8"}
+	if !(Setting{Pairs: []Pair{old}}).Has("claude", "claude-opus-5-5") {
+		t.Error("the replacement is outside the set")
+	}
+	// The roster may list the replacement by its id or only as the alias.
+	for _, listed := range []string{"claude-opus-5-5", "opus"} {
+		if !(Setting{Pairs: []Pair{old}}).Has("claude", listed) {
+			t.Errorf("%s is outside the set", listed)
+		}
+		if got := StatusIn([]RosterPair{{Runtime: "claude", Model: listed, Status: StatusOK}}, old); got != StatusOK {
+			t.Errorf("%s: status = %s", listed, got)
+		}
+	}
+}
