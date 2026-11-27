@@ -164,7 +164,7 @@ rawmutant yaml-tag                 $'on: [push]\njobs:\n  a:\n    runs-on: !!str
 
 # setup-go in a CI_RUNNER-routable job must not restore the build cache on a persistent runner.
 sg_job() { # NAME WITH-BLOCK WANT
-  rawmutant "$1" "$(printf 'on: [pull_request]\njobs:\n  a:\n    runs-on: %s\n    steps:\n      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e\n%s' "$sanctioned" "$2")" "$3"
+  rawmutant "$1" "$(printf 'on: [pull_request]\njobs:\n  a:\n    runs-on: %s\n    steps:\n      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5\n%s' "$sanctioned" "$2")" "$3"
 }
 sg_job setup-go-no-cache-key    $'        with:\n          go-version-file: go.mod' reject
 sg_job setup-go-no-with         '' reject
@@ -172,7 +172,7 @@ sg_job setup-go-cache-true      $'        with:\n          cache: true' reject
 sg_job setup-go-cache-string    $'        with:\n          cache: "true"' reject
 sg_job setup-go-cache-hosted    $'        with:\n          cache: ${{ runner.environment == '"'"'github-hosted'"'"' }}' accept
 sg_job setup-go-cache-false     $'        with:\n          cache: false' accept
-rawmutant setup-go-hosted-job-keeps-cache $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e' accept
+rawmutant setup-go-hosted-job-keeps-cache $'on: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5' accept
 
 # Every .github/scripts/*_test.sh must be run by ci.yml, so a test cannot silently drop out of CI.
 unreferenced() { # SCRIPTS_DIR CI_YML -> prints each *_test.sh the workflow never names
