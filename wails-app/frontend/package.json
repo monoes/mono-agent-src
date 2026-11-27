@@ -11,8 +11,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "i18next": "^27.2.4",
-    "lucide-react": "^1.77.0",
+    "i18next": "^27.2.6",
+    "lucide-react": "^1.78.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-i18next": "^18.0.3",
