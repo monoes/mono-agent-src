@@ -14,7 +14,7 @@ import (
 const ifDigestFlag = "if-digest"
 
 func addIfDigest(cmd *cobra.Command) {
-	cmd.Flags().String(ifDigestFlag, "", "Decide only while the item is still as `hil list --json` showed it (its digest)")
+	cmd.Flags().String(ifDigestFlag, "", "Decide only while the item is still as hil list --json showed it (its digest)")
 }
 
 // ifDigest is the command's --if-digest, "" for none or a command without it.
