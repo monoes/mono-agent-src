@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/agentroster"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // Selection rules.
@@ -108,7 +110,7 @@ func (s Setting) Has(runtime, model string) bool {
 		model = agentroster.DefaultModel
 	}
 	for _, p := range s.Pairs {
-		if p.Runtime == runtime && p.Model == model {
+		if p.Runtime == runtime && monomind.SameModel(runtime, p.Model, model) {
 			return true
 		}
 	}

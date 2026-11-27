@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // The AI step: read what the profile's documents say and fill the fields that
@@ -37,6 +39,8 @@ type Result struct {
 	Asked   int      `json:"asked"`
 	Filled  []Filled `json:"filled"`
 	Skipped int      `json:"skipped"`
+	// SandboxStatus is set when the filling turn ran without a sandbox.
+	SandboxStatus string `json:"sandbox_status,omitempty"`
 }
 
 // Complete runs one model turn on prompt and returns its text.
@@ -148,10 +152,12 @@ func AIFill(ctx context.Context, db *sql.DB, profile string, facts []Fact, compl
 		res.Skipped = len(fields)
 		return res, nil
 	}
-	text, err := complete(ctx, buildPrompt(fields, facts))
+	turns, sandbox := monomind.WatchSandbox(ctx)
+	text, err := complete(turns, buildPrompt(fields, facts))
 	if err != nil {
 		return nil, err
 	}
+	res.SandboxStatus = sandbox.Missing()
 	i, j := strings.Index(text, "{"), strings.LastIndex(text, "}")
 	if i < 0 || j <= i {
 		return nil, errors.New("the model's answer was not usable")

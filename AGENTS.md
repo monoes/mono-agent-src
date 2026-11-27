@@ -300,8 +300,8 @@ The desktop app does everything through these commands; they are equally usable 
 - **Org bubbles (chat with a running org's boss):**
   - `org chat send <org> -- <text>` messages the boss as `human:operator` (live, or queued for the org's next start).
   - `org chat history <org> [--run R] [--limit N]` is the boss thread, built from the bus log and the org's questions, approvals and gates. It holds your messages, the boss's replies (its `chat` events), questions, approvals and gates (each `pending` or with its `resolution`), role-to-role messages as `team` rows, and the org starting and stopping. It also returns the roles (for the stage) and the org's status. A part that can't be read is listed in `warnings`.
-  - `org pending` lists what every org of the folder still waits on a person for (`items` with `org`, `kind`, `ref`, `role`, `text`; approvals add `request_id`, `input`, and for a shell call `command`, `command_truncated`, `cwd`; unreadable lists are in `errors`). The app's Human in Loop page renders it.
-  - `org chat answer <org> <questionId> -- <answer>` and `org chat approve|deny <org> <gate-id|request-id|role:action> [-- note]` are idempotent. An item already resolved returns `"already": true` with how it ended, and nothing is sent. While the org is not running they refuse with exit 3 and send nothing, so the item stays pending.
+  - `org pending` lists what every org of the folder still waits on a person for (`items` with `org`, `kind`, `ref`, `role`, `text`; approvals add `request_id`, `input`, and for a shell call `command`, `command_truncated`, `cwd`; unreadable lists are in `errors`). The app's Human in Loop page renders it. `org pending --all` (operator only, like `hil pending --all`; refused with `--profile` or `--project`) lists the same of every profile, each org read in its profile's own folder, items and errors carrying `profile_id` and `profile_name` (a profile that cannot be read is an error with an empty `org`); it reads 4 orgs at once, 15 s per org and 45 s in all. The page's read-only All profiles view shows it beside `hil pending --all`.
+  - `org chat answer <org> <questionId> -- <answer>` and `org chat approve|deny <org> <gate-id|request-id|role:action> [-- note]` are idempotent. An item already resolved returns `"already": true` with how it ended, and nothing is sent. While the org is not running they refuse with exit 3 and send nothing, so the item stays pending. An approval is approved only by its request id (the `ref` and `request_id` of `org chat history`): by `role:action`, which `deny` still takes, or when monomind recorded no request id, `approve` refuses (exit 3) and sends nothing, since it would release calls nobody was shown. `org chat history` approvals carry `request_id`, `input` (every argument, as monomind recorded it) and for a shell call `command`, `command_truncated` and `cwd`.
   - `org chat dismiss <org> <questionId> [--reason <text>]` closes a question without answering it (monomind 2.22+; a blocking question stops holding the org back). Same idempotency as `answer`, but it also works on a stopped org: monomind records the dismissal and queues a note for the asking role, so a question left over from the last run can be cleared without starting the org. `org chat history` marks questions `blocking` and, for a `crashed` run (monomind 2.21+: a dead `running` record), returns the cause in `status_error`.
   - `org stop|pause|resume <org>` are the bubble's controls.
 - **OpenAI-compatible API:** `api status`, `api models [--for loopback|network] [--confinement C] [--context-confinement C] [--auto-confinement C]` and `api key list|create --name N [--context]|update <id> --context|--no-context|update <id> --name=N|revoke <id> --yes`, for Settings › "OpenAI-compatible API" (`wails-app/app_api.go`), and `api config show|set|unset` (with `--dry-run` and `--yes`) and `daemon restart` for its Server settings (`wails-app/app_api_config.go`). The app shows every listener `api status` lists that serves `/v1`, and asks `api models` for the policy that `api status` reports for the first one that answers `/v1` (the first listed when none does). `api key create --json` is the one call that returns a key (`"key"`): the app shows it once and drops it when the dialog closes. The settings calls pass the keys of the ten settings, a text for each attached to its flag, and the paths of the two TLS files, never their contents. A failed call keeps its exit class in the text the app receives (`not_found: …` for exit 2, `invalid_input: …` for exit 3).
@@ -1216,7 +1216,8 @@ a key. It lives in `internal/openaiapi/`; the spec is
   answer with no probability (`none`: Jev did not decide, which does not
   count toward the pause below) or a
   probability under the surface's threshold (default 0, set it with `jev
-  enable api_auto --threshold`) uses a rule instead: of the validated models
+  enable api_auto --threshold`; for a sampled answer lowered to what a
+  unanimous one reads) uses a rule instead: of the validated models
   the most confined, then the cheapest, then the fastest, and with none
   validated a runtime's default model, claude first. Three questions in a row
   with no answer stop a profile's questions for 30 seconds (then one question
@@ -2042,6 +2043,16 @@ registers nothing and runs on the cap as before. A run's cost is what THAT run r
 worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
 lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not
 recorded when a run enters reserve mode is recorded first (never inside the grant), and the run is refused until it is.
+A claude run that resumes its session may report the session's running total (#1744): claude restores that total only if
+the session was the last to exit in the project directory, else the new process counts from zero. One rule
+(`coderspend.Added`, the test of monomind's own runner) covers the conversation's spend, the lead's turns on a mission's
+meter (compaction included), workers in the mission's meter and an AI task's workers' pool: the previous total of that
+session is subtracted only when the cost AND all four session counters of the result's `model_usage` (input, output,
+cache read, cache creation, summed over models) are at least the previous ones; else, and when either side has no
+counters (an older monomind or journal, a run stopped before its result, a worker kept before migration 174), or the
+previous turn or run of the session recorded no cost, the whole figure is charged. `input_tokens`/`output_tokens` are the run's own and are not compared. Still under-charged, by at most
+the previous total: a process that started from zero and passed it in the cost and every counter. Other runtimes' figures
+are taken as reported.
 What a run costs when it fails, by how far it got: a start failure (no start or usage event, Exec returned an error and
 no result) is $0, so a broken start retried N times costs nothing; a run that started (a start or usage event) and reported
 no cost is charged its whole grant, one that reported a cost is charged that cost (its peak); an ambiguous start (a result
@@ -2422,6 +2433,12 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   it only prints the settings. `TestEveryCoderSetFlagIsTheOperators` fails
   for a new flag until it is classified. `coder disable` is anyone's: it
   only turns coder mode off.
+- `coder set --timeout 60m` is the wall-clock cap of a message (default
+  60m): a duration with its unit, at least 1s; more than 576h is cut to 576h
+  (monomind's timer overflows above that). Bare numbers (`90`), `3mins`,
+  `1d` and the like are refused. A stored value that cannot be read counts as
+  none: turns run under 60m and `coder status` says so (`--json` keeps the
+  stored value in `timeout`).
 - `coder set --startup-timeout 3m` is how long claude may take to initialize
   (its SessionStart hooks and MCP servers) in a coder turn, the lead's and
   its workers' (default 2m; `0` = the default again). The environment
@@ -3807,6 +3824,10 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   is refused when it is no longer pending or monomind lacks `org-decision-attribution`
   (a request id is never dropped). Without `--request` every pending request of the role
   and action is resolved, also one queued after you looked; the app always passes the id.
+  That operator-only command is the one way to approve a call monomind gave no request id:
+  `org chat approve`, the app's cards, rules, deciders and `decision_resolve` never approve
+  one (`monomind.NoRequestIDError`; a rule or decider approval goes to a person instead).
+  Denying it stays open to them, and denies every pending call of the role and action.
   A called workflow is found with the engine's own lookup
   (`workflow.ResolveSubWorkflow`: by id, else the one workflow of the
   profile with that exact name, files first); anything else counts as
@@ -4590,7 +4611,8 @@ resolver prefix `jev:`.
   both discard anything that is not an allowed label; no provider's text
   ever reaches a caller. Gates compare the top option's
   probability with a per-surface threshold; below it the surface does exactly
-  what it did without Jev.
+  what it did without Jev. Five surfaces lower a threshold a sampling
+  provider cannot read (below, "Sampled thresholds").
 - **Which provider answers.** The first that applies: the call's own
   (`provider` in a node's config, `jev@<provider>` in `applications.evaluate`'s
   `runtime`, the org decider's `--decider-provider`, `jev ask --provider`) →
@@ -4623,14 +4645,44 @@ resolver prefix `jev:`.
   add-one smoothed over the samples asked, p = (count + 1) / (asked +
   options), a sample that named no option counting toward the samples asked
   and toward no option (fewer than 3 valid of 5 is an error). So five
-  agreeing answers read 6/7 ≈ 0.857 on two options and 0.75 on three, and a
-  `sampled` provider never reaches HIL's 0.9, `people_links`' 0.9, `asks`'
-  0.9 or the org decider's 0.8 at level mid (three verdicts: approve, deny,
-  escalate): there it only suggests, and the org decider hands every such
-  item to its model decider. Score answers from a sampled provider are
-  pulled toward the middle level. `people_links` records a permanent "not
-  the same" only from a `native` or `logprob` answer; a `sampled` or
-  `softmax` one leaves the pair to be asked again.
+  agreeing answers read 6/7 ≈ 0.857 on two options and 0.75 on three, and
+  outside the five surfaces below a `sampled` provider never reaches HIL's
+  0.9, `asks`' 0.9 or the org decider's 0.8 at level mid (three verdicts:
+  approve, deny, escalate): there it only suggests, and the org decider hands
+  every such item to its model decider. Score answers from a sampled
+  provider are pulled toward the middle level. `people_links` records a
+  permanent "not the same" only from a `native` or `logprob` answer; a
+  `sampled` or `softmax` one leaves the pair to be asked again.
+- **Sampled thresholds** (`jevconf.GateThreshold`,
+  `internal/jev/jevconf/sampled.go`). On the low-risk surfaces, and only
+  there, a sampled answer is compared with min(the configured threshold, what
+  a unanimous result reads on that question: (n+1)/(n+k) for n = 5 samples
+  and k options; for a choice split over several requests, the product over
+  the requests on the way to the answer). Five agreeing answers therefore
+  pass any threshold there, and anything less passes only a threshold it
+  reaches on its own. The bar falls as options grow: 0.3 on 15. A threshold a
+  sample can reach is unchanged, as is every `native`, `logprob`, `softmax`
+  and `none` answer, and a split choice with any request read from
+  log-probabilities.
+
+  | Lowered | What it can do |
+  |---|---|
+  | `inbox` | stores an intent label on a message |
+  | `capture` | suggests where to file a captured page; nothing is routed by itself |
+  | `people_links` | stores a suggested link (a permanent dismissal stays `native`/`logprob` only) |
+  | `retry` | stops or delays a retry of a failed node |
+  | `api_auto` | takes the picked model, among those the server serves |
+
+  Everything else compares with the configured threshold: HIL `auto_decide`
+  (`approve_above` and `reject_above`), the org decider at every level,
+  `asks`, `action_fallback` (the browser actions' fallback, record replay and
+  the social bots' element pick), `people_review`, the `ai.choose`,
+  `ai.decide`, `browser.jev` (plain and vault values) and
+  `applications.evaluate` nodes, and any surface added later. `ai.choose` and
+  `ai.decide` stay as configured because a routed branch may lead to a send,
+  which a node cannot tell. A surface gets the lowering only by being added
+  to the list in `sampled.go`; the tests beside it pin the list and every
+  caller.
 - **Cost shape.** TypeSafe answers many questions in one request; an
   `openai` provider makes one request per question (two or more for a large
   choice, five times as many when it samples) and

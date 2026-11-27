@@ -157,10 +157,10 @@ func TestImagesAutoClientLeavingDuringTheQuestionRunsNothing(t *testing.T) {
 	h := newHarness(t, log.imageExec("a.png", onePNG("a.png")), func(d *Deps, _ *Config) {
 		d.Auto = AutoFuncs{
 			Status: func(context.Context, string) AutoStatus { return AutoStatus{Available: true} },
-			Choose: func(c context.Context, _, _ string, _ map[string]string) (string, float64, error) {
+			Choose: func(c context.Context, _, _ string, _ map[string]string) (string, float64, float64, error) {
 				cancel() // the client hangs up
 				<-c.Done()
-				return "", 0, c.Err()
+				return "", 0, 0, c.Err()
 			},
 		}
 	})

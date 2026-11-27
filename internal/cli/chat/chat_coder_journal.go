@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/coderspend"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -267,24 +268,21 @@ const noticeCoderUsage = "coder.usage"
 // result event, each as a warning; a result without them adds nothing.
 func (j *turnJournal) resultNoticesLocked(ev monomind.Event) {
 	if ev.PeakContextTokens > 0 || len(ev.ModelUsage) > 0 {
-		u := chatevents.CoderUsage{PeakContextTokens: ev.PeakContextTokens}
-		if len(ev.ModelUsage) > 0 {
-			u.Models = make(map[string]chatevents.CoderModelUsage, len(ev.ModelUsage))
-			for m, mu := range ev.ModelUsage {
-				u.Models[m] = chatevents.CoderModelUsage{Input: mu.Input, Output: mu.Output, CacheRead: mu.CacheRead, CacheCreation: mu.CacheCreation}
-			}
-		}
+		u := chatevents.CoderUsage{PeakContextTokens: ev.PeakContextTokens, Models: chatevents.ModelUsageOf(ev.ModelUsage)}
 		j.forceFlushLocked()
 		_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeCoderUsage, Severity: chatevents.SeverityInfo, CoderUsage: &u})
 	}
 	var msgs []string
-	if len(ev.UnexpectedModels) > 0 {
-		msgs = append(msgs, "This turn also ran on "+strings.Join(ev.UnexpectedModels, ", ")+", not only the selected model.")
+	if others := notableModels(ev.UnexpectedModels); len(others) > 0 {
+		msgs = append(msgs, "This turn also ran on "+strings.Join(others, ", ")+", not only the selected model.")
 	}
 	if ev.ContextWarning && j.runtimeID == "claude" {
 		// Claude Code can compact its own session: the turn's end does that
 		// (compactContext) and says so; the warning only shows if it fails.
-		j.contextPeak = ev.PeakContextTokens
+		// The runner warns from 200k, long before a claude window is full.
+		if ev.PeakContextTokens >= claudeCompactAtTokens {
+			j.contextPeak = ev.PeakContextTokens
+		}
 	} else if ev.ContextWarning {
 		msgs = append(msgs, contextWarningText(ev.PeakContextTokens))
 	}
@@ -293,6 +291,24 @@ func (j *turnJournal) resultNoticesLocked(ev monomind.Event) {
 		bounded, _, _ := chatevents.BoundText(m, chatevents.MaxToolPreviewBytes)
 		_ = j.appendLocked(chatevents.EventNotice, chatevents.NoticePayload{Code: noticeCoderResult, Message: bounded, Severity: chatevents.SeverityWarning})
 	}
+}
+
+// claudeCompactAtTokens is where a claude conversation is compacted: 80% of
+// the 1M window the current claude models have.
+const claudeCompactAtTokens = 800_000
+
+// notableModels is the other models a turn ran on that are worth a warning.
+// Claude Code does background work on the newest small model, which is
+// expected; any other model, and any superseded one, is reported.
+func notableModels(served []string) []string {
+	var out []string
+	for _, m := range served {
+		_, old := monomind.Superseded("claude", m)
+		if old || !strings.HasPrefix(m, "claude-haiku-") {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func contextWarningText(peak int64) string {
@@ -361,8 +377,9 @@ func compactContext(ctx context.Context, journal *turnJournal, opts monomind.Exe
 // addUsage folds a follow-up call's (the compaction's) usage into the turn's
 // total and journals the new total as the turn's result snapshot. sessionID is
 // the runtime session the turn ran in: claude reports a resumed session's cost
-// as its running total (#1744), so a figure of that session that is not below
-// the turn's already holds it and replaces it instead of adding to it.
+// as its running total when it restored it, so a report of that session adds
+// what coderspend.Added says it did (#1744). The report itself is journaled
+// with the snapshot, for coderspend to judge the later turns by.
 func (j *turnJournal) addUsage(r *monomind.TurnResult, sessionID string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -377,11 +394,16 @@ func (j *turnJournal) addUsage(r *monomind.TurnResult, sessionID string) {
 		u.OutputTokens, u.HasOutputTokens = u.OutputTokens+r.OutputTokens, true
 	}
 	if r.HasCostUSD {
-		total := u.CostUSD + r.CostUSD
-		if j.runtimeID == "claude" && r.SessionID == sessionID && r.CostUSD >= u.CostUSD {
-			total = r.CostUSD
+		added := r.CostUSD
+		var report *chatevents.FollowUpUsage
+		if j.runtimeID == coderspend.CumulativeRuntime {
+			report = &chatevents.FollowUpUsage{SessionID: r.SessionID, CostUSD: r.CostUSD, Models: chatevents.ModelUsageOf(r.ModelUsage)}
+			if u.HasCostUSD && r.SessionID == sessionID {
+				added = coderspend.Added(coderspend.Totals{CostUSD: u.CostUSD, Models: chatevents.ModelUsageOf(u.ModelUsage)},
+					coderspend.Totals{CostUSD: r.CostUSD, Models: report.Models})
+			}
 		}
-		u.CostUSD, u.HasCostUSD = total, true
-		j.usageLocked("result")
+		u.CostUSD, u.HasCostUSD = u.CostUSD+added, true
+		j.journalUsageLocked("result", report)
 	}
 }

@@ -39,6 +39,9 @@ type Deps struct {
 	Serving func(c *cobra.Command, when ...func(*cobra.Command) bool) *cobra.Command
 	// CapabilityProbe reads the installed monomind's capabilities.
 	CapabilityProbe func(*cobra.Command) (*monomind.CapabilitySet, error)
+	// RequireOperator refuses whatever is not the user's own terminal (`org
+	// pending --all`); what says what was refused. Unwired, it refuses.
+	RequireOperator func(what string) error
 }
 
 // orgEnv is the environment every org command runs in: the org root and

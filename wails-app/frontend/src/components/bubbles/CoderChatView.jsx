@@ -184,7 +184,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
-      <CoderUsageBar states={turnList.map(tn => tn.state)} model={conv.model || ''} />
+      <CoderUsageBar states={turnList.map(tn => tn.state)} model={conv.model || ''} runtime={runtime} />
       {agentFilter && (
         <div className="stage-filter" data-testid="chat-agent-filter">
           <span>{t('stage.filterShowing', { name: agentFilterName })}</span>

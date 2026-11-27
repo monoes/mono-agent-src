@@ -133,7 +133,8 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, config map
 	}
 	out := make([]workflow.Item, 0, len(items))
 	for _, item := range items {
-		result, err := n.run(ctx, cfg, client, writer, open)
+		turns, sandbox := monomind.WatchSandbox(ctx)
+		result, err := n.run(turns, cfg, client, writer, open)
 		if err != nil {
 			return nil, fmt.Errorf("browser.jev: %w", err)
 		}
@@ -146,6 +147,11 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, config map
 		}
 		for k, v := range result {
 			merged[k] = v
+		}
+		// Its own key: an incoming _agent_sandbox is another node's turn.
+		delete(merged, "_text_agent_sandbox")
+		if s := sandbox.Missing(); s != "" {
+			merged["_text_agent_sandbox"] = s
 		}
 		out = append(out, workflow.Item{JSON: merged})
 	}

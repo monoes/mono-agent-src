@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/agentroster"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // RosterPair is one pair of the validated roster with its status.
@@ -46,14 +48,23 @@ func FromRoster(roster []agentroster.RuntimeRoster) []RosterPair {
 }
 
 // StatusIn is the status of a pair in the roster; a pair the roster does
-// not hold is unvalidated.
+// not hold is unvalidated. A pair naming a superseded model that the roster no
+// longer shows has the status of the model that runs in its place.
 func StatusIn(roster []RosterPair, p Pair) string {
 	for _, r := range roster {
 		if r.Runtime == p.Runtime && r.Model == p.Model {
 			return r.Status
 		}
 	}
-	return StatusUnvalidated
+	status := StatusUnvalidated
+	for _, r := range roster {
+		if r.Runtime == p.Runtime && monomind.SameModel(p.Runtime, r.Model, p.Model) {
+			if status = r.Status; status == StatusOK {
+				break
+			}
+		}
+	}
+	return status
 }
 
 // CheckValidated refuses a setting that names a pair that is not validated

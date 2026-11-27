@@ -342,13 +342,17 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	}
 	opts.SystemPrompt = workerSystemPrompt(w.staff, dir, w.files, c.spawnsOn(w, m, opts.Access)) + c.profileSection() + c.worktreeRule(w) + missionRule(w)
 	c.workerTools(w, m, &opts)
+	// What a resumed session had cost before this run: the run's own cost is what it adds (sessioncost.go).
+	c.mu.Lock()
+	base := w.resumedFromLocked(m, resume)
+	c.mu.Unlock()
 	var run monomind.TurnResult
 	if acct != nil {
 		w.task.spendMu.Lock()
 		acct.ran = true // from here on a reservation settles; before it, it is released
 		w.task.spendMu.Unlock()
 	}
-	ectx, ecancel := context.WithCancel(ctx)
+	ectx, ecancel := context.WithCancel(withSessionCost(ctx, base))
 	defer ecancel()
 	// refused is set when the start event says the confined run isn't
 	// sandboxed, and the run is cancelled.
@@ -364,24 +368,30 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		if ev.Type == monomind.EventStart || ev.Type == monomind.EventUsage {
 			c.noteStarted(w, acct)
 		}
-		if w.task != nil {
-			c.liveSpend(w, m, &run)
+		own := base.own(run)
+		if base.pending(run) {
+			own.CostUSD, own.HasCostUSD = 0, false
 		}
-		if overEstimate(m, &run, opts.BudgetUSD) && overBudget.CompareAndSwap(false, true) {
+		if w.task != nil {
+			c.liveSpend(w, m, &own)
+		}
+		if overEstimate(m, &own, opts.BudgetUSD) && overBudget.CompareAndSwap(false, true) {
 			ecancel()
 		}
 		if c.subagents.Handle(c.cfg.Emit, ev, w.id+":", w.id) {
 			return
 		}
-		c.stream(w, ev, &run)
+		c.stream(w, ev, &own)
 		c.workerEvent(w, ev)
 	})
 	c.flushText(w, true)
 	// Exec's result is the turn's final accounting; the events are the
 	// fallback when it returned none.
-	run = finalRun(res, run)
+	total := finalRun(res, run)
+	run = base.own(total)
 	c.noteFinal(w, acct, m, &run, res, err)
 	c.mu.Lock()
+	w.billLocked(m, total)
 	if run.HasInputTokens || run.HasOutputTokens {
 		w.inTok += run.InputTokens
 		w.outTok += run.OutputTokens

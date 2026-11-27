@@ -28,6 +28,9 @@ type FitVerdict struct {
 	OverallScore    float64 `json:"overall_score"`
 	Verdict         string  `json:"verdict"`
 	Rationale       string  `json:"rationale"`
+	// SandboxStatus is set only when this verdict's turn ran without a
+	// sandbox (monomind.SandboxMissing). It is not stored.
+	SandboxStatus string `json:"sandbox_status,omitempty"`
 }
 
 // rubricInstructions is the agent-runtime prompt, rendered from the Go

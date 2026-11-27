@@ -145,6 +145,7 @@
 .stage-badge.needs { background: #fbbf24; color: #1a1300; font-weight: 700; }
 .stage-badge.limited { right: auto; left: 8px; background: var(--surface); border: 1px solid var(--border-bright); color: var(--text-muted); }
 .stage-badge.access { right: auto; left: 8px; padding: 0; line-height: normal; background: var(--surface); }
+.stage-badge.unsandboxed { top: auto; bottom: -8px; right: auto; left: 8px; background: var(--surface); border: 1px solid #fbbf24; color: #fbbf24; font-weight: 700; }
 
 .stage-flight {
   position: absolute;

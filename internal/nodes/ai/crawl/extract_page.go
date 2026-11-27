@@ -11,6 +11,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	cfgpkg "github.com/monoes/mono-agent/internal/config"
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -32,7 +33,11 @@ type ExtractPageNode struct {
 
 func (n *ExtractPageNode) Type() string { return "ai.extract_page" }
 
-func (n *ExtractPageNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
+func (n *ExtractPageNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) (outs []workflow.NodeOutput, retErr error) {
+	// Items made with a turn that ran without a sandbox say so.
+	turns, sandbox := monomind.WatchSandbox(ctx)
+	defer func() { markUnsandboxed(outs, sandbox.Missing()) }()
+
 	// --- resolve URL ---
 	pageURL, _ := config["url"].(string)
 	if pageURL == "" && len(input.Items) > 0 {
@@ -92,7 +97,7 @@ func (n *ExtractPageNode) Execute(ctx context.Context, input workflow.NodeInput,
 
 		// The selectors are generated against the DOM, so the agent gets
 		// the page markup (minus scripts and styles), not its markdown.
-		generated, genErr := n.Generator.GenerateConfig(ctx, configName, selectorHTML(fetchResult.HTML), naturalPurpose(prompt), schema)
+		generated, genErr := n.Generator.GenerateConfig(turns, configName, selectorHTML(fetchResult.HTML), naturalPurpose(prompt), schema)
 		if genErr != nil {
 			return markdownFallback(fetchResult.HTML, pageURL, extractMode, fetchMs,
 				fmt.Sprintf("AI generation failed, returning markdown fallback: %v", genErr))
@@ -241,6 +246,19 @@ func selectorHTML(rawHTML string) string {
 		return rawHTML
 	}
 	return out
+}
+
+// markUnsandboxed writes a missing-sandbox verdict, when there is one, on
+// every item.
+func markUnsandboxed(outs []workflow.NodeOutput, status string) {
+	if status == "" {
+		return
+	}
+	for _, o := range outs {
+		for _, it := range o.Items {
+			it.JSON["_agent_sandbox"] = status
+		}
+	}
 }
 
 // markdownFallback is natural mode's documented fallback: when no usable

@@ -336,6 +336,8 @@ type FitVerdictInfo struct {
 	OverallScore    float64 `json:"overall_score"`
 	Verdict         string  `json:"verdict"`
 	Rationale       string  `json:"rationale"`
+	// SandboxStatus is set when the evaluating turn ran without a sandbox.
+	SandboxStatus string `json:"sandbox_status,omitempty"`
 }
 
 // EvaluateApplication scores one job application's fit via a local AI

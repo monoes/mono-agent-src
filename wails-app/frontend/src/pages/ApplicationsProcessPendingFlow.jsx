@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { UnsandboxedWarning } from '../components/chat/ChatWarnings.jsx'
 import { useTranslation } from 'react-i18next'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
@@ -192,6 +193,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
               <div style={{ marginTop: 8, padding: 8, background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
                 <div><strong>{verdict.verdict}</strong> {t('ui6PagesApps.overall', { score: verdict.overall_score?.toFixed(1) ?? '' })}</div>
                 <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>{verdict.rationale}</div>
+                {verdict.sandbox_status && <UnsandboxedWarning />}
                 <div style={{ marginTop: 8 }}>
                   <SendToCoderButton label={t('ui6PagesApps.discuss')} goal="Discuss whether this application fits me, and what would make it stronger."
                     applicationId={current.id} origin={{ page: 'applications', label: t('ui6PagesApps.applications') }}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/agentroster"
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // Candidate is one ranked agent or skill from monomind pick.
@@ -192,6 +193,10 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 	if err != nil {
 		return err
 	}
+	// The operator's own set for the purpose wins over this rule.
+	if !pol.limited {
+		eligible = withoutSmall(eligible, st.Category)
+	}
 	eligible, bad := s.rankByQuality(eligible, st.Category)
 	if req.Runtime != "" || req.Model != "" {
 		i := slices.IndexFunc(s.Roster, func(m Model) bool {
@@ -203,6 +208,9 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 		m := s.Roster[i]
 		if err := pol.checkNamed(m, eligible); err != nil {
 			return err
+		}
+		if !pol.limited && isLeading(st.Category) && monomind.IsSmallModel(m.Model) && slices.ContainsFunc(eligible, func(o Model) bool { return !monomind.IsSmallModel(o.Model) }) {
+			return fmt.Errorf("%s is too small a model to plan or lead; use one of: %s", m.Key(), keys(eligible))
 		}
 		if !m.fits(st.Access) {
 			return fmt.Errorf("%s can't run a %s worker (it has no %s access); use one of: %s", m.Key(), st.Access, accessNeed(st.Access), keys(eligible))
@@ -238,7 +246,11 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 		if tr := s.trackRecordState(eligible, st.Category); len(tr) > 0 {
 			state["track_record"] = tr
 		}
-		if id, conf, err := s.Chooser.Choose(ctx, state, "Which model should run this worker? Prefer the cheaper model when two fit equally well, and avoid a model with a low success rate for this kind of work.", opts); err == nil {
+		prefer := "Prefer the cheaper model when two fit equally well"
+		if isLeading(st.Category) {
+			prefer = "This worker plans or leads others: prefer the strongest model"
+		}
+		if id, conf, err := s.Chooser.Choose(ctx, state, "Which model should run this worker? "+prefer+", and avoid a model with a low success rate for this kind of work.", opts); err == nil {
 			if i := slices.IndexFunc(eligible, func(m Model) bool { return m.Key() == id }); i >= 0 {
 				st.Model, st.JevConf = eligible[i], &conf
 				st.Fallbacks = without(eligible, eligible[i])
@@ -253,7 +265,7 @@ func (s *Staffer) staffModel(ctx context.Context, req SpawnRequest, st *Staff) e
 		fits = eligible
 	}
 	heavy := isHeavy(st.Category, st.Access)
-	st.Model = ruleModel(fits, st.Access, heavy, func(m Model) float64 { return s.fitScore(m, st.Category) })
+	st.Model = ruleModel(fits, st.Access, heavy, isLeading(st.Category), func(m Model) float64 { return s.fitScore(m, st.Category) })
 	st.Fallbacks = without(eligible, st.Model)
 	if heavy {
 		st.Why = append(st.Why, "model by rule: best fit for "+orElse(st.Category, "this work")+", strongest among equals")

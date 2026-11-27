@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // `doomsday run GOAL` is the one-line start, like `org run`: it writes the charter from the goal and a few flags, makes the open
@@ -83,12 +85,21 @@ func PickPins(choices []Pin) (boss, verifier Pin, err error) {
 		return Pin{}, Pin{}, clicore.InvalidInput("no validated model was found: run `monoagentcli agent validate`, or pass --boss and --verifier")
 	}
 	boss = choices[0]
-	for _, c := range choices[1:] {
-		if c != boss {
-			return boss, c, nil
-		}
+	if c, ok := otherModel(choices, boss); ok {
+		return boss, c, nil
 	}
 	return Pin{}, Pin{}, clicore.InvalidInput("only one model is available (%s/%s), and the verifier must be a different one: pass --verifier", boss.Provider, boss.Model)
+}
+
+// otherModel is the best choice that is another model than given: a different provider or family, since a family's alias
+// and its ids name one model.
+func otherModel(choices []Pin, given Pin) (Pin, bool) {
+	for _, c := range choices {
+		if c.Provider != given.Provider || monomind.ModelFamily(c.Provider, c.Model) != monomind.ModelFamily(given.Provider, given.Model) {
+			return c, true
+		}
+	}
+	return Pin{}, false
 }
 
 // BuildRunCharter is the charter of a run: the standard limits, the budget choice, the pins, and the lines.
@@ -252,11 +263,9 @@ func (d Deps) resolvePins(ctx context.Context, s *RunSpec, boss, verifier string
 	if !s.Boss.isSet() {
 		given, fill = s.Verifier, &s.Boss
 	}
-	for _, c := range choices {
-		if c != given {
-			*fill = c
-			return nil
-		}
+	if c, ok := otherModel(choices, given); ok {
+		*fill = c
+		return nil
 	}
 	return clicore.InvalidInput("no validated model differs from %s/%s: pass both --boss and --verifier", given.Provider, given.Model)
 }

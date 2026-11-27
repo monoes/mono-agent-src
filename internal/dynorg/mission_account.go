@@ -27,8 +27,8 @@ import (
 // follows it, and a flip of the setting changes nothing for a session until its in-flight runs have drained. With no
 // WorkerReservations hook nothing here applies (nil: the cap, unregistered, exactly as before).
 //
-// A run's cost is what THAT run reported (liveCost while it streams, runCost at its end), never a difference of the
-// worker's cumulative counter, so a worker's earlier runs, a fallback model's run and a lower final figure cannot move
+// A run's cost is what THAT run reported (liveCost while it streams, runCost at its end; for a resumed claude session,
+// what it added to the session's total, sessioncost.go), never a difference of the worker's cumulative counter, so a worker's earlier runs, a fallback model's run and a lower final figure cannot move
 // the number of another run. The store keeps the largest figure a run reported and never lowers a charge, so a final
 // cost below what was streamed leaves the higher charge: the run is charged its peak. The worker's counter and the
 // cap path's recorded spend (task.spent) are advanced to the counter when the run ends, so the cap path never records

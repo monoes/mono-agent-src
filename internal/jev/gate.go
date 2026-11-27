@@ -25,6 +25,17 @@ func GateProbability(resp *Response, p float64) float64 {
 	return p
 }
 
+// UnanimousProbability is the probability SampledProbs gives the option that
+// every one of samples answers named, on a question of options options:
+// (samples+1)/(samples+options). 0 when either is not positive. A sampling
+// adapter records it as Answer.Unanimous.
+func UnanimousProbability(samples, options int) float64 {
+	if samples <= 0 || options <= 0 {
+		return 0
+	}
+	return float64(samples+1) / float64(samples+options)
+}
+
 // ModelLabel is the label a surface stores for the model that answered: the
 // model alone for TypeSafe ("" counts as TypeSafe), so rows stay as they were
 // before decision providers, else "<provider>/<model>" with any run of

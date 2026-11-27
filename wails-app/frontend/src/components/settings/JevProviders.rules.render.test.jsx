@@ -60,7 +60,7 @@ describe('probabilities', () => {
     expect(within(prow('hf')).getByTestId('jev-prob-note-hf')).toHaveTextContent('A forced split across the candidate labels; not calibrated.')
     expect(within(prow('router')).getByText('Estimated from 5 answers')).toBeInTheDocument()
     expect(within(prow('router')).getByTestId('jev-prob-note-router')).toHaveTextContent(
-      'Smoothed estimates from 5 answers: at most about 0.86 on a two-option question (0.75 on three), so on its own this provider cannot settle anything at a 0.9 threshold.')
+      'Smoothed estimates from 5 answers: at most about 0.86 on a two-option question (0.75 on three, less with more). Only these features lower a higher threshold to that, so that 5 agreeing answers pass: Capture classification, Inbox classification, Cross-platform people links, Retry triage and the API auto model. Everything else, every approval included, keeps the configured threshold.')
     expect(within(prow('local')).queryByTestId('jev-prob-note-local')).not.toBeInTheDocument()
   })
 
@@ -76,7 +76,10 @@ describe('probabilities', () => {
     expect(sampledMax(3)).toBe(0.75)
     expect(sampledCeiling('hil')).toBe(0.75)
     expect(sampledCeiling('people_links')).toBeCloseTo(6 / 7, 12)
-    expect(sampledCeiling('inbox')).toBeCloseTo(6 / 7, 12)
+    expect(sampledCeiling('inbox')).toBe(0.5) // seven intents
+    expect(sampledCeiling('retry')).toBeCloseTo(6 / 9, 12) // four classes
+    expect(sampledCeiling('capture')).toBeCloseTo(6 / 13, 12) // eight kinds
+    expect(sampledCeiling('asks')).toBeCloseTo(6 / 7, 12) // varies: at most this
   })
 })
 
@@ -229,17 +232,36 @@ describe('per-feature provider', () => {
     await waitFor(() => expect(App.JevUseProvider).toHaveBeenCalledWith('', 'hil'))
   })
 
-  it('warns, visibly, when a sampled provider cannot reach the threshold', async () => {
-    App.JevStatus.mockResolvedValue(status({ hil: { threshold: 0.8 }, inbox: { threshold: 0.85 } }, { provider: 'router' }))
+  it('warns on a feature that keeps its threshold, and says when another lowers it', async () => {
+    App.JevStatus.mockResolvedValue(status({ hil: { threshold: 0.8 }, inbox: { threshold: 0.45, sampled_lowers_threshold: true } }, { provider: 'router' }))
     App.JevProviders.mockResolvedValue(providers('router'))
     await mountProfile()
     // hil gates a three-option question: at most 0.75.
     expect(within(srow('hil')).getByTestId('jev-sampled-warning-hil')).toHaveTextContent(
       'This provider estimates from 5 answers and cannot reach this threshold (at most 0.75 here); it will only suggest.')
-    // inbox at 0.85 is reachable on two options (0.857).
+    // inbox at 0.45 is reachable on its seven intents (0.5).
     expect(within(srow('inbox')).queryByTestId('jev-sampled-warning-inbox')).not.toBeInTheDocument()
     fireEvent.change(within(srow('inbox')).getByLabelText('Threshold'), { target: { value: '0.9' } })
-    expect(within(srow('inbox')).getByTestId('jev-sampled-warning-inbox')).toHaveTextContent('(at most 0.86 here)')
+    expect(within(srow('inbox')).getByTestId('jev-sampled-warning-inbox')).toHaveTextContent(
+      'This provider estimates from 5 answers, which read at most 0.50 here, so this feature lowers the threshold to that: an answer passes only when all 5 agree.')
+  })
+
+  it('promises no lowering for a feature the CLI does not mark', async () => {
+    App.JevStatus.mockResolvedValue(status({ inbox: { threshold: 0.9 } }, { provider: 'router' }))
+    App.JevProviders.mockResolvedValue(providers('router'))
+    await mountProfile()
+    const note = within(srow('inbox')).getByTestId('jev-sampled-warning-inbox')
+    expect(note).toHaveTextContent('cannot reach this threshold')
+    expect(note).not.toHaveTextContent('lowers')
+  })
+
+  it('says the auto model, whose options vary, lowers a threshold the more options there are', async () => {
+    const auto = { surface: 'api_auto', title: 'Auto model', description: 'd', egress: ['the prompt'], enabled: true, threshold: 0.5, default_threshold: 0, sampled_lowers_threshold: true }
+    App.JevStatus.mockResolvedValue(status({}, { provider: 'router', surfaces: [...surfaces(), auto] }))
+    App.JevProviders.mockResolvedValue(providers('router'))
+    await mountProfile()
+    expect(within(srow('api_auto')).getByTestId('jev-sampled-warning-api_auto')).toHaveTextContent(
+      'This provider estimates from 5 answers, which read less the more options a question has: this feature lowers a threshold above that to it, and an answer then passes only when all 5 agree.')
   })
 
   it('does not warn for a provider that is not sampled', async () => {

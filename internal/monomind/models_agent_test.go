@@ -49,7 +49,6 @@ func TestListModelsUsesAgentModels(t *testing.T) {
 	want := []RuntimeModel{
 		{ID: "default", ResolvedID: "claude-opus-5-5", Label: "Default (Opus 5.5)", Description: "Opus 5.5 · Best for everyday, complex tasks", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
 		{ID: "opus", ResolvedID: "claude-opus-5-5", Label: "Opus 5.5", Description: "Opus 5.5 · Most capable", EffortLevels: []string{"low", "medium", "high", "xhigh", "max"}},
-		{ID: "claude-sonnet-4-6", Label: "Sonnet 4.6", Description: "Efficient for routine tasks"},
 	}
 	if len(got) < len(want) || !reflect.DeepEqual(got[:len(want)], want) {
 		t.Errorf("claude = %+v", got)
@@ -93,8 +92,8 @@ func TestListModelsAddsBuiltinClaudeModelsTheLiveListLacks(t *testing.T) {
 	if seen["claude-opus-5-5"] != 0 {
 		t.Errorf("claude-opus-5-5 is what the live aliases resolve to, yet it is listed again: %+v", got)
 	}
-	if seen["claude-sonnet-4-6"] != 1 {
-		t.Errorf("claude-sonnet-4-6 listed %d times, want once", seen["claude-sonnet-4-6"])
+	if seen["claude-sonnet-4-6"] != 0 {
+		t.Errorf("the superseded claude-sonnet-4-6 is still listed: %+v", got)
 	}
 }
 

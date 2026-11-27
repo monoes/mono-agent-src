@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/nodes/aisub"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -73,9 +74,13 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, raw map[st
 		if err != nil {
 			return nil, fmt.Errorf("%s: item %d: text: %w", NodeType, i, err)
 		}
-		out, ok, err := cfg.process(ctx, j, text)
+		turns, sandbox := monomind.WatchSandbox(ctx)
+		out, ok, err := cfg.process(turns, j, text)
 		if err != nil {
 			return nil, fmt.Errorf("%w (item %d)", err, i)
+		}
+		if s := sandbox.Missing(); s != "" {
+			out.JSON["_agent_sandbox"] = s // a model check's turn ran without a sandbox
 		}
 		if ok {
 			passed = append(passed, out)

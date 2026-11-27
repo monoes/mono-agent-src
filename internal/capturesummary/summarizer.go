@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/capture"
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // Answer is what a runtime turn produced.
@@ -249,8 +250,9 @@ func (s *Summarizer) Summarize(ctx context.Context, dir string, meta capture.Met
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	answer, err := s.Run(turnCtx, target, Prompt(in))
-	st.CostUSD = answer.CostUSD
+	watched, sandbox := monomind.WatchSandbox(turnCtx)
+	answer, err := s.Run(watched, target, Prompt(in))
+	st.CostUSD, st.Sandbox = answer.CostUSD, sandbox.Missing()
 	if err != nil {
 		if errors.Is(turnCtx.Err(), context.DeadlineExceeded) {
 			return fail(fmt.Errorf("%s did not answer within %s", target, timeout))

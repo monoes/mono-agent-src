@@ -68,7 +68,8 @@ func (f *fakeClient) Approve(_ context.Context, _, _, role, action string, appro
 	defer f.mu.Unlock()
 	for i := range f.approvals {
 		a := &f.approvals[i]
-		if a.RoleID == role && a.Action == action && a.Approved == nil {
+		named := requestID == "" || (a.RequestID != nil && *a.RequestID == requestID)
+		if a.RoleID == role && a.Action == action && a.Approved == nil && named {
 			v := approve
 			a.Approved = &v
 		}
@@ -161,7 +162,7 @@ func TestResolveConcurrentClicksSendOnce(t *testing.T) {
 func TestResolveRefusesAStoppedOrg(t *testing.T) {
 	f := newFake()
 	f.status = "stopped"
-	_, err := Resolve(context.Background(), f, t.TempDir(), Request{Org: "acme", Ref: "dev:Bash", Approve: true})
+	_, err := Resolve(context.Background(), f, t.TempDir(), Request{Org: "acme", Ref: "req-7", Approve: true})
 	var nr *NotRunningError
 	if !errors.As(err, &nr) || nr.Status != "stopped" {
 		t.Fatalf("err = %v, want NotRunningError(stopped)", err)
@@ -171,8 +172,8 @@ func TestResolveRefusesAStoppedOrg(t *testing.T) {
 	}
 	// An item resolved before the org stopped still answers "already".
 	v := false
-	f.approvals[0].Approved = &v
-	res, err := Resolve(context.Background(), f, t.TempDir(), Request{Org: "acme", Ref: "dev:Bash", Approve: true})
+	f.approvals[1].Approved = &v
+	res, err := Resolve(context.Background(), f, t.TempDir(), Request{Org: "acme", Ref: "req-7", Approve: true})
 	if err != nil || !res.Already || res.State != StateDenied {
 		t.Fatalf("resolved-then-stopped = %+v, %v", res, err)
 	}
@@ -185,11 +186,11 @@ func TestResolveApprovalRefs(t *testing.T) {
 	if err != nil || res.State != StateDenied || res.Ref != "req-7" {
 		t.Fatalf("by request id = %+v, %v", res, err)
 	}
-	res, err = Resolve(ctx, f, t.TempDir(), Request{Org: "acme", Ref: "dev:Bash:5", Approve: true})
-	if err != nil || res.State != StateApproved || res.Ref != "dev:Bash:5" {
+	res, err = Resolve(ctx, f, t.TempDir(), Request{Org: "acme", Ref: "dev:Bash:5", Approve: false})
+	if err != nil || res.State != StateDenied || res.Ref != "dev:Bash:5" {
 		t.Fatalf("by role:action:ts = %+v, %v", res, err)
 	}
-	want := []string{"deny dev WebFetch req-7", "approve dev Bash "}
+	want := []string{"deny dev WebFetch req-7", "deny dev Bash "}
 	if len(f.sent) != 2 || f.sent[0] != want[0] || f.sent[1] != want[1] {
 		t.Fatalf("sent %q, want %q", f.sent, want)
 	}

@@ -457,6 +457,8 @@ export function HILAttachment(arg1:string,arg2:number):Promise<string>;
 
 export function HILList():Promise<string>;
 
+export function HILOrgPendingAll():Promise<string>;
+
 export function HILPendingAll():Promise<string>;
 
 export function HILResolve(arg1:string,arg2:boolean,arg3:string,arg4:string):Promise<string>;

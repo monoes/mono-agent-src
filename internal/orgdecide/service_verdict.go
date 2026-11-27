@@ -45,13 +45,27 @@ func (s *Service) apply(ctx context.Context, root, org string, it Item, approve 
 	return ApplyVerdict(ctx, s.Client, s.DB, root, org, it, approve, answer, resolver, rationale)
 }
 
+// noRequestID is why it must not be approved, nil when it may be: an approval
+// without a request id would release every pending call of its role and
+// action, one queued since the decider looked included. Denying it passes.
+func noRequestID(org string, it Item) error {
+	if it.Kind != KindApproval || it.RequestID != "" {
+		return nil
+	}
+	return &monomind.NoRequestIDError{Org: org, Role: it.Requester, Action: it.Action}
+}
+
 // ApplyVerdict resolves one item for resolver: org items in monomind, HIL
-// items in mono-agent's own queue.
+// items in mono-agent's own queue. It never approves an approval without a
+// request id (monomind.NoRequestIDError).
 func ApplyVerdict(ctx context.Context, c Client, db *sql.DB, root, org string, it Item, approve bool, answer, resolver, rationale string) error {
 	opts := monomind.ResolveOptions{By: resolver, RequestID: it.RequestID}
 	prefix := "[decided by " + resolver + "] "
 	switch it.Kind {
 	case KindApproval:
+		if err := noRequestID(org, it); approve && err != nil {
+			return err
+		}
 		return c.Approve(ctx, root, org, it.Requester, it.Action, approve, opts)
 	case KindGate:
 		return c.Gate(ctx, root, org, it.Ref, approve, prefix+rationale, opts)

@@ -66,6 +66,8 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 		return nil, fmt.Errorf("ExecOptions.OnToolCall is required when Tools is set")
 	}
 
+	useLatestModels(&opts, os.Getenv) // never a superseded model
+
 	args := []string{"agent", "exec", "--runtime", opts.Runtime}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)
@@ -312,6 +314,7 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 				}
 				ev.SandboxNote = sandboxNote
 				warnUnsandboxed(opts.Runtime, ev.SandboxStatus)
+				NoteSandbox(ctx, ev.SandboxStatus)
 			}
 			if onEvent != nil {
 				onEvent(ev)

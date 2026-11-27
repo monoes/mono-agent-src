@@ -55,6 +55,7 @@ func TestThePursuitFilesImportNothingThatCarriesAuthority(t *testing.T) {
 		"github.com/monoes/mono-agent/internal/missionpursuit/judgecost":  true, // S5a: a dependency-free context helper (no process, no network)
 		"github.com/monoes/mono-agent/internal/missionpursuit/scorer":     true,
 		"github.com/monoes/mono-agent/internal/missionpursuit/strategy":   true,
+		"github.com/monoes/mono-agent/internal/modelname":                 true, // model name rules: no process, no network (reads two kinds of config file)
 	}
 	// The goal check step (S7c1b) is the one part of the loop that reads the project folder and holds the verifier library; each
 	// of its files is listed with the extra imports it needs, and nothing else in the loop may have them.

@@ -84,6 +84,11 @@ type Item struct {
 	Command          string `json:"command,omitempty"`
 	CommandTruncated bool   `json:"command_truncated,omitempty"`
 	Cwd              string `json:"cwd,omitempty"`
+	// An approval's request id, empty when monomind recorded none (then it
+	// can't be approved on its own), and the call's arguments as monomind
+	// recorded them, redacted and cut.
+	RequestID string                 `json:"request_id,omitempty"`
+	Input     map[string]interface{} `json:"input,omitempty"`
 }
 
 var approvalStatus = regexp.MustCompile(`^Approval (granted|denied) for (.+)$`)
@@ -123,7 +128,10 @@ type builder struct {
 	items     []Item
 	byRef     map[string]int // kind+ref → index
 	approval  map[string]int // role:action → index of its latest approval item
-	seen      map[string]bool
+	// unnamed is, per role:action, the approval items of bus events that
+	// carried no request id, in bus order.
+	unnamed map[string][]int
+	seen    map[string]bool
 	// open is the boss item the next boss chat event continues, or -1. A
 	// streaming runtime (e.g. vercel/openrouter) puts every text delta on
 	// the bus as its own chat event (#294); consecutive ones are one reply.
@@ -209,15 +217,20 @@ func (b *builder) event(e Event) {
 			return
 		}
 		if action := str(d, "action"); action != "" {
-			ref := str(d, "requestId")
+			requestID := str(d, "requestId")
+			ref := requestID
 			if ref == "" {
 				ref = e.From + ":" + action
 			}
 			input, _ := d["input"].(map[string]interface{})
 			command, truncated := Command(input)
-			i := b.add(Item{ID: e.ID, TS: e.TS, Kind: ItemApproval, Role: e.From, Ref: ref, Action: action, Text: str(d, "question"), Pending: true, Command: command, CommandTruncated: truncated})
+			i := b.add(Item{ID: e.ID, TS: e.TS, Kind: ItemApproval, Role: e.From, Ref: ref, Action: action, Text: str(d, "question"), Pending: true,
+				Command: command, CommandTruncated: truncated, RequestID: requestID, Input: input})
 			b.byRef[ItemApproval+"\x00"+ref] = i
 			b.approval[e.From+":"+action] = i
+			if requestID == "" {
+				b.unnamed[e.From+":"+action] = append(b.unnamed[e.From+":"+action], i)
+			}
 		}
 	case "gate":
 		gid := str(d, "gateId")
@@ -305,32 +318,7 @@ func (b *builder) merge(h HumanItems) {
 			it.Answer = *q.Answer
 		}
 	}
-	for _, a := range h.Approvals {
-		ref := approvalRef(a)
-		i, ok := b.byRef[ItemApproval+"\x00"+ref]
-		if !ok {
-			// A bus event without a request id is keyed by role:action.
-			i, ok = b.byRef[ItemApproval+"\x00"+a.RoleID+":"+a.Action]
-		}
-		if !ok {
-			if a.Approved != nil {
-				continue
-			}
-			i = b.add(Item{ID: ref, TS: a.TS, Kind: ItemApproval, Role: a.RoleID, Action: a.Action, Text: a.Question})
-			b.byRef[ItemApproval+"\x00"+ref] = i
-		}
-		it := &b.items[i]
-		it.Ref = ref
-		it.Pending = a.Approved == nil
-		it.Resolution = approvalState(a)
-		// The list is the record of what is being approved.
-		if command, truncated := Command(a.Input); command != "" {
-			it.Command, it.CommandTruncated = command, truncated
-		}
-		if a.ResolvedBy != nil {
-			it.ResolvedBy = *a.ResolvedBy
-		}
-	}
+	b.mergeApprovals(h.Approvals)
 	for _, g := range h.Gates {
 		i, ok := b.byRef[ItemGate+"\x00"+g.ID]
 		if !ok {
@@ -361,7 +349,7 @@ func (b *builder) merge(h HumanItems) {
 // stopping, in bus order. It is a pure function of its inputs. limit keeps
 // the newest items (0 = all); pending items are always kept.
 func BuildThread(org, boss string, events []Event, human HumanItems, limit int) []Item {
-	b := &builder{org: org, boss: boss, items: []Item{}, byRef: map[string]int{}, approval: map[string]int{}, seen: map[string]bool{}, open: -1}
+	b := &builder{org: org, boss: boss, items: []Item{}, byRef: map[string]int{}, approval: map[string]int{}, unnamed: map[string][]int{}, seen: map[string]bool{}, open: -1}
 	for _, e := range events {
 		b.event(e)
 	}

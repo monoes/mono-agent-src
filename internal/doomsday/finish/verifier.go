@@ -83,7 +83,7 @@ func (v *RunnerVerifier) observed(ev monomind.Event, saw bool) Pin {
 	}
 	p := v.Pin
 	m := strings.ToLower(ev.Model)
-	same := m == strings.ToLower(p.Model) || m == strings.ToLower(p.Model+"-"+p.Version) || m == strings.ToLower(p.Model+"@"+p.Version) || m == strings.ToLower(p.Version)
+	same := monomind.SameModel(p.Provider, m, p.Model) || m == strings.ToLower(p.Model+"-"+p.Version) || m == strings.ToLower(p.Model+"@"+p.Version) || m == strings.ToLower(p.Version)
 	if strings.EqualFold(ev.Runtime, p.Provider) && same {
 		return p
 	}

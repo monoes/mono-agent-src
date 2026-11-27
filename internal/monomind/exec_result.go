@@ -26,6 +26,8 @@ type TurnResult struct {
 	HasInputTokens  bool
 	HasOutputTokens bool
 	HasCostUSD      bool
+	// ModelUsage is the last result event's per-model counters, nil when it had none (or no result came).
+	ModelUsage map[string]ModelUsage
 	// Sandbox is the start event's sandbox report, and SandboxStatus the
 	// verdict (SandboxStatus* constants); "" when the turn asked for none.
 	Sandbox       SandboxFields
@@ -113,6 +115,7 @@ func ApplyEventToResult(res *TurnResult, ev Event) {
 			res.StopReason = ev.StopReason
 		}
 		applyUsage(res, ev)
+		res.ModelUsage = ev.ModelUsage // this result's only: never an earlier one's beside its cost
 		// A result explicitly marked is_error is a failure even when the
 		// process later exits 0 and still sends done — e.g. the runtime
 		// reported the model's answer as an error result but terminated

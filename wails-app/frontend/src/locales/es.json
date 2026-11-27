@@ -836,7 +836,7 @@
         "sectionIntroMachine": "Decisiones rápidas de elegir una opción y sí/no para algunas funciones de monoagent. Jev nunca escribe texto, y no se envía nada a {{host}} hasta que actives una función en los ajustes de un perfil.",
         "consentHost": "Activar una función es una decisión solo de este perfil: permite que este perfil envíe datos a {{host}}. Los demás perfiles siguen desactivados hasta que la activen ellos.",
         "probNote": {
-          "sampled": "Estimaciones suavizadas a partir de 5 respuestas: como mucho unos 0.86 en una pregunta de dos opciones (0.75 con tres), así que este proveedor no puede decidir nada por sí solo con un umbral de 0.9.",
+          "sampled": "Estimaciones suavizadas a partir de 5 respuestas: como mucho unos 0.86 en una pregunta de dos opciones (0.75 con tres, menos con más). Solo estas funciones rebajan a ese valor un umbral más alto, para que se supere cuando las 5 respuestas coinciden: clasificación de capturas, clasificación de la bandeja de entrada, vínculos entre personas de distintas plataformas, triaje de reintentos y el modelo auto de la API. Todo lo demás, incluida cualquier aprobación, mantiene el umbral configurado.",
           "softmax": "Un reparto forzado entre las etiquetas candidatas; no está calibrado."
         },
         "capsKinds": "Responde {{kinds}}",
@@ -860,7 +860,9 @@
         "pinnedTo": "Fijado en {{name}}",
         "followDefault": "Seguir al predeterminado",
         "followDefaultAria": "{{feature}}: seguir al proveedor predeterminado ({{name}})",
-        "sampledUnreachable": "Este proveedor estima a partir de 5 respuestas y no puede alcanzar este umbral (como mucho {{max}} aquí); solo sugerirá."
+        "sampledUnreachable": "Este proveedor estima a partir de 5 respuestas y no puede alcanzar este umbral (como mucho {{max}} aquí); solo sugerirá.",
+        "sampledLowered": "Este proveedor estima a partir de 5 respuestas, que aquí marcan como mucho {{max}}, así que esta función rebaja el umbral a ese valor: una respuesta solo lo supera cuando las 5 coinciden.",
+        "sampledLoweredVariable": "Este proveedor estima a partir de 5 respuestas, que marcan menos cuantas más opciones tiene una pregunta: esta función rebaja a ese valor un umbral que esté por encima, y entonces una respuesta solo lo supera cuando las 5 coinciden."
       }
     },
     "profile": {
@@ -3676,6 +3678,15 @@
     "attachment": "Adjunto: {{name}}",
     "unreviewable": "No se puede revisar: {{reason}}"
   },
+  "ui8HilOrg": {
+    "heading": "Organizaciones",
+    "loading": "Leyendo las organizaciones…",
+    "org": "Organización: {{name}}",
+    "error": "No se pudieron listar los elementos de las organizaciones: {{error}}",
+    "unread": "No se pudieron leer algunos elementos de las organizaciones:",
+    "orgError": "{{profile}} · {{org}}: {{error}}",
+    "profileError": "{{profile}}: {{error}}"
+  },
   "ui6PagesDocs": {
     "title": "Documentos",
     "filter_by_name": "Filtrar por {{name}}",
@@ -6294,7 +6305,9 @@
     "approve_gate": "Aprobar compuerta",
     "approve": "Aprobar",
     "noid_before": "Esta solicitud no tiene ID de solicitud, así que la aplicación no puede resolverla por sí sola. Actualiza monomind o ejecuta",
-    "noid_after": "en una terminal; eso resuelve todas las llamadas a {{action}} de {{role}} que estén en espera."
+    "noid_after": "en una terminal; eso resuelve todas las llamadas a {{action}} de {{role}} que estén en espera.",
+    "noid_approve_before": "Esta solicitud no tiene ID de solicitud, así que no se puede aprobar aquí: aprobarla liberaría todas las llamadas en espera del mismo rol y herramienta, también las que no has visto. Denegar sigue funcionando (las deniega todas). Actualiza monomind o ejecuta",
+    "noid_approve_after": "en tu propia terminal; eso libera todas las llamadas a {{action}} de {{role}} que estén en espera."
   },
   "ui7Chat": {
     "open_workflow": "Abrir flujo de trabajo",
@@ -6466,5 +6479,9 @@
     "task_complete": "completada",
     "task_failed": "con error",
     "task_cancelled": "cancelada"
+  },
+  "ui8Sandbox": {
+    "badge": "Sin sandbox",
+    "agentLabel": "Sin sandbox: este agente tiene acceso completo"
   }
 }
