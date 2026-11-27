@@ -3,6 +3,7 @@ package extension
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,15 +142,35 @@ func TestCLIBackendUIReadsIndentedOutput(t *testing.T) {
 	}
 }
 
+// The cards come with their events from one read, newest first.
 const journalCLI = `
 case "$*" in
-*history\ turns*--cards*) echo '{"items":[{"id":"system-uisurface-b"},{"id":"system-uiaction-a"}]}';;
+*history\ turns*--cards*--skip=system-uisurface-b*) echo '{"items":[{"id":"system-uiaction-a","events":[{"seq":1,"type":"ui.action","at":"2026-01-01T00:00:00.200Z","payload":{}}]}]}';;
+*history\ turns*--cards*) echo '{"items":[{"id":"system-uiaction-a","events":[{"seq":1,"type":"ui.action","at":"2026-01-01T00:00:00.200Z","payload":{}}]},{"id":"system-uisurface-b","events":[{"seq":1,"type":"ui.surface","at":"2026-01-01T00:00:00.100Z","payload":{}}]}]}';;
 *history\ turns*) echo '{"items":[{"id":"ext-t-1"}]}';;
-*system-uisurface-b*) echo '{"items":[{"seq":1,"type":"ui.surface","at":"2026-01-01T00:00:00.100Z","payload":{}}],"turn":{"status":"completed"}}';;
-*system-uiaction-a*) echo '{"items":[{"seq":1,"type":"ui.action","at":"2026-01-01T00:00:00.200Z","payload":{}}],"turn":{"status":"completed"}}';;
 *ext-t-1*) echo '{"items":[{"seq":3,"type":"notice","payload":{}}],"turn":{"status":"completed"}}';;
 esac
 `
+
+// However many card turns a chat holds, a journal read is one CLI run.
+func TestCLIBackendJournalReadsTheCardsInOneRun(t *testing.T) {
+	items := make([]string, 60)
+	for i := range items { // newest first, as the CLI lists them
+		items[i] = fmt.Sprintf(`{"id":"system-uisurface-%02d","events":[{"seq":1,"type":"ui.surface","at":"2026-01-01T00:%02d:00Z","payload":{}}]}`, 59-i, 59-i)
+	}
+	file := filepath.Join(t.TempDir(), "page.json")
+	if err := os.WriteFile(file, []byte(`{"items":[`+strings.Join(items, ",")+`]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin, log := fakeCLI(t, `cat '`+file+`'`)
+	page, err := (&cliChatBackend{bin: bin}).UIJournal(context.Background(), "p-work", "c1", map[string]bool{"system-uisurface-00": true})
+	if err != nil || len(page.Turns) != chatJournalPerCall || !page.More || page.Turns[0].Turn != "system-uisurface-01" || len(page.Turns[0].Events) != 1 {
+		t.Fatalf("%d turns, more %v, first %+v, %v", len(page.Turns), page.More, page.Turns[:1], err)
+	}
+	if lines := readLog(t, log); len(lines) != 1 || lines[0] != "--profile=p-work --json chat history turns --limit=200 --cards --events --skip=system-uisurface-00 -- c1" {
+		t.Fatalf("runs %q", lines)
+	}
+}
 
 func TestCLIBackendJournalTurns(t *testing.T) {
 	bin, _ := fakeCLI(t, journalCLI)

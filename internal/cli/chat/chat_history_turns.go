@@ -18,12 +18,15 @@ import (
 func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 	var cursor string
 	var limit int
-	var cards bool
+	var cards, events bool
+	var skip []string
 	cmd := &cobra.Command{
 		Use:   "turns <conversation-id>",
 		Short: "List a conversation's turns, newest first",
 		Long: "List a conversation's turns, newest first. The turns that only carry cards (a button press, approvals " +
-			"shown by `chat ui sync-hil`) are not turns of the chat and are left out; --cards lists those instead.",
+			"shown by `chat ui sync-hil`) are not turns of the chat and are left out; --cards lists those instead. " +
+			"With --cards, --events gives each one with its events in this one call, newest first up to a size limit " +
+			"(older ones are then left out), and --skip leaves out the turns the caller already has.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			n, err := chatLimit(limit, 50, 200)
@@ -38,6 +41,9 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 			if _, err := store.GetConversation(args[0], profileID); err != nil {
 				return chatStoreErr(err)
 			}
+			if !cards && (events || len(skip) > 0) {
+				return clicore.InvalidInput("--events and --skip go with --cards")
+			}
 			list := store.ListTurns
 			if cards {
 				list = store.ListCardTurns
@@ -45,6 +51,14 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 			turns, next, err := list(args[0], profileID, cursor, n)
 			if err != nil {
 				return err
+			}
+			if events {
+				page, err := cardTurnsWithEvents(store, profileID, args[0], turns, skip)
+				if err != nil {
+					return err
+				}
+				page.NextCursor = next
+				return clicore.PrintJSON(page)
 			}
 			page := chatTurnPage{Items: []ai.TurnRecord{}, NextCursor: next}
 			for _, t := range turns {
@@ -66,6 +80,8 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&cards, "cards", false, "List the card turns instead of the chat's own turns")
+	cmd.Flags().BoolVar(&events, "events", false, "With --cards: give each turn with its events (JSON)")
+	cmd.Flags().StringSliceVar(&skip, "skip", nil, "With --cards: turn ids to leave out")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "next_cursor from the previous page")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Page size (default 50, max 200)")
 	return cmd

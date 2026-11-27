@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/a2ui"
+	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
@@ -209,12 +210,10 @@ func (b *cliChatBackend) UISync(ctx context.Context, profile, conversation strin
 	return b.uiRun(ctx, nil, uiSyncArgv(profile, conversation))
 }
 
-// turnIDs lists the conversation's turns, newest first: its own, or with
-// --cards the ones that only carry cards.
-func (b *cliChatBackend) turnIDs(ctx context.Context, profile, conversation string, more ...string) ([]string, error) {
-	args := append(chatBase(profile), "chat", "history", "turns", "--limit="+strconv.Itoa(chatTurnWindow))
-	args = append(append(args, more...), "--", conversation)
-	out, err := b.run(ctx, args...)
+// turnIDs lists the conversation's own turns, newest first.
+func (b *cliChatBackend) turnIDs(ctx context.Context, profile, conversation string) ([]string, error) {
+	out, err := b.run(ctx, append(chatBase(profile), "chat", "history", "turns",
+		"--limit="+strconv.Itoa(chatTurnWindow), "--", conversation)...)
 	if err != nil {
 		return nil, err
 	}
@@ -235,28 +234,49 @@ func (b *cliChatBackend) turnIDs(ctx context.Context, profile, conversation stri
 	return ids, nil
 }
 
+// UIJournal reads the card turns with their events in one CLI run, whatever
+// their number, and hands out the oldest ones not seen.
 func (b *cliChatBackend) UIJournal(ctx context.Context, profile, conversation string, seen map[string]bool) (ChatUIJournalPage, error) {
 	page := ChatUIJournalPage{Turns: []ChatJournalTurn{}}
-	ids, err := b.turnIDs(ctx, profile, conversation, "--cards")
+	args := append(chatBase(profile), "chat", "history", "turns", "--limit="+strconv.Itoa(chatTurnWindow), "--cards", "--events")
+	if len(seen) > 0 {
+		// The ids passed chatIDPattern: none holds a comma.
+		skip := make([]string, 0, len(seen))
+		for id := range seen {
+			skip = append(skip, id)
+		}
+		sort.Strings(skip)
+		args = append(args, "--skip="+strings.Join(skip, ","))
+	}
+	out, err := b.run(ctx, append(args, "--", conversation)...)
 	if err != nil {
 		return page, err
 	}
-	for i := len(ids) - 1; i >= 0; i-- { // oldest first
-		if !isJournalTurn(ids[i]) || seen[ids[i]] {
+	var cards struct {
+		Items []struct {
+			ID     string              `json:"id"`
+			Events []chatevents.Record `json:"events"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(out, &cards) != nil {
+		return page, errors.New("chat history turns returned unreadable output")
+	}
+	for i := len(cards.Items) - 1; i >= 0; i-- { // oldest first
+		it := cards.Items[i]
+		if !chatIDPattern.MatchString(it.ID) || !isJournalTurn(it.ID) || seen[it.ID] {
 			continue
 		}
-		if len(page.Turns) == chatJournalPerCall {
-			page.More = true
-			break
+		turn := ChatJournalTurn{Turn: it.ID, Events: make([]ChatEvent, 0, len(it.Events))}
+		for _, r := range it.Events {
+			turn.Events = append(turn.Events, ChatEvent{Seq: r.Seq, Type: string(r.Type), Payload: r.Payload, At: r.At})
 		}
-		ev, err := b.ListEvents(ctx, profile, conversation, ids[i], 0)
-		if err != nil {
-			return page, err
-		}
-		page.Turns = append(page.Turns, ChatJournalTurn{Turn: ids[i], Events: ev.Events})
+		page.Turns = append(page.Turns, turn)
 	}
 	// Turns made in the same second list in id order: the events say which came first.
 	sort.SliceStable(page.Turns, func(i, j int) bool { return firstAt(page.Turns[i]).Before(firstAt(page.Turns[j])) })
+	if len(page.Turns) > chatJournalPerCall {
+		page.Turns, page.More = page.Turns[:chatJournalPerCall], true
+	}
 	return page, nil
 }
 
