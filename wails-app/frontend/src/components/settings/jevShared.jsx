@@ -145,13 +145,15 @@ export function missingKinds(p, surface) {
 // sampledMax is the highest top probability a sampled provider reports on a
 // question of n options (jev.SampledProbs: 5 samples, add-one smoothed, so
 // (5+1)/(5+n)): 6/7 ≈ 0.857 on two, 0.75 on three. A threshold above it is
-// never reached.
+// never reached, except on the features whose status says
+// sampled_lowers_threshold: they lower it to this (jevconf.GateThreshold).
 export const sampledMax = (n) => 6 / (5 + Math.max(2, n))
 
 // SURFACE_OPTIONS is the number of options of the question a surface gates
-// on, where it is fixed: hil's decision (approve, reject, needs_human) and
-// people_links' yes/no. Other surfaces have at least two.
-const SURFACE_OPTIONS = { hil: 3, people_links: 2 }
+// on, where it is fixed: hil's decision (approve, reject, needs_human),
+// people_links' yes/no, the inbox intents, the retry classes and the capture
+// kinds. Other surfaces have at least two.
+const SURFACE_OPTIONS = { hil: 3, people_links: 2, inbox: 7, retry: 4, capture: 8 }
 
 // sampledCeiling is the highest top probability a sampled provider can give
 // surface's gated question.

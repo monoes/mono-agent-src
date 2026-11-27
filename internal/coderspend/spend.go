@@ -1,15 +1,14 @@
 // Package coderspend computes what a coder conversation has cost and writes a deleted mission child's spend down.
-// It is a leaf package so that both the coder host (which charges a mission from it) and the conversation delete in
-// internal/ai (which must record it before the usage events go) use the one implementation and the one format.
+// It imports only the journal's payload types, so that both the coder host (which charges a mission from it) and the
+// conversation delete in internal/ai (which must record it before the usage events go) use the one implementation and
+// the one format.
 package coderspend
 
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 )
 
@@ -115,89 +114,6 @@ func LeadTurn(q Querier, profileID, conversationID, turnID string) (usd float64,
 	}
 	usd, reported = lead[turnID]
 	return usd, reported, nil
-}
-
-// turnCosts reads what the conversation's turns reported they cost: what each turn's lead added (turn -> usd) and
-// each worker's figure ((turn, worker) -> usd). A turn or worker that reported no cost has no entry.
-func turnCosts(q Querier, profileID, conversationID string) (map[string]float64, map[[2]string]float64, error) {
-	lead := map[string]float64{}       // turn -> its largest reported total
-	workers := map[[2]string]float64{} // (turn, worker) -> its largest finished cost
-	sessions := map[string]string{}    // turn -> the claude session it ran in (its first session.bound)
-	started := map[string]string{}     // turn -> its first event's time, to take the turns in order
-	ev, err := q.Query(`SELECT turn_id, type, payload, created_at FROM ai_chat_events
-		WHERE profile_id = ? AND conversation_id = ? AND type IN ('usage.updated', 'agent.finished', 'session.bound')`, profileID, conversationID)
-	if err != nil {
-		return nil, nil, err
-	}
-	for ev.Next() {
-		var turn, typ, raw, at string
-		if err := ev.Scan(&turn, &typ, &raw, &at); err != nil {
-			ev.Close()
-			return nil, nil, err
-		}
-		if first, seen := started[turn]; !seen || at < first {
-			started[turn] = at
-		}
-		var p struct {
-			AgentID   string   `json:"agentId"`
-			CostUSD   *float64 `json:"costUsd"`
-			Runtime   string   `json:"runtime"`
-			SessionID string   `json:"sessionId"`
-		}
-		if typ == "session.bound" {
-			if _, bound := sessions[turn]; !bound && json.Unmarshal([]byte(raw), &p) == nil && p.Runtime == cumulativeRuntime && p.SessionID != "" {
-				sessions[turn] = p.SessionID
-			}
-			continue
-		}
-		if json.Unmarshal([]byte(raw), &p) != nil || !validCost(p.CostUSD) {
-			continue // not numeric, negative: not a cost
-		}
-		if typ == "usage.updated" {
-			if cur, seen := lead[turn]; p.AgentID == "" && (!seen || *p.CostUSD > cur) {
-				lead[turn] = *p.CostUSD
-			}
-		} else if k := [2]string{turn, p.AgentID}; true {
-			if cur, seen := workers[k]; !seen || *p.CostUSD > cur {
-				workers[k] = *p.CostUSD
-			}
-		}
-	}
-	ev.Close()
-	deltaOfResumedSessions(lead, sessions, started)
-	return lead, workers, nil
-}
-
-// cumulativeRuntime is the runtime whose reported cost is a running total for the whole runtime session, not for
-// the turn: every turn of a coder conversation resumes it (#1744).
-const cumulativeRuntime = "claude"
-
-// deltaOfResumedSessions turns each turn's reported figure into what that turn added, for turns of the cumulative
-// runtime: the figure less the one the previous turn of the SAME runtime session ended at. The turns are taken in the
-// order they were created. A figure below the previous one is not a running total (the session started over), a turn
-// that bound no session has nothing to subtract, and a different session starts from zero: each of them keeps its
-// whole figure, so a doubt charges more, never less.
-func deltaOfResumedSessions(lead map[string]float64, sessions, started map[string]string) {
-	order := make([]string, 0, len(sessions))
-	for turn := range sessions {
-		if _, reported := lead[turn]; reported {
-			order = append(order, turn)
-		}
-	}
-	sort.Slice(order, func(i, j int) bool {
-		if a, b := started[order[i]], started[order[j]]; a != b {
-			return a < b
-		}
-		return order[i] < order[j]
-	})
-	last := map[string]float64{} // session -> the total its previous turn ended at
-	for _, turn := range order {
-		total := lead[turn]
-		if prev, seen := last[sessions[turn]]; seen && total >= prev {
-			lead[turn] = total - prev
-		}
-		last[sessions[turn]] = total
-	}
 }
 
 // Snapshot records the spend of a mission child's conversation, to be called inside the transaction that deletes

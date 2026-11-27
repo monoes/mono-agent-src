@@ -25,7 +25,7 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-const ask = { id: 'apr-1', ref: 'apr-1', kind: 'approval', role: 'writer', action: 'Bash', text: 'Approval required for Bash', pending: true }
+const ask = { id: 'apr-1', ref: 'apr-1', request_id: 'apr-1', kind: 'approval', role: 'writer', action: 'Bash', text: 'Approval required for Bash', pending: true }
 
 describe('the bubble approval card', () => {
   it('shows the command and the role folder beside Approve', () => {

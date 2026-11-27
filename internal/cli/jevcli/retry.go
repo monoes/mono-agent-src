@@ -89,8 +89,8 @@ func jevRetryClassifier(ctx context.Context, nodeType string, err error, attempt
 	if !ok {
 		return true, 0
 	}
-	class, p := jev.GateValue(resp, ans) // no probability gates as 0: retry as today (plan D7)
-	if p < jevconf.Threshold(db, pid, jevconf.Retry, jevconf.DefaultThreshold[jevconf.Retry]) {
+	class, sure := retrySure(resp, ans, jevconf.Threshold(db, pid, jevconf.Retry, jevconf.DefaultThreshold[jevconf.Retry]))
+	if !sure {
 		return true, 0
 	}
 	switch class {
@@ -104,6 +104,13 @@ func jevRetryClassifier(ctx context.Context, nodeType string, err error, attempt
 	default: // transient
 		return true, 0
 	}
+}
+
+// retrySure is the class Jev gave the error and whether it is sure enough to
+// act on, with configured as the profile's threshold.
+func retrySure(resp *jev.Response, ans jev.Answer, configured float64) (string, bool) {
+	class, p := jev.GateValue(resp, ans) // no probability gates as 0: retry as today (plan D7)
+	return class, p >= jevconf.GateThreshold(jevconf.Retry, resp, ans, configured)
 }
 
 const redacted = "<redacted>"

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/agentroster"
+	"github.com/monoes/mono-agent/internal/jev/jevconf"
 )
 
 // autoPromptRunes is how much of the last user message Jev is sent: the first
@@ -35,10 +36,12 @@ type AutoFuncs struct {
 	// listing must never trigger a keyring prompt.
 	Status func(ctx context.Context, profileID string) AutoStatus
 	// Choose asks Jev which of the options (id to description) suits the prompt
-	// best, and how sure it is: the top option's probability. It runs only after
-	// Status said yes.
-	Choose func(ctx context.Context, profileID, prompt string, options map[string]string) (id string, p float64, err error)
-	// Threshold is the lowest probability of Jev's pick the profile accepts.
+	// best, and how sure it is: the top option's probability, and what the
+	// threshold may be lowered to for a sampled pick (jevconf.SampledCeiling;
+	// 0: not lowered). It runs only after Status said yes.
+	Choose func(ctx context.Context, profileID, prompt string, options map[string]string) (id string, p, ceiling float64, err error)
+	// Threshold is the lowest probability of Jev's pick the profile accepts
+	// (pickAuto lowers it to the pick's ceiling).
 	Threshold func(profileID string) float64
 }
 
@@ -220,7 +223,7 @@ func (g *Gateway) pickAuto(ctx context.Context, profileID, prompt string, candid
 	}
 	cctx, cancel := context.WithTimeout(ctx, g.cfg.AutoTimeout)
 	defer cancel()
-	id, p, err := g.ask(cctx, profileID, clipRunes(prompt, autoPromptRunes), options)
+	id, p, ceiling, err := g.ask(cctx, profileID, clipRunes(prompt, autoPromptRunes), options)
 	if ctx.Err() != nil { // the caller left: nothing was decided, and Jev is not to blame
 		breaker.abandon()
 		return autoPick{Model: ruleChoice(candidates), By: "rule"}
@@ -238,7 +241,7 @@ func (g *Gateway) pickAuto(ctx context.Context, profileID, prompt string, candid
 		reason = "no probability"
 	case err != nil:
 		reason = "no answer"
-	case g.deps.Auto.Threshold != nil && p < g.deps.Auto.Threshold(profileID):
+	case g.deps.Auto.Threshold != nil && p < jevconf.CapThreshold(g.deps.Auto.Threshold(profileID), ceiling):
 		reason = "not sure enough"
 	default:
 		if i := slices.IndexFunc(candidates, func(m ModelInfo) bool { return m.ID == id }); i >= 0 {
@@ -255,11 +258,11 @@ func (g *Gateway) pickAuto(ctx context.Context, profileID, prompt string, candid
 // request holds a slot meanwhile. An abandoned question finishes in its own
 // goroutine, which is why a panic in it is turned into an error here: nothing
 // else would recover it, and it would take the server down.
-func (g *Gateway) ask(ctx context.Context, profileID, prompt string, options map[string]string) (string, float64, error) {
+func (g *Gateway) ask(ctx context.Context, profileID, prompt string, options map[string]string) (string, float64, float64, error) {
 	type answer struct {
-		id  string
-		p   float64
-		err error
+		id         string
+		p, ceiling float64
+		err        error
 	}
 	done := make(chan answer, 1)
 	go func() {
@@ -268,14 +271,14 @@ func (g *Gateway) ask(ctx context.Context, profileID, prompt string, options map
 				done <- answer{err: errors.New("the question panicked")}
 			}
 		}()
-		id, p, err := g.deps.Auto.Choose(ctx, profileID, prompt, options)
-		done <- answer{id, p, err}
+		id, p, ceiling, err := g.deps.Auto.Choose(ctx, profileID, prompt, options)
+		done <- answer{id, p, ceiling, err}
 	}()
 	select {
 	case a := <-done:
-		return a.id, a.p, a.err
+		return a.id, a.p, a.ceiling, a.err
 	case <-ctx.Done():
-		return "", 0, ctx.Err()
+		return "", 0, 0, ctx.Err()
 	}
 }
 

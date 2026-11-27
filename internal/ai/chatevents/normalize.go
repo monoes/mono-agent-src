@@ -239,3 +239,15 @@ func RedactAndBoundFields(raw json.RawMessage) (out json.RawMessage, truncated b
 	}
 	return b, truncated
 }
+
+// ModelUsageOf is a result's per-model counters in the journal's form; nil when it had none.
+func ModelUsageOf(models map[string]monomind.ModelUsage) map[string]CoderModelUsage {
+	if len(models) == 0 {
+		return nil
+	}
+	out := make(map[string]CoderModelUsage, len(models))
+	for name, m := range models {
+		out[name] = CoderModelUsage{Input: m.Input, Output: m.Output, CacheRead: m.CacheRead, CacheCreation: m.CacheCreation, Partial: m.Partial}
+	}
+	return out
+}

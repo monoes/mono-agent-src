@@ -12,16 +12,12 @@ import (
 	"github.com/monoes/mono-agent/internal/orgdesign"
 )
 
-// pendingItem is one thing an org waits on a person for.
+// pendingItem is one thing an org waits on a person for. An approval's
+// RequestID names it for `org approve|deny --request`; without one it cannot
+// be resolved on its own.
 type pendingItem struct {
 	Org string `json:"org"`
 	orgchat.Item
-	// RequestID names an approval's request for `org approve|deny --request`;
-	// empty from a monomind that records none, and then the request cannot be
-	// resolved on its own.
-	RequestID string `json:"request_id,omitempty"`
-	// Input is the call's arguments, redacted and cut by monomind.
-	Input map[string]interface{} `json:"input,omitempty"`
 	// ProfileID and ProfileName say whose org it is (`--all` only).
 	ProfileID   string `json:"profile_id,omitempty"`
 	ProfileName string `json:"profile_name,omitempty"`
@@ -124,12 +120,6 @@ func orgPending(ctx context.Context, root, org string) ([]pendingItem, []pending
 		}
 	}
 
-	byID := map[string]orgchat.Approval{}
-	for _, a := range human.Approvals {
-		if a.RequestID != nil && *a.RequestID != "" {
-			byID[*a.RequestID] = a
-		}
-	}
 	folder := roleFolders(root, org)
 	var out []pendingItem
 	// A thread of no events is the lists alone, in the shape the chat shows.
@@ -138,9 +128,6 @@ func orgPending(ctx context.Context, root, org string) ([]pendingItem, []pending
 			continue
 		}
 		p := pendingItem{Org: org, Item: it}
-		if a, ok := byID[it.Ref]; ok && it.Kind == orgchat.ItemApproval {
-			p.RequestID, p.Input = it.Ref, a.Input
-		}
 		if p.Command != "" {
 			p.Cwd = folder(p.Role)
 		}

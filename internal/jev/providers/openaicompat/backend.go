@@ -17,12 +17,14 @@
 //
 // a sample that names no label counting toward the samples asked but toward
 // no option, its share then going to the other options. So five samples
-// never clear a 0.9 threshold: 5 of 5 on two options is 6/7 ≈ 0.857. A
-// response's Probability is sampled when any request of any of its
-// questions was. A choice with more options than one request can carry is
-// answered hierarchically: which group, then which member. Generated text
-// never reaches a caller (plan D3): it is only matched against the allowed
-// labels.
+// never read 0.9: 5 of 5 on two options is 6/7 ≈ 0.857, and an answer whose
+// requests were all sampled records what a unanimous result would read
+// (jev.Answer.Unanimous), which a low-risk surface may lower its threshold
+// to (jevconf.GateThreshold). A response's Probability is sampled when any
+// request of any of its questions was. A choice with more options than one
+// request can carry is answered hierarchically: which group, then which
+// member. Generated text never reaches a caller (plan D3): it is only
+// matched against the allowed labels.
 package openaicompat
 
 import (
@@ -169,6 +171,7 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 			return jev.Answer{}, t.usage, err
 		}
 		a, err := jev.AnswerFrom(q, probs)
+		a.Unanimous = t.unanimous
 		return a, t.usage, err
 	})
 	if resp != nil {

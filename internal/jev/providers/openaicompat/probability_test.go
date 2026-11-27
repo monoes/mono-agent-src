@@ -25,7 +25,7 @@ func chosenOnly(text string, p float64) map[string]any {
 
 // The reviewers' reproduction: a server that returns only the chosen token's
 // logprob (model P(Yes) = 0.5) once read as noul 1.0. One alternative is no
-// distribution: the question is sampled, five samples cannot clear 0.9, and
+// distribution: the question is sampled, five samples cannot read 0.9, and
 // the backend's k is not lowered to 1.
 func TestASingleAlternativeIsSampledNotCertain(t *testing.T) {
 	f := newFake(t, func(int, seen) (int, any) { return 200, chosenOnly("Yes", 0.5) })

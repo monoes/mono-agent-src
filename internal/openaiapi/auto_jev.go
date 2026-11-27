@@ -60,10 +60,10 @@ func DefaultAuto(db *sql.DB) AutoFuncs {
 			}
 			return AutoStatus{Available: true, KeySource: source}
 		},
-		Choose: func(ctx context.Context, profileID, prompt string, options map[string]string) (string, float64, error) {
+		Choose: func(ctx context.Context, profileID, prompt string, options map[string]string) (string, float64, float64, error) {
 			c, err := jevconf.NewClient(ctx, db, profileID, "", "", jevconf.APIAuto)
 			if err != nil {
-				return "", 0, err
+				return "", 0, 0, err
 			}
 			c.Retries = 0 // one shot inside the gateway's budget: a failure means the rule decides
 			criteria := make(map[string]any, len(options))
@@ -74,18 +74,18 @@ func DefaultAuto(db *sql.DB) AutoFuncs {
 				autoQuestionID: {Type: jev.TypeChoice, Criteria: criteria, Instructions: autoInstructions},
 			})
 			if err != nil {
-				return "", 0, err
+				return "", 0, 0, err
 			}
 			answer, ok := resp.Answers[autoQuestionID]
 			if !ok {
-				return "", 0, errors.New("jev: no answer")
+				return "", 0, 0, errors.New("jev: no answer")
 			}
 			if resp.Probability == jev.ProbNone {
 				// No probability: Jev did not decide, even at threshold 0 (plan D7).
-				return "", 0, errNoProbability
+				return "", 0, 0, errNoProbability
 			}
 			id, p := jev.GateValue(resp, answer)
-			return id, p, nil
+			return id, p, jevconf.SampledCeiling(jevconf.APIAuto, resp, answer), nil
 		},
 		Threshold: func(profileID string) float64 {
 			return jevconf.Threshold(db, profileID, jevconf.APIAuto, jevconf.DefaultThreshold[jevconf.APIAuto])

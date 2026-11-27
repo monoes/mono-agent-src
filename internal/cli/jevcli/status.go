@@ -25,6 +25,9 @@ type jevSurfaceStatus struct {
 	Provider string `json:"provider,omitempty"`
 	// ProviderPinned is true when the surface has a provider choice of its own.
 	ProviderPinned bool `json:"provider_pinned,omitempty"`
+	// SampledLowers is true when the surface lowers a threshold a sampling
+	// provider cannot read (jevconf.LowersSampled).
+	SampledLowers bool `json:"sampled_lowers_threshold,omitempty"`
 }
 
 type jevStatus struct {
@@ -100,6 +103,7 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 					Enabled:          jevconf.Enabled(db.DB, d.ProfileID(), s),
 					Threshold:        jevconf.Threshold(db.DB, d.ProfileID(), s, def),
 					DefaultThreshold: def,
+					SampledLowers:    jevconf.LowersSampled(s),
 				}
 				if own, pinned := jevconf.SurfaceProviderSetting(db.DB, d.ProfileID(), s); pinned {
 					ss.Provider, ss.ProviderPinned, overrides = own, true, true
@@ -153,6 +157,9 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 				table.Append(row)
 			}
 			table.Render()
+			for _, note := range sampledNotes(db.DB, st) {
+				fmt.Fprintln(out, note)
+			}
 			return nil
 		},
 	}

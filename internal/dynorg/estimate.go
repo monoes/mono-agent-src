@@ -97,6 +97,12 @@ func finalRun(res *monomind.TurnResult, events monomind.TurnResult) monomind.Tur
 	if !run.HasCostUSD && events.HasCostUSD {
 		run.CostUSD, run.HasCostUSD = events.CostUSD, true
 	}
+	if run.SessionID == "" {
+		run.SessionID = events.SessionID
+	}
+	if run.ModelUsage == nil {
+		run.ModelUsage = events.ModelUsage
+	}
 	return run
 }
 

@@ -9,11 +9,13 @@
 //
 // a sample that names no allowed option counting toward the samples asked
 // but toward no option, its share then going to the other options. So five
-// samples never clear a 0.9 threshold: a unanimous five on two options is
-// 6/7 ≈ 0.857, on three 0.75. Each sample is one forced call of a tool whose
-// only input is an enum of the question's labels, so the model can only
-// name an option the code enumerated; no text from the model ever reaches a
-// caller (plan D3).
+// samples never read 0.9: a unanimous five on two options is 6/7 ≈ 0.857,
+// on three 0.75. Every answer records that unanimous value
+// (jev.Answer.Unanimous), which a low-risk surface may lower its threshold
+// to (jevconf.GateThreshold). Each sample is one forced call of a tool whose
+// only input is an enum of the question's labels, so the model can only name
+// an option the code enumerated; no text from the model ever reaches a caller
+// (plan D3).
 //
 // Every question takes all Samples calls, whatever its number of options
 // (plan O2).
@@ -152,6 +154,7 @@ func (b *Backend) answerOne(ctx context.Context, model string, state []byte, q j
 		keys = append(keys, p.keys[l])
 	}
 	a, err := jev.AnswerFrom(q, jev.SampledProbs(counts, Samples, keys))
+	a.Unanimous = jev.UnanimousProbability(Samples, len(keys))
 	return a, usage, err
 }
 

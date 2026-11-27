@@ -91,7 +91,7 @@ func TestDefaultAutoStatusFollowsTheSurfacesProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	noProb = true
-	if id, p, err := auto.Choose(ctx, "alice", "hi", map[string]string{"a": "A", "b": "B"}); !errors.Is(err, errNoProbability) || id != "" || p != 0 {
+	if id, p, _, err := auto.Choose(ctx, "alice", "hi", map[string]string{"a": "A", "b": "B"}); !errors.Is(err, errNoProbability) || id != "" || p != 0 {
 		t.Errorf("no probability: %q %v %v", id, p, err)
 	}
 	noProb = false
@@ -118,8 +118,8 @@ func TestDefaultAutoAsksOneChoiceQuestion(t *testing.T) {
 	auto := DefaultAuto(db.DB)
 	options := map[string]string{"claude/default": "Default (claude)", "codex/gpt-6-astra": "GPT-6-Astra (codex), test turn cost $0.0040"}
 
-	id, p, err := auto.Choose(context.Background(), "alice", "write a haiku", options)
-	if err != nil || id != "codex/gpt-6-astra" || p <= 0 {
+	id, p, ceiling, err := auto.Choose(context.Background(), "alice", "write a haiku", options)
+	if err != nil || id != "codex/gpt-6-astra" || p <= 0 || ceiling != 0 {
 		t.Fatalf("Choose = %q, %v, %v", id, p, err)
 	}
 	reqs := srv.Requests()
@@ -149,7 +149,7 @@ func TestDefaultAutoAsksOneChoiceQuestion(t *testing.T) {
 
 	srv.SetStatus(http.StatusInternalServerError)
 	before := srv.Calls()
-	if _, _, err := auto.Choose(context.Background(), "alice", "again", options); err == nil {
+	if _, _, _, err := auto.Choose(context.Background(), "alice", "again", options); err == nil {
 		t.Error("a failing TypeSafe must be an error")
 	}
 	if srv.Calls()-before != 1 {

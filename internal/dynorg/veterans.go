@@ -8,6 +8,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/coderspend"
 )
 
 // Worker follow-ups across turns (#230): workers persist per conversation.
@@ -39,6 +40,12 @@ type Veteran struct {
 	Report     string
 	Outcome    string
 	AllowSpawn bool
+	// CostSession, CostUSD and CostModels are the claude session of the worker's last reported cost, and the cost and
+	// counters that session had reached: a later turn that resumes it is charged only what it adds, when all of them
+	// held. "" or no counters = nothing to subtract.
+	CostSession string
+	CostUSD     float64
+	CostModels  map[string]chatevents.CoderModelUsage
 	// Builtin and Purposes are what the purpose sets saw when it was staffed:
 	// whether the role was built-in, and the purposes whose sets limited it
 	// (comma-separated). A veteran kept without them is unmapped.
@@ -71,6 +78,7 @@ func (c *Conductor) keep(w *worker, force bool) {
 		Access: w.staff.Access, Runtime: w.model.Runtime, Model: w.model.Model, Effort: w.staff.Effort,
 		Session: w.session, Cwd: w.cwd, Report: w.report, Outcome: w.status, AllowSpawn: w.allowSpawn,
 		Builtin: w.staff.Builtin, Purposes: strings.Join(w.staff.sides, ","),
+		CostSession: w.billed.session, CostUSD: w.billed.totals.CostUSD, CostModels: w.billed.totals.Models,
 	}
 	var gen int
 	v.MissionSession, v.MissionTask, gen, _ = w.missionIdentity()
@@ -133,6 +141,7 @@ func (c *Conductor) AddVeterans(vets []Veteran) {
 			changed: map[string]bool{}, started: c.cfg.Now(), parent: parent, allowSpawn: v.AllowSpawn && parent == nil,
 			mustConfine: parent != nil && parent.staff.Access == ProfileResearch, veteran: true, cwd: v.Cwd,
 			notReady: !ready, missionSession: v.MissionSession, missionTask: v.MissionTask, missionGen: int(v.MissionClaims),
+			billed: sessionCost{session: v.CostSession, totals: coderspend.Totals{CostUSD: v.CostUSD, Models: v.CostModels}},
 		}
 		if err := c.veteranBlockedLocked(w); err != nil {
 			w.errText = err.Error()

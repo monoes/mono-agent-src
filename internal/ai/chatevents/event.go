@@ -216,6 +216,17 @@ type UsageUpdatedPayload struct {
 	// because its runtime reports none (#230).
 	CostEstimated bool   `json:"costEstimated,omitempty"`
 	Source        string `json:"source"`
+	// FollowUp is set on the lead's snapshot after a follow-up exec (the compaction): CostUSD is then the turn's
+	// total, and FollowUp what that exec itself reported.
+	FollowUp *FollowUpUsage `json:"followUp,omitempty"`
+}
+
+// FollowUpUsage is a follow-up exec's own report: the session it ran on, that session's cost as the runtime
+// reported it, and its counters. internal/coderspend judges them (#1744).
+type FollowUpUsage struct {
+	SessionID string                     `json:"sessionId"`
+	CostUSD   float64                    `json:"costUsd"`
+	Models    map[string]CoderModelUsage `json:"models,omitempty"`
 }
 
 // NoticeSeverity classifies a notice event for display — a warning/info
@@ -258,6 +269,8 @@ type CoderModelUsage struct {
 	Output        int64 `json:"output"`
 	CacheRead     int64 `json:"cacheRead"`
 	CacheCreation int64 `json:"cacheCreation"`
+	// Partial: the runtime left one of the counters out, so its 0 says nothing.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // ProcessRef is a pid plus what identified that process when recorded.

@@ -23,8 +23,8 @@ func TestBossDeciderDelegatesAndFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	org := &fakeOrg{approvals: []map[string]interface{}{
-		{"roleId": "dev", "action": "WebFetch", "question": "q", "ts": 1, "approved": nil},
-		{"roleId": "lead", "action": "org_complete", "question": "q", "ts": 2, "approved": nil},
+		{"roleId": "dev", "action": "WebFetch", "question": "q", "ts": 1, "approved": nil, "requestId": "apr-1"},
+		{"roleId": "lead", "action": "org_complete", "question": "q", "ts": 2, "approved": nil, "requestId": "apr-2"},
 	}}
 	dec := &scriptedDecider{replies: map[string]string{KindApproval: `{"verdict":"approve","rationale":"fine"}`}}
 	s := newTestService(t, org, dec)

@@ -836,7 +836,7 @@
         "sectionIntroMachine": "Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text, and nothing is sent to {{host}} until you turn a feature on in a profile's settings.",
         "consentHost": "Turning a feature on is a choice for this profile only: it lets this profile send data to {{host}}. Other profiles stay off until they turn it on themselves.",
         "probNote": {
-          "sampled": "Smoothed estimates from 5 answers: at most about 0.86 on a two-option question (0.75 on three), so on its own this provider cannot settle anything at a 0.9 threshold.",
+          "sampled": "Smoothed estimates from 5 answers: at most about 0.86 on a two-option question (0.75 on three, less with more). Only these features lower a higher threshold to that, so that 5 agreeing answers pass: Capture classification, Inbox classification, Cross-platform people links, Retry triage and the API auto model. Everything else, every approval included, keeps the configured threshold.",
           "softmax": "A forced split across the candidate labels; not calibrated."
         },
         "capsKinds": "Answers {{kinds}}",
@@ -860,7 +860,9 @@
         "pinnedTo": "Pinned to {{name}}",
         "followDefault": "Follow default",
         "followDefaultAria": "{{feature}}: follow the default provider ({{name}})",
-        "sampledUnreachable": "This provider estimates from 5 answers and cannot reach this threshold (at most {{max}} here); it will only suggest."
+        "sampledUnreachable": "This provider estimates from 5 answers and cannot reach this threshold (at most {{max}} here); it will only suggest.",
+        "sampledLowered": "This provider estimates from 5 answers, which read at most {{max}} here, so this feature lowers the threshold to that: an answer passes only when all 5 agree.",
+        "sampledLoweredVariable": "This provider estimates from 5 answers, which read less the more options a question has: this feature lowers a threshold above that to it, and an answer then passes only when all 5 agree."
       }
     },
     "profile": {
@@ -6259,7 +6261,9 @@
     "approve_gate": "Approve Gate",
     "approve": "Approve",
     "noid_before": "This request has no request id, so the app cannot resolve it on its own. Update monomind, or run",
-    "noid_after": "in a terminal, which resolves every waiting {{action}} call of {{role}}."
+    "noid_after": "in a terminal, which resolves every waiting {{action}} call of {{role}}.",
+    "noid_approve_before": "This request has no request id, so it cannot be approved here: approving would release every waiting call of the same role and tool, also ones you have not seen. Deny still works (it denies all of them). Update monomind, or run",
+    "noid_approve_after": "in your own terminal, which releases every waiting {{action}} call of {{role}}."
   },
   "ui7Chat": {
     "open_workflow": "Open workflow",
