@@ -143,7 +143,7 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		id := surfaceOfItem(it)
 		old := replay.Registry.Surface(id)
 		live := old != nil && old.Prov == a2ui.FromSystem && hasButton(old)
-		if live && !it.Redacted && refOfSurface(evs, id).Digest == it.Digest {
+		if live && !it.Redacted && !it.NoChatApprove && refOfSurface(evs, id).Digest == it.Digest {
 			continue
 		}
 		if old != nil && !live && startingSend(evs, id) {
@@ -160,7 +160,7 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		}
 		if err != nil && live {
 			// The old card must not stay: it offers to approve what is not there.
-			if note, nerr := surfaces.ResolvedNotice(id, unshowable, "warning"); nerr == nil {
+			if note, nerr := surfaces.ResolvedNotice(id, noteFor(err), "warning"); nerr == nil {
 				add(ref, note)
 			}
 		}
@@ -222,9 +222,15 @@ func waitingItems(items []listedHIL) []listedHIL {
 	})
 }
 
+// errApprovalsPage: the item is approved on the approvals page only.
+var errApprovalsPage = errors.New("it cannot be approved from a chat: decide it in Communications")
+
 // buildItemSurface is the card of a pending item and the ref that ties it to
 // the item as shown. The ref is set even when no card can be built.
 func buildItemSurface(it listedHIL) (chatevents.UIRef, [][]byte, error) {
+	if it.NoChatApprove {
+		return chatevents.UIRef{Kind: surfaces.RefHIL, ID: it.ID, Digest: it.Digest}, nil, errApprovalsPage
+	}
 	if it.Redacted {
 		kind := surfaces.RefHIL
 		if it.Kind == "send" {

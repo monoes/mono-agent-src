@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/hilsend"
 )
 
@@ -23,6 +25,14 @@ func ifDigest(cmd *cobra.Command) string {
 		return f.Value.String()
 	}
 	return ""
+}
+
+// twoStepItem says the item is a browser submit, site or pairing card. Its
+// content is checked and then it is decided in a second step, so a chat card
+// cannot approve it (--if-digest with approve is refused).
+func twoStepItem(nodeConfig string) bool {
+	_, pair := extension.IsPairCard(nodeConfig)
+	return pair || browserctl.IsSubmitItem(nodeConfig) || browserctl.IsSiteItem(nodeConfig)
 }
 
 // checkDigest refuses a decision of a pending item that is no longer as the

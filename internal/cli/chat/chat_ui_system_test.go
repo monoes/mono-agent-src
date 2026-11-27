@@ -900,3 +900,30 @@ func TestAnApproveCardDoesNotSendAttachments(t *testing.T) {
 		t.Fatalf("card %+v", s)
 	}
 }
+
+// An item that can only be approved on the approvals page gets no card, an
+// earlier card of it is closed, and a press of that card runs no approval.
+func TestAnItemDecidedOnTheApprovalsPageHasNoApproveInChat(t *testing.T) {
+	listed := strings.Replace(hilListJSON, `"digest":"d1",`, `"digest":"d1","no_chat_approve":true,`, 1)
+	r := newSysRig(t)
+	startChat(t, r)
+	r.cli.outputs["hil list"] = listed
+	res := syncHIL(t, r)
+	if len(res.Surfaced) != 0 || len(res.Skipped) != 1 || !strings.Contains(res.Skipped[0].Reason, "Communications") || r.surfaceNow(t, "hil-482") != nil {
+		t.Fatalf("%+v", res)
+	}
+	r.showHIL(t) // journaled before
+	press, err := r.press(t, "hil.approve", "hil-482", "btn-approve", map[string]any{"id": "482", "message": "Hi", "delay_minutes": "5"})
+	if err != nil || press.Outcome != "rejected" || !strings.Contains(press.Reason, "Communications") || r.cli.called("hil", "approve") != 0 {
+		t.Fatalf("%+v %v", press, err)
+	}
+	s := r.surfaceNow(t, "hil-482")
+	if s == nil || hasButton(s) || s.Components["note"]["text"] != approvalsPageNote {
+		t.Fatalf("card %+v", s)
+	}
+	r.showHIL(t)
+	syncHIL(t, r)
+	if s := r.surfaceNow(t, "hil-482"); hasButton(s) || s.Components["note"]["text"] != approvalsPageNote {
+		t.Fatalf("sync left the old card: %+v", s)
+	}
+}

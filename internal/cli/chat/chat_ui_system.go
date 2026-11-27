@@ -167,6 +167,13 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 		return errors.New("this card was drawn again since you pressed it: look at it, then press again")
 	}
 	args := []string{"hil", "reject", cmd.ID}
+	if approve && ref.Kind == surfaces.RefHIL {
+		// A card journaled with Approve does not approve what no card may.
+		if it, err := e.pendingItem(ctx, ref.ID); err == nil && it.NoChatApprove {
+			e.finish(conv, ref, surfaceID, approvalsPageNote, "warning")
+			return errors.New(approvalsPageNote)
+		}
+	}
 	if approve {
 		data, err := e.approveData(ctx, ref, cmd)
 		if err != nil {
@@ -306,12 +313,25 @@ func (e *sysEnv) sendState(ctx context.Context, id string) (hilsend.State, strin
 // one no card can show whole.
 const unshowable = "This item changed and cannot be shown whole here: decide it in Communications"
 
+// approvalsPageNote takes the place of a card of an item that no chat card may
+// approve.
+const approvalsPageNote = "This item cannot be approved from a chat: decide it in Communications"
+
+// noteFor is the note that takes a live card's place when its item can no
+// longer have a card, for the reason err of buildItemSurface.
+func noteFor(err error) string {
+	if errors.Is(err, errApprovalsPage) {
+		return approvalsPageNote
+	}
+	return unshowable
+}
+
 // redraw replaces a card with one of the item as it is now, best effort (sync
 // does the same at its next run).
 func (e *sysEnv) redraw(conv uiConv, surfaceID string, it listedHIL) {
 	ref, msgs, err := buildItemSurface(it)
 	if err != nil {
-		e.finish(conv, ref, surfaceID, unshowable, "warning")
+		e.finish(conv, ref, surfaceID, noteFor(err), "warning")
 		return
 	}
 	del, err := surfaces.Resolved(surfaceID)
@@ -401,9 +421,10 @@ func typedLike(orig any, s string) any {
 
 type listedHIL struct {
 	surfaces.HILItem
-	Redacted bool             `json:"redacted"`
-	Kind     string           `json:"kind"`
-	Send     *hilsend.Payload `json:"send"`
+	Redacted      bool             `json:"redacted"`
+	NoChatApprove bool             `json:"no_chat_approve"`
+	Kind          string           `json:"kind"`
+	Send          *hilsend.Payload `json:"send"`
 }
 
 // listHIL is `hil list --json --redact`: cards, and the journal that keeps
