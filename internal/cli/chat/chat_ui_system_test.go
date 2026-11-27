@@ -884,3 +884,19 @@ func TestAPressOnAnOlderCardDecidesNothing(t *testing.T) {
 		t.Fatal(last)
 	}
 }
+
+// A card journaled with Approve does not approve a send that carries
+// attachments: the press is refused and the card drawn again without Approve.
+func TestAnApproveCardDoesNotSendAttachments(t *testing.T) {
+	r := newSysRig(t)
+	sendCard(t, r)
+	r.cli.outputs["hil list"] = strings.Replace(sendListed, `"text":"Hi Ada"`, `"text":"Hi Ada","attachments":[{"kind":"file","name":"offer.pdf"}]`, 1)
+	res, err := r.press(t, "hil.approve", "send-7c1e", "btn-approve", map[string]any{"id": "7c1e", "text": "Hi Ada"})
+	if err != nil || res.Outcome != "rejected" || !strings.Contains(res.Reason, "Communications") || r.cli.called("hil", "approve") != 0 {
+		t.Fatalf("%+v %v %v", res, err, r.cli.calls)
+	}
+	s := r.surfaceNow(t, "send-7c1e")
+	if s == nil || s.DeclaresAction("btn-approve", "hil.approve") || !s.DeclaresAction("btn-reject", "hil.reject") {
+		t.Fatalf("card %+v", s)
+	}
+}

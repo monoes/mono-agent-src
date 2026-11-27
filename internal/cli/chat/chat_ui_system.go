@@ -177,7 +177,15 @@ func (e *sysEnv) hil(ctx context.Context, a a2ui.Action, _ *a2ui.Surface) error 
 	sending := approve && ref.Kind == surfaces.RefSend
 	if sending {
 		// Not said to be sending when it was decided before the press.
-		if _, err := e.pendingItem(ctx, ref.ID); errors.Is(err, errNotPending) {
+		it, err := e.pendingItem(ctx, ref.ID)
+		if err == nil && it.Send != nil {
+			// A card drawn with Approve does not approve what no card may.
+			if why := surfaces.WhyNoApproval(*it.Send); why != "" {
+				e.redraw(conv, surfaceID, it)
+				return errors.New(e.redact(ctx, "Cannot be approved here: "+why))
+			}
+		}
+		if errors.Is(err, errNotPending) {
 			if state, sendError := e.sendState(ctx, ref.ID); state != "" && state != hilsend.StatePending {
 				e.finishElsewhere(conv, ref, surfaceID, state, sendError)
 				note, _ := elsewhereNote(state, sendError)

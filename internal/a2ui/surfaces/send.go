@@ -6,6 +6,19 @@ import (
 	"github.com/monoes/mono-agent/internal/hilsend"
 )
 
+// WhyNoApproval says why a send gets no Approve button on a card, "" when it
+// may have one: the card must show all of what approving sends, and it cannot
+// show what an attachment holds.
+func WhyNoApproval(p hilsend.Payload) string {
+	switch {
+	case p.Unreviewable != "":
+		return p.Unreviewable
+	case len(p.Attachments) > 0:
+		return "it carries attachments, which this card cannot show. Approve it in Communications, or reject it."
+	}
+	return ""
+}
+
 // SendSurfaceID is the surface id of a send approval.
 func SendSurfaceID(id string) string { return "send-" + id }
 
@@ -36,8 +49,8 @@ func stateTone(s hilsend.State) string {
 
 // Send builds the approval surface of one send item. A pending item gets the
 // editable text (and subject, when the node has one) and Approve/Reject
-// buttons; an item that is not pending, or one the person can only reject
-// (Unreviewable), gets no Approve button, and a settled one gets no buttons.
+// buttons; an item that is not pending, or one the person can only reject here
+// (WhyNoApproval), gets no Approve button, and a settled one gets no buttons.
 // A card with Approve shows everything: when any line or row would be cut or
 // left out, Send returns ErrTooLarge. The editable text and subject of a
 // pending item are never cut either. On the other cards, recipient, account
@@ -46,10 +59,9 @@ func Send(p hilsend.Payload, digest string) ([][]byte, error) {
 	if err := checkID("send", p.ID); err != nil {
 		return nil, err
 	}
-	pending := p.State == hilsend.StatePending
 	var text, subject string
 	var err error
-	if pending {
+	if p.State == hilsend.StatePending && WhyNoApproval(p) == "" {
 		if text, err = editable("text", p.Text); err != nil {
 			return nil, err
 		}
@@ -62,7 +74,8 @@ func Send(p hilsend.Payload, digest string) ([][]byte, error) {
 
 func buildSend(p hilsend.Payload, digest, text, subject string, textCap int) ([][]byte, error) {
 	pending := p.State == hilsend.StatePending
-	canApprove := pending && p.Unreviewable == ""
+	why := WhyNoApproval(p)
+	canApprove := pending && why == ""
 	b := newBuilder()
 	// A card nobody can approve keeps its lines short; one with Approve shows
 	// them whole, or is not built (b.whole below).
@@ -98,14 +111,14 @@ func buildSend(p hilsend.Payload, digest, text, subject string, textCap int) ([]
 			body = append(body, "err")
 		}
 	}
-	if p.Unreviewable != "" {
-		b.text("unrev", elide("Cannot be approved here: "+p.Unreviewable, textCap), "caption")
+	if p.Unreviewable != "" || (pending && why != "") {
+		b.text("unrev", elide("Cannot be approved here: "+why, textCap), "caption")
 		body = append(body, "unrev")
 	}
 
 	ctx := decisionContext(p.ID, digest)
 	b.data["send"] = map[string]any{"text": text, "subject": subject}
-	if pending && subject != "" && !p.SubjectReadOnly {
+	if canApprove && subject != "" && !p.SubjectReadOnly {
 		b.add("subject", "TextField", map[string]any{"label": "Subject", "value": bind("/send/subject"), "variant": "shortText"})
 		ctx["subject"] = bind("/send/subject")
 		body = append(body, "subject")
@@ -113,7 +126,7 @@ func buildSend(p hilsend.Payload, digest, text, subject string, textCap int) ([]
 		b.text("subject", b.fit("Subject: "+p.Subject, textCap), "body")
 		body = append(body, "subject")
 	}
-	if pending && !p.TextReadOnly {
+	if canApprove && !p.TextReadOnly {
 		b.add("text", "TextField", map[string]any{"label": "Message", "value": bind("/send/text"), "variant": "longText"})
 		ctx["text"] = bind("/send/text")
 	} else {

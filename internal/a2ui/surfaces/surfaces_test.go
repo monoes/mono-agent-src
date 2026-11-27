@@ -83,8 +83,7 @@ func samplePayload() hilsend.Payload {
 		Action:     hilsend.ActionDM, Channel: "instagram",
 		Account:   hilsend.Account{Platform: "instagram", Handle: "acme"},
 		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada, loved your post", Subject: "Hello",
-		Attachments: []hilsend.Attachment{{Kind: "image", Name: "cover.png", Size: 12034}},
-		Details:     []hilsend.Detail{{Key: "cc", Value: "bob@example.com"}}}
+		Details: []hilsend.Detail{{Key: "cc", Value: "bob@example.com"}}}
 }
 
 func samplePlan() chatevents.MissionPlanPayload {
