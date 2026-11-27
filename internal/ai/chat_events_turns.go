@@ -169,6 +169,13 @@ func (s *AIStore) ListTurns(conversationID, profileID, cursor string, limit int)
 	return s.listTurns(conversationID, profileID, cursor, limit, "NOT "+cardTurnSQL)
 }
 
+// ListAllTurns is ListTurns with the card turns too: for whatever must see
+// every turn the conversation holds, such as deleting it and cleaning up after
+// its turns.
+func (s *AIStore) ListAllTurns(conversationID, profileID, cursor string, limit int) ([]Turn, string, error) {
+	return s.listTurns(conversationID, profileID, cursor, limit, "1 = 1")
+}
+
 // listTurns pages a conversation's turns matching only, a constant SQL condition.
 func (s *AIStore) listTurns(conversationID, profileID, cursor string, limit int, only string) ([]Turn, string, error) {
 	if profileID == "" {
