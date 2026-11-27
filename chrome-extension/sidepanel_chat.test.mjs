@@ -920,6 +920,25 @@ test("a2ui: chat_ui_sync runs when the chat opens and every 10s, never overlaps,
   assert.equal(t.timers.filter((x) => x.live).length, 1, "back when visible");
 });
 
+test("a2ui: while a reply is running the tick still reads the cards another writer drew, without syncing", async () => {
+  let finish;
+  const t = await openedWithSurface({ chat_send: () => new Promise((r) => (finish = r)) }, { stored: { "chatConv:p-work": "c-1" } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  t.type("first");
+  t.els["chat-page"].fire("click");
+  t.enter();
+  await settle(40);
+  const count = (type) => t.sent.filter((m) => m.type === type).length;
+  const [syncs, reads] = [count("chat_ui_sync"), count("chat_ui_journal")];
+  t.timers.filter((x) => x.live).forEach((x) => x.fn());
+  await settle(60);
+  assert.equal(count("chat_ui_journal"), reads + 1);
+  assert.equal(count("chat_ui_sync"), syncs);
+  finish({ ok: true, data: { conversation: "c-1", turn: "t2", text: "ok" } });
+  await settle(40);
+});
+
 test("a2ui: without the scripts nothing asks for a sync", async () => {
   const t = setup({ stored: { "chatConv:p-work": "c-1" }, replies: { ...READY, chat_events: { ok: true, turn: "", turn_active: false, events: [] } } });
   t.doc.fire("panel:profiles");

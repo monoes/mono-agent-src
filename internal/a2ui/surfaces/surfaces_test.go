@@ -83,8 +83,7 @@ func samplePayload() hilsend.Payload {
 		Action:     hilsend.ActionDM, Channel: "instagram",
 		Account:   hilsend.Account{Platform: "instagram", Handle: "acme"},
 		Recipient: hilsend.Recipient{Name: "Ada"}, Text: "Hi Ada, loved your post", Subject: "Hello",
-		Attachments: []hilsend.Attachment{{Kind: "image", Name: "cover.png", Size: 12034}},
-		Details:     []hilsend.Detail{{Key: "cc", Value: "bob@example.com"}}}
+		Details: []hilsend.Detail{{Key: "cc", Value: "bob@example.com"}}}
 }
 
 func samplePlan() chatevents.MissionPlanPayload {
@@ -101,7 +100,7 @@ func TestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	send, err := Send(samplePayload())
+	send, err := Send(samplePayload(), "d1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +120,7 @@ func allBuilt(t *testing.T) map[string][][]byte {
 	if out["hil-482"], err = HIL(sampleHIL()); err != nil {
 		t.Fatal(err)
 	}
-	if out["send-7c1e"], err = Send(samplePayload()); err != nil {
+	if out["send-7c1e"], err = Send(samplePayload(), "d1"); err != nil {
 		t.Fatal(err)
 	}
 	if out["ask-q9"], err = Ask("q9", []Question{{Text: "Which region?", Options: []string{"eu", "us"}}, {Text: "Any note?"}}); err != nil {
@@ -222,7 +221,7 @@ func TestEditableTextIsNeverCut(t *testing.T) {
 	}
 	p := samplePayload()
 	p.Text = strings.Repeat("é", 13000)
-	if _, err := Send(p); !errors.Is(err, ErrTooLarge) {
+	if _, err := Send(p, "d1"); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("send text: %v", err)
 	}
 	it.EditableData = map[string]any{}
@@ -303,7 +302,7 @@ func TestSendVariants(t *testing.T) {
 
 func mustSend(t *testing.T, p hilsend.Payload) [][]byte {
 	t.Helper()
-	m, err := Send(p)
+	m, err := Send(p, "d1")
 	if err != nil {
 		t.Fatal(err)
 	}

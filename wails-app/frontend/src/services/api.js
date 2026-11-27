@@ -354,9 +354,10 @@ export const api = {
     GoApp.ChatUISyncHIL(conversationID).then(parseStreamResult),
   getChatTurns: (conversationID, cursor = '', limit = 50) =>
     GoApp.GetChatTurns(conversationID, cursor, limit).then(parseStreamResult),
-  // The turns that only carry cards; getChatTurns leaves them out.
-  getChatCardTurns: (conversationID) =>
-    GoApp.GetChatCardTurns(conversationID).then(parseStreamResult),
+  // The turns that only carry cards, each with its events, in one read
+  // (getChatTurns leaves them out); seen: turn ids already shown.
+  getChatCardTurns: (conversationID, seen = []) =>
+    GoApp.GetChatCardTurns(conversationID, seen).then(parseStreamResult),
   getChatEvents: (conversationID, turnID, afterSeq = 0, limit = 200) =>
     GoApp.GetChatEvents(conversationID, turnID, afterSeq, limit).then(parseStreamResult),
   deleteChatConversation: (conversationID) =>

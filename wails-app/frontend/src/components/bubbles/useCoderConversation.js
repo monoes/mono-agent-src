@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api, notify, onChatEvent } from '../../services/api.js'
 import { isJournalTurn } from '../../lib/a2uiModel.js'
 import { useChatStream, loadTurnState } from '../chat/useChatStream.js'
-import { initialChatState } from '../chat/chatReducer.js'
+import { chatReducer, initialChatState } from '../chat/chatReducer.js'
 import { newTurnId } from '../chat/turnIds.js'
 import { composeLiveAnnouncement } from '../chat/liveAnnouncement.js'
 import { getAssistantTools, getAssistantAllowRuns } from '../../lib/assistantTools.js'
@@ -32,6 +32,9 @@ function withCardTurns(turns, cards) {
   }
   return out.concat(cards.slice(i))
 }
+
+// A card turn arrives with its events: no read of its own.
+const cardState = turn => (turn.events || []).reduce((state, event) => chatReducer(state, { type: 'event', event }), initialChatState())
 
 export function useCoderConversation({ conversationId, create, access = 'full' }) {
   const { t } = useTranslation()
@@ -91,7 +94,7 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
           continue
         }
         // eslint-disable-next-line no-await-in-loop
-        const state = await loadTurnState(conversationId, turn)
+        const state = isJournalTurn(turn.id) ? cardState(turn) : await loadTurnState(conversationId, turn)
         if (state?.attachments) user.attachments = state.attachments
         if (state) built.push({ role: 'turn', turnId: turn.id, state, ownedByThisInstance: turn.ownedByThisInstance !== false })
       }
@@ -226,14 +229,10 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     const id = convRef.current
     if (!id) return
     try {
-      const fresh = oldestFirst(await api.getChatCardTurns(id))
+      const seen = shownRef.current.filter(m => isJournalTurn(m.turnId)).map(m => m.turnId).slice(-200)
+      const added = oldestFirst(await api.getChatCardTurns(id, seen))
         .filter(turn => isJournalTurn(turn.id) && !shownRef.current.some(m => m.turnId === turn.id))
-      const added = []
-      for (const turn of fresh) {
-        // eslint-disable-next-line no-await-in-loop
-        const state = await loadTurnState(id, turn)
-        if (state) added.push({ role: 'turn', turnId: turn.id, conversationId: id, state, ownedByThisInstance: true })
-      }
+        .map(turn => ({ role: 'turn', turnId: turn.id, conversationId: id, state: cardState(turn), ownedByThisInstance: true }))
       if (!added.length || convRef.current !== id) return
       setMessages(msgs => [...msgs, ...added.filter(a => !msgs.some(m => m.turnId === a.turnId))])
     } catch (e) {

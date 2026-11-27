@@ -42,7 +42,7 @@ func (d Deps) hilSendError(err error) error {
 	case errors.Is(err, hilsend.ErrNotSend):
 		return d.InvalidInput("that Human-in-Loop item is not a send item")
 	case errors.Is(err, hilsend.ErrAlwaysLabel), errors.Is(err, hilsend.ErrNoText), errors.Is(err, hilsend.ErrNoSubject),
-		errors.Is(err, hilsend.ErrUnreviewable), errors.Is(err, hilsend.ErrChanged):
+		errors.Is(err, hilsend.ErrUnreviewable), errors.Is(err, hilsend.ErrChanged), errors.Is(err, hilsend.ErrDecided):
 		return d.InvalidInput(err.Error())
 	}
 	return err

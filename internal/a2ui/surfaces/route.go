@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -24,6 +25,7 @@ const (
 type Command struct {
 	Kind   string // the action name: hil.approve, hil.reject, mission.edit, mission.stop, mission.close, system.answer
 	ID     string // the record id, equal to the ref's
+	Digest string // hil.approve and hil.reject: the pressed card's DigestKey
 	Fields map[string]string
 }
 
@@ -87,6 +89,14 @@ func Route(a a2ui.Action, ref chatevents.UIRef) (Command, error) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if k == r.idKey {
+			continue
+		}
+		if k == DigestKey && strings.HasPrefix(a.Name, "hil.") {
+			d, ok := a.Context[k].(string)
+			if !ok {
+				return Command{}, errors.New("surfaces: the card's digest must be a string")
+			}
+			cmd.Digest = d
 			continue
 		}
 		if r.fields == nil || !r.fields(k) {

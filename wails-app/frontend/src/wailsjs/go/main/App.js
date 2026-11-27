@@ -594,8 +594,8 @@ export function GetChatModeOptions(arg1) {
   return window['go']['main']['App']['GetChatModeOptions'](arg1);
 }
 
-export function GetChatCardTurns(arg1) {
-  return window['go']['main']['App']['GetChatCardTurns'](arg1);
+export function GetChatCardTurns(arg1, arg2) {
+  return window['go']['main']['App']['GetChatCardTurns'](arg1, arg2);
 }
 
 export function GetChatTurns(arg1, arg2, arg3) {

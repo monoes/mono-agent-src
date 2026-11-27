@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -114,6 +116,45 @@ func TestHILListRedactHidesReplyTokensAndMarksTheItem(t *testing.T) {
 		}
 		if it.ID == "h2" && (it.Send == nil || !strings.Contains(it.Send.Text, workflow.ReplyTokenHidden)) {
 			t.Errorf("send card %+v", it.Send)
+		}
+	}
+}
+
+// Browser submit, site and pairing items are checked and then decided in two
+// steps, so a chat card, which names a digest, cannot approve them: `hil list`
+// marks them and approve refuses.
+func TestItemsDecidedInTwoStepsCannotBeApprovedFromACard(t *testing.T) {
+	cfg, db, _ := hilSuggestEnv(t, false, nil)
+	kinds := map[string]string{
+		"submit": `{"kind":"` + browserctl.SubmitKind + `"}`,
+		"site":   `{"kind":"` + browserctl.SiteKind + `"}`,
+		"pair":   `{"kind":"` + extension.PairCardKind + `","claim":"c1"}`,
+		"plain":  `{}`,
+	}
+	for id, nc := range kinds {
+		if _, err := db.Exec(`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, readonly_data, editable_data, node_config, profile_id)
+			VALUES (?, ?, '', 'n', 'Review', 'pending', '{}', '{}', ?, 'default')`, id, "x-"+id, nc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := runHIL(t, cfg, "list")
+	if err != nil || len(items) != 4 {
+		t.Fatalf("%v %+v", err, items)
+	}
+	for _, it := range items {
+		if it.NoChatApprove != (it.ID != "plain") {
+			t.Errorf("%s: no_chat_approve = %v", it.ID, it.NoChatApprove)
+		}
+		if it.ID == "plain" {
+			continue
+		}
+		_, err := runHIL(t, cfg, "approve", it.ID, "--if-digest", it.Digest)
+		if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "Communications") {
+			t.Errorf("%s: %v (exit %d)", it.ID, err, exitCodeFor(err))
+		}
+		var status string
+		if err := db.QueryRow(`SELECT status FROM hil_pending WHERE id = ?`, it.ID).Scan(&status); err != nil || status != "pending" {
+			t.Errorf("%s: %s %v", it.ID, status, err)
 		}
 	}
 }

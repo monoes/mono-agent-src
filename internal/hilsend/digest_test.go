@@ -99,3 +99,61 @@ func TestDigestCoversContentOnly(t *testing.T) {
 		}
 	}
 }
+
+// A decision made from a card (it names a digest) of a send decided elsewhere
+// is an error, not a quiet answer with the item's state: the caller must not
+// report it as its own, and its edit is said to be dropped.
+func TestADecisionFromACardOfADecidedSendIsAnError(t *testing.T) {
+	for _, status := range []string{"sent", "rejected", "sending", "failed"} {
+		asAgent(t)
+		db := testDB(t)
+		id := queueEmail(t, db)
+		asOperator(t)
+		st, run, ctx := Store{db, "p1"}, &fakeRunner{}, context.Background()
+		digest := rowDigest(t, db, id)
+		if _, err := db.Exec(`UPDATE hil_pending SET status = ? WHERE id = ?`, status, id); err != nil {
+			t.Fatal(err)
+		}
+		mine := "my edit"
+		for name, c := range map[string]struct {
+			approve bool
+			edit    Edit
+		}{
+			"approve":           {true, Edit{IfDigest: digest}},
+			"approve with edit": {true, Edit{IfDigest: digest, Text: &mine}},
+			"reject":            {false, Edit{IfDigest: digest}},
+		} {
+			p, err := Resolve(ctx, st, id, c.approve, c.edit, false, run.run)
+			if !errors.Is(err, ErrDecided) || p.State != stateOf(status) {
+				t.Errorf("%s of a %s send: state %q, err %v", name, status, p.State, err)
+			}
+		}
+		if p, _ := st.Get(ctx, id); p.Text != "Original body" || len(run.calls) != 0 {
+			t.Errorf("%s: text %q, %d runs", status, p.Text, len(run.calls))
+		}
+		// Without a digest, deciding again stays a no-op that reports the state.
+		if p, err := Resolve(ctx, st, id, true, Edit{}, false, run.run); err != nil || p.State != stateOf(status) {
+			t.Errorf("%s without a digest: %q %v", status, p.State, err)
+		}
+	}
+}
+
+// The item decided between the read and the claim is refused the same way.
+func TestASendDecidedUnderTheClaimIsAnError(t *testing.T) {
+	asAgent(t)
+	db := testDB(t)
+	id := queueEmail(t, db)
+	asOperator(t)
+	st, run, ctx := Store{db, "p1"}, &fakeRunner{}, context.Background()
+	digest := rowDigest(t, db, id)
+	betweenReadAndWrite = func() {
+		betweenReadAndWrite = nil
+		if _, err := db.Exec(`UPDATE hil_pending SET status = 'rejected' WHERE id = ?`, id); err != nil {
+			t.Error(err)
+		}
+	}
+	defer func() { betweenReadAndWrite = nil }()
+	if p, err := Resolve(ctx, st, id, true, Edit{IfDigest: digest}, false, run.run); !errors.Is(err, ErrDecided) || p.State != StateRejected || len(run.calls) != 0 {
+		t.Fatalf("%q %v", p.State, err)
+	}
+}

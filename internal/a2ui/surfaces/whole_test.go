@@ -93,14 +93,10 @@ func TestSendApprovalNeverCutsOrOmits(t *testing.T) {
 		"prepared by":       func(p *hilsend.Payload) { p.PreparedBy = hilsend.PreparedBy{System: true, Role: long} },
 		"action":            func(p *hilsend.Payload) { p.Action = long },
 		"detail":            func(p *hilsend.Payload) { p.Details = []hilsend.Detail{{Key: "cc", Value: long}} },
-		"attachment":        func(p *hilsend.Payload) { p.Attachments = []hilsend.Attachment{{Kind: "file", Name: long}} },
 		"host":              func(p *hilsend.Payload) { p.Host = long },
 		"fetch url":         func(p *hilsend.Payload) { p.FetchURL = long },
 		"profile url":       func(p *hilsend.Payload) { p.Recipient.ProfileURL = "https://example.test/" + long },
 		"too many details":  func(p *hilsend.Payload) { p.Details = rows(maxSendRows + 1) },
-		"too many attachments": func(p *hilsend.Payload) {
-			p.Attachments = make([]hilsend.Attachment, maxSendRows+1)
-		},
 		"envelope size": func(p *hilsend.Payload) {
 			p.Details = rows(maxSendRows)
 			for i := range p.Details {
@@ -110,7 +106,7 @@ func TestSendApprovalNeverCutsOrOmits(t *testing.T) {
 	} {
 		p := samplePayload()
 		mut(&p)
-		if msgs, err := Send(p); !errors.Is(err, ErrTooLarge) {
+		if msgs, err := Send(p, "d1"); !errors.Is(err, ErrTooLarge) {
 			t.Errorf("%s: want ErrTooLarge, got err %v and %d messages", name, err, len(msgs))
 		}
 		// The same record is still shown, cut, where nobody can approve it.
@@ -121,7 +117,7 @@ func TestSendApprovalNeverCutsOrOmits(t *testing.T) {
 			q := samplePayload()
 			mut(&q)
 			change(&q)
-			msgs, err := Send(q)
+			msgs, err := Send(q, "d1")
 			if err != nil {
 				t.Errorf("%s, %s: %v", name, state, err)
 				continue
@@ -133,24 +129,18 @@ func TestSendApprovalNeverCutsOrOmits(t *testing.T) {
 	}
 }
 
-// An approvable card shows long lines whole, and where a link or a profile
-// the send uses really points.
+// An approvable card shows long lines whole, and where a profile the send uses
+// really points.
 func TestSendApprovalShowsEverythingWhole(t *testing.T) {
 	p := samplePayload()
 	cc := strings.Repeat("someone@example.test, ", 60)
 	p.Recipient = hilsend.Recipient{Name: strings.Repeat("r", 700), ProfileURL: "https://social.example.test/ada"}
 	p.Details = []hilsend.Detail{{Key: "cc", Value: cc}}
-	p.Attachments = []hilsend.Attachment{
-		{Kind: "link", Name: "photo.jpg", URL: "https://files.example.test/a/photo.jpg"},
-		{Kind: "file", Name: "offer.pdf", Path: "/srv/out/offer.pdf", Size: 10},
-	}
 	s := surfaceOf(t, mustSend(t, p), "send-7c1e")
 	for id, want := range map[string]string{
 		"who":     "To: " + p.Recipient.Name,
 		"profile": "Profile: https://social.example.test/ada",
 		"det-0":   "cc: " + cc,
-		"att-0":   "Attachment: link photo.jpg (0 bytes) https://files.example.test/a/photo.jpg",
-		"att-1":   "Attachment: file offer.pdf (10 bytes) /srv/out/offer.pdf",
 	} {
 		if got := s.Components[id]["text"]; got != want {
 			t.Errorf("%s: %.120v, want %.120s", id, got, want)
@@ -158,5 +148,23 @@ func TestSendApprovalShowsEverythingWhole(t *testing.T) {
 	}
 	if !s.DeclaresAction(btnApprove, "hil.approve") {
 		t.Fatal("no Approve")
+	}
+}
+
+// Where a listed link or file really is stays on the card that lists it.
+func TestListedAttachmentsShowWhereTheyAre(t *testing.T) {
+	p := samplePayload()
+	p.Attachments = []hilsend.Attachment{
+		{Kind: "link", Name: "photo.jpg", URL: "https://files.example.test/a/photo.jpg"},
+		{Kind: "file", Name: "offer.pdf", Path: "/srv/out/offer.pdf", Size: 10},
+	}
+	s := surfaceOf(t, mustSend(t, p), "send-7c1e")
+	for id, want := range map[string]string{
+		"att-0": "Attachment: link photo.jpg (0 bytes) https://files.example.test/a/photo.jpg",
+		"att-1": "Attachment: file offer.pdf (10 bytes) /srv/out/offer.pdf",
+	} {
+		if got := s.Components[id]["text"]; got != want {
+			t.Errorf("%s: %v", id, got)
+		}
 	}
 }

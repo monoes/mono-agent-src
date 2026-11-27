@@ -14,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/a2ui/surfaces"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/commsync"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/hilsend"
 )
@@ -110,15 +111,26 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		pending[surfaceOfItem(it)] = true
 	}
 	for _, id := range liveCardIDs(replay) {
-		if ref := refOfSurface(evs, id); !pending[id] && ref.State == refSending {
+		if ref, at := refAndTime(evs, id); !pending[id] && slices.Contains([]string{refSending, refSendingElsewhere, refSendingUnknown}, ref.State) {
 			// An approved send's note stays until the item says how it ended.
 			state, sendError := e.sendState(ctx, ref.ID)
+			if state == hilsend.StateApproved && ref.State != refSendingUnknown && !at.IsZero() && time.Since(at) >= sendingUnknownAfter {
+				// The command that was sending has most likely died: say so, once.
+				ref.State = refSendingUnknown
+				if msgs, err := surfaces.ResolvedNotice(id, unknownOutcomeNote, "warning"); err == nil && add(ref, msgs) {
+					res.Resolved = append(res.Resolved, id)
+				}
+				continue
+			}
 			if state == "" || state == hilsend.StateApproved || state == hilsend.StatePending {
 				continue
 			}
 			note, tone := outcomeNote(true, state, sendError)
 			if state == hilsend.StateSent {
 				note, tone = "Sent", "success"
+			}
+			if ref.State == refSendingElsewhere && state != hilsend.StateSent {
+				note, tone = elsewhereNote(state, sendError)
 			}
 			ref.State = ""
 			if msgs, err := surfaces.ResolvedNotice(id, e.redact(ctx, note), tone); err == nil {
@@ -140,7 +152,7 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		id := surfaceOfItem(it)
 		old := replay.Registry.Surface(id)
 		live := old != nil && old.Prov == a2ui.FromSystem && hasButton(old)
-		if live && !it.Redacted && refOfSurface(evs, id).Digest == it.Digest {
+		if live && !it.Redacted && !it.NoChatApprove && refOfSurface(evs, id).Digest == it.Digest {
 			continue
 		}
 		if old != nil && !live && startingSend(evs, id) {
@@ -157,7 +169,7 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 		}
 		if err != nil && live {
 			// The old card must not stay: it offers to approve what is not there.
-			if note, nerr := surfaces.ResolvedNotice(id, unshowable, "warning"); nerr == nil {
+			if note, nerr := surfaces.ResolvedNotice(id, noteFor(err), "warning"); nerr == nil {
 				add(ref, note)
 			}
 		}
@@ -180,9 +192,20 @@ func runSyncHIL(ctx context.Context, cfg *Deps, conversationID string) (*SyncHIL
 // reads pending: the moment between the note and the command's claim.
 var sendingGrace = time.Minute
 
+// sendingUnknownAfter is how long a send may read as being sent before its card
+// says the outcome is unknown (commsync calls a send stale after the same).
+var sendingUnknownAfter = commsync.StaleSendingAfter
+
 // startingSend says a send's in-progress note was written so recently that its
 // command may not have claimed the item yet.
 func startingSend(evs []chatevents.Event, surfaceID string) bool {
+	ref, at := refAndTime(evs, surfaceID)
+	return ref.State == refSending && !at.IsZero() && time.Since(at) < sendingGrace
+}
+
+// refAndTime is refOfSurface with the time that event was journaled, zero when
+// it cannot be read.
+func refAndTime(evs []chatevents.Event, surfaceID string) (chatevents.UIRef, time.Time) {
 	var at string
 	var ref chatevents.UIRef
 	for _, ev := range evs {
@@ -195,7 +218,10 @@ func startingSend(evs []chatevents.Event, surfaceID string) bool {
 		}
 	}
 	written, err := time.Parse(time.RFC3339Nano, at)
-	return ref.State == refSending && err == nil && time.Since(written) < sendingGrace
+	if err != nil {
+		written = time.Time{}
+	}
+	return ref, written
 }
 
 func surfaceOfItem(it listedHIL) string {
@@ -219,9 +245,15 @@ func waitingItems(items []listedHIL) []listedHIL {
 	})
 }
 
+// errApprovalsPage: the item is approved on the approvals page only.
+var errApprovalsPage = errors.New("it cannot be approved from a chat: decide it in Communications")
+
 // buildItemSurface is the card of a pending item and the ref that ties it to
 // the item as shown. The ref is set even when no card can be built.
 func buildItemSurface(it listedHIL) (chatevents.UIRef, [][]byte, error) {
+	if it.NoChatApprove {
+		return chatevents.UIRef{Kind: surfaces.RefHIL, ID: it.ID, Digest: it.Digest}, nil, errApprovalsPage
+	}
 	if it.Redacted {
 		kind := surfaces.RefHIL
 		if it.Kind == "send" {
@@ -231,7 +263,7 @@ func buildItemSurface(it listedHIL) (chatevents.UIRef, [][]byte, error) {
 			errors.New("it holds a reply link that chat does not show: decide it in Communications")
 	}
 	if it.Kind == "send" && it.Send != nil {
-		msgs, err := surfaces.Send(*it.Send)
+		msgs, err := surfaces.Send(*it.Send, it.Digest)
 		return chatevents.UIRef{Kind: surfaces.RefSend, ID: it.Send.ID, Digest: it.Digest}, msgs, err
 	}
 	msgs, err := surfaces.HIL(it.HILItem)

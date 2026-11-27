@@ -58,6 +58,8 @@ type hilItem struct {
 	// Redacted: a reply link's token was hidden in this item, so what is shown
 	// is not all there is.
 	Redacted bool `json:"redacted,omitempty"`
+	// NoChatApprove: the item can only be approved on the approvals page.
+	NoChatApprove bool `json:"no_chat_approve,omitempty"`
 	// PersonID, PersonName and HilRef are set when the item has a row in
 	// Communications (hil_ref is this item's id), so the GUI can link to both.
 	PersonID   string `json:"person_id,omitempty"`
@@ -122,7 +124,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 					&it.Status, &roRaw, &edRaw, &cfgRaw, &it.CreatedAt, &it.WorkflowName); err != nil {
 					return fmt.Errorf("scanning HIL item: %w", err)
 				}
-				it.Digest = hilsend.Digest(roRaw, edRaw, cfgRaw)
+				it.Digest, it.NoChatApprove = hilsend.Digest(roRaw, edRaw, cfgRaw), twoStepItem(cfgRaw)
 				// Rows the scrub could not rewrite are shown masked.
 				prof := d.ProfileID()
 				roRaw, edRaw, cfgRaw = hilscrub.Mask(db.DB, prof, it.ID, roRaw), hilscrub.Mask(db.DB, prof, it.ID, edRaw), hilscrub.Mask(db.DB, prof, it.ID, cfgRaw)

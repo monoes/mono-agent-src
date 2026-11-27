@@ -31,10 +31,23 @@ type Run struct {
 // fake.
 type Runner func(ctx context.Context, r Run) (json.RawMessage, error)
 
+// notMade is the error of a decision that moved nothing: none without a digest
+// (deciding again reports the item's state), else why the card's item could
+// not be decided.
+func (e Edit) notMade(p Payload) error {
+	switch {
+	case e.IfDigest == "":
+		return nil
+	case p.State == StatePending:
+		return fmt.Errorf("send item %s: %w", p.ID, ErrChanged)
+	}
+	return fmt.Errorf("send item %s: %w (it is %s)", p.ID, ErrDecided, p.State)
+}
+
 // Edit overrides the text and/or subject before approving (nil keeps it).
 // IfDigest, when set, is the Digest of the item as the person saw it: the
-// decision (and the edit, in the same write) is made only while the item still
-// has it, else ErrChanged.
+// decision (and the edit, in the same write) is made only while the item is
+// pending and still has it, else ErrDecided or ErrChanged.
 type Edit struct {
 	Text, Subject *string
 	IfDigest      string
@@ -51,7 +64,10 @@ type Edit struct {
 // destination so later sends to it from an agent go out without a card.
 func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, always bool, run Runner) (Payload, error) {
 	if !approve {
-		p, _, err := st.reject(ctx, id, edit.IfDigest)
+		p, done, err := st.reject(ctx, id, edit.IfDigest)
+		if err == nil && !done {
+			err = edit.notMade(p)
+		}
 		return p, err
 	}
 	// Before the edit and the claim: the item stays pending, as it was. A
@@ -96,6 +112,9 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 		atClaim = edit
 	}
 	p, rp, proof, claimed, err := st.claimWith(ctx, id, always, atClaim)
+	if err == nil && !claimed {
+		err = edit.notMade(p)
+	}
 	if err != nil || !claimed {
 		return p, err
 	}

@@ -18,6 +18,7 @@ type HILItem struct {
 	WorkflowName string         `json:"workflow_name"`
 	ReadonlyData map[string]any `json:"readonly_data"`
 	EditableData map[string]any `json:"editable_data"`
+	Digest       string         `json:"digest"`
 }
 
 // HILSurfaceID is the surface id of a workflow approval.
@@ -53,14 +54,14 @@ func HIL(it HILItem) ([][]byte, error) {
 
 func editableFields(m map[string]any) ([]string, map[string]string, error) {
 	lim := a2ui.DefaultLimits
-	if len(m) > lim.MaxOptions-1 { // the action context also carries "id"
-		return nil, nil, fmt.Errorf("%w: %d editable fields, at most %d fit an action context", ErrTooLarge, len(m), lim.MaxOptions-1)
+	if len(m) > lim.MaxOptions-2 { // the action context also carries the id and the digest
+		return nil, nil, fmt.Errorf("%w: %d editable fields, at most %d fit an action context", ErrTooLarge, len(m), lim.MaxOptions-2)
 	}
 	keys := make([]string, 0, len(m))
 	vals := make(map[string]string, len(m))
 	for k, v := range m {
-		if k == "" || k == "id" || len(k) > 90 {
-			return nil, nil, fmt.Errorf("surfaces: editable field name %q is not usable (empty, \"id\" or over 90 bytes)", k)
+		if k == "" || k == "id" || k == DigestKey || len(k) > 90 {
+			return nil, nil, fmt.Errorf("surfaces: editable field name %q is not usable (empty, reserved or over 90 bytes)", k)
 		}
 		s, err := scalarText(v)
 		if err != nil {
@@ -129,7 +130,7 @@ func buildHIL(it HILItem, keys []string, vals map[string]string, textCap int) ([
 		b.text(fmt.Sprintf("ro-%d-v", i), b.fit(displayText(it.ReadonlyData[k]), textCap), "body")
 		body = append(body, fmt.Sprintf("ro-%d-k", i), fmt.Sprintf("ro-%d-v", i))
 	}
-	approveCtx := map[string]any{"id": it.ID}
+	approveCtx := decisionContext(it.ID, it.Digest)
 	edit := map[string]any{}
 	for i, k := range keys {
 		id := fmt.Sprintf("ef-%d", i)
@@ -141,7 +142,7 @@ func buildHIL(it HILItem, keys []string, vals map[string]string, textCap int) ([
 	}
 	b.data["edit"] = edit
 	b.button(btnApprove, "Approve", "primary", "hil.approve", approveCtx)
-	b.button(btnReject, "Reject", "danger", "hil.reject", map[string]any{"id": it.ID})
+	b.button(btnReject, "Reject", "danger", "hil.reject", decisionContext(it.ID, it.Digest))
 	b.row("actions", btnApprove, btnReject)
 	body = append(body, "actions")
 	b.column("body", body...)

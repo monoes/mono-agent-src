@@ -40,6 +40,20 @@ var ErrTooLarge = errors.New("surfaces: record does not fit the surface caps")
 // shorter read-only text.
 var errOversize = errors.New("surfaces: envelope over the message cap")
 
+// DigestKey is the context key under which an approval card's buttons carry the
+// digest of the item as the card shows it: a press decides the item only while
+// it still has it.
+const DigestKey = "_digest"
+
+// decisionContext is the context of a button that decides item id.
+func decisionContext(id, digest string) map[string]any {
+	ctx := map[string]any{"id": id}
+	if digest != "" {
+		ctx[DigestKey] = digest
+	}
+	return ctx
+}
+
 // Button component ids, fixed per surface kind.
 const (
 	btnApprove  = "btn-approve"

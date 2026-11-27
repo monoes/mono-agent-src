@@ -54,12 +54,6 @@
       },
       {
         "component": "Text",
-        "id": "att-0",
-        "text": "Attachment: image cover.png (12034 bytes)",
-        "variant": "caption"
-      },
-      {
-        "component": "Text",
         "id": "det-0",
         "text": "cc: bob@example.com",
         "variant": "caption"
@@ -73,6 +67,7 @@
         "action": {
           "event": {
             "context": {
+              "_digest": "d1",
               "id": "7c1e",
               "subject": {
                 "@path": "/send/subject"
@@ -98,6 +93,7 @@
         "action": {
           "event": {
             "context": {
+              "_digest": "d1",
               "id": "7c1e"
             },
             "name": "hil.reject"
@@ -123,7 +119,6 @@
           "by",
           "subject",
           "text",
-          "att-0",
           "det-0",
           "actions"
         ],

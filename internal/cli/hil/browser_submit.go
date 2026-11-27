@@ -37,9 +37,11 @@ func (d Deps) decideIfBrowserSubmit(cmd *cobra.Command, id string, approve bool)
 		return false, nil
 	}
 	var itemID, status string
-	_, isPair := extension.IsPairCard(nc)
-	if ifDigest(cmd) != "" && (isPair || browserctl.IsSubmitItem(nc) || browserctl.IsSiteItem(nc)) {
-		// Checked before the decision: these items are written once, when asked.
+	if ifDigest(cmd) != "" && twoStepItem(nc) {
+		if approve {
+			return true, d.InvalidInput("HIL item %q cannot be approved from a chat card: approve it in Communications", id)
+		}
+		// A rejection is checked before it is made: these items are written once, when asked.
 		if _, _, err := d.checkDigest(cmd, db.DB, id); err != nil {
 			return true, err
 		}

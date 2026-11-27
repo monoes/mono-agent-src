@@ -125,7 +125,8 @@ func statLogs(cfg *Deps, store *ai.AIStore, profileID, conversationID string) lo
 	var names []string
 	scan := logScan{Turns: map[string]bool{}}
 	for cursor := ""; ; {
-		turns, next, err := store.ListTurns(conversationID, profileID, cursor, 200)
+		// Every turn: recordCleanup refuses the delete for one the scan missed.
+		turns, next, err := store.ListAllTurns(conversationID, profileID, cursor, 200)
 		if err != nil {
 			return logScan{}
 		}
