@@ -1,4 +1,3 @@
-import { Fragment } from 'react'
 import { AlertTriangle, Info, AlertCircle, Loader, FolderOpen } from 'lucide-react'
 import { ChatMarkdown } from './ChatMarkdown.jsx'
 import { ToolActivityCard } from './ToolActivityCard.jsx'
@@ -7,7 +6,8 @@ import { SandboxBadge } from './SandboxBadge.jsx'
 import { UnsandboxedWarning } from './ChatWarnings.jsx'
 import { AgentRow } from './AgentRow.jsx'
 import { ChatBlocksScope } from './blocks/context.js'
-import { A2UISurface } from '../a2ui/A2UISurface.jsx'
+import { A2UISurface, planTree } from '../a2ui/A2UISurface.jsx'
+import { isAskCard } from '../../lib/a2uiModel.js'
 
 const NOTICE_ICON = {
   info: Info,
@@ -19,6 +19,9 @@ const NOTICE_COLOR = {
   warning: '#fbbf24',
   error: '#ef4444',
 }
+
+// Whether the card draws a button that sends something: only such a card waits for the person.
+const hasButton = sf => planTree(sf.components || {}).order.some(id => sf.components[id]?.component === 'Button' && sf.components[id].action?.event?.name)
 
 function NoticeBanner({ notice }) {
   const Icon = NOTICE_ICON[notice.severity] || Info
@@ -63,11 +66,21 @@ function NoticeBanner({ notice }) {
 export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate, entityLinks = true, onA2UIAction, surfaces: conversationSurfaces }) {
   const { parts, calls } = state
   const notices = state.notices || []
-  const surfaces = agentFilter && agentFilter !== 'lead' ? [] : (conversationSurfaces || state.surfaces || [])
+  const allSurfaces = conversationSurfaces || state.surfaces || []
+  // A filter hides the cards, but never one that waits for the person: those are answered together.
+  const waits = sf => sf.status !== 'resolved' && hasButton(sf) && (isAskCard(sf) || sf.provenance === 'agent')
+  const surfaces = agentFilter && agentFilter !== 'lead' ? allSurfaces.filter(waits) : allSurfaces
   if (parts.length === 0 && notices.length === 0 && !state.sandbox && surfaces.length === 0) return null
   const surfacesAt = (i, last) => surfaces.filter(sf => (last ? sf.partIndex >= i : sf.partIndex === i)).map(sf => (
-    <A2UISurface key={`a2ui-${sf.surfaceId}`} surface={sf} onAction={onA2UIAction} />
+    <A2UISurface key={`a2ui-${sf.surfaceId}`} surface={sf} onAction={onA2UIAction} group={turnId} live={!state.terminal} />
   ))
+  // A worker's question is answered in its card, not in its row, when the card
+  // holds several questions or anything else of the turn waits with it.
+  const openCards = state.terminal ? [] : allSurfaces.filter(waits)
+  const answerInCard = agent => {
+    const card = agent?.question && openCards.find(sf => sf.surfaceId === `ask-${agent.agentId}.${agent.question.id}`)
+    return !!card && (openCards.length > 1 || !!card.components['q-q1'])
+  }
 
   const childrenOf = {}
   for (const part of parts) {
@@ -88,6 +101,24 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
       entityLinks={entityLinks}
     />
   )
+
+  const renderPart = (part, i) => {
+    if (agentFilter && (part.kind === 'agent' ? agentFilter === 'lead' || part.agentId !== agentFilter : agentFilter !== 'lead')) return null
+    if (part.kind === 'text') {
+      return part.text ? (
+        <ChatBlocksScope.Provider key={`text-${part.partId}-${i}`} value={{ scope: `${turnId}:${part.partId}`, turn: turnId, live: isLive && !state.terminal }}>
+          <ChatMarkdown content={part.text} onNavigate={onNavigate} />
+        </ChatBlocksScope.Provider>
+      ) : null
+    }
+    if (part.kind === 'agent') {
+      const agent = (state.agents || {})[part.agentId]
+      return <AgentRow key={`agent-${part.agentId}`} agent={agent} scope={state.scope} answerInCard={answerInCard(agent)} />
+    }
+    const call = calls[part.callId]
+    if (!call || childrenOf[call.parentCallId]) return null
+    return renderCall(call)
+  }
 
   // A coder turn's cards take the turn's full width (commands and paths
   // are long), and so does a turn with A2UI cards (they have forms to read;
@@ -116,21 +147,8 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
           {readyNote}
         </div>
       )}
-      {parts.map((part, i) => <Fragment key={`p-${i}`}>{surfacesAt(i, false)}{(() => {
-        if (agentFilter && (part.kind === 'agent' ? agentFilter === 'lead' || part.agentId !== agentFilter : agentFilter !== 'lead')) return null
-        if (part.kind === 'text') {
-          return part.text ? (
-            <ChatBlocksScope.Provider key={`text-${part.partId}-${i}`} value={{ scope: `${turnId}:${part.partId}`, live: isLive && !state.terminal }}>
-              <ChatMarkdown content={part.text} onNavigate={onNavigate} />
-            </ChatBlocksScope.Provider>
-          ) : null
-        }
-        if (part.kind === 'agent') return <AgentRow key={`agent-${part.agentId}`} agent={(state.agents || {})[part.agentId]} scope={state.scope} />
-        const call = calls[part.callId]
-        if (!call || childrenOf[call.parentCallId]) return null
-        return renderCall(call)
-      })()}</Fragment>)}
-      {surfacesAt(parts.length, true)}
+      {/* One list, so a card keeps its place in it (and what was typed into it) when parts arrive after it. */}
+      {parts.flatMap((part, i) => [...surfacesAt(i, false), renderPart(part, i)]).concat(surfacesAt(parts.length, true))}
       {showStatus && (
         <div data-testid="coder-status-line" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
           <Loader size={10} className="chat-spin" style={{ color: '#00b4d8' }} />

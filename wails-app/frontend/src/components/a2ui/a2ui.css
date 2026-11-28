@@ -24,6 +24,7 @@ textarea.a2ui-input { resize: none; flex-shrink: 0; overflow-wrap: anywhere; }
 .a2ui-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .a2ui-mark { margin-right: 4px; }
 .a2ui-reason { margin: 6px 0 0; font-size: 11px; color: var(--text-secondary); }
+.a2ui-reason.a2ui-changed { color: #fbbf24; }
 .a2ui-check, .a2ui-choice { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
 .a2ui-choices { display: flex; gap: 6px; }
 .a2ui-choices-list { flex-direction: column; }
@@ -34,9 +35,11 @@ textarea.a2ui-input { resize: none; flex-shrink: 0; overflow-wrap: anywhere; }
 .a2ui-btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 /* The label is a Text component: it takes the button's colour and size. */
 .a2ui-btn .a2ui-text { color: inherit; font-size: inherit; }
+.a2ui-btn[aria-pressed="true"] { outline: 2px solid var(--cyan-bright); outline-offset: 1px; font-weight: 700; }
 .a2ui-btn-primary { background: var(--cyan); color: #04262b; border-color: var(--cyan); }
 .a2ui-btn-danger { background: transparent; color: var(--a2ui-red); border-color: var(--danger-border); }
 .a2ui-btn-borderless { background: transparent; border-color: transparent; color: var(--cyan); }
+.a2ui-btn[aria-pressed="false"] { background: transparent; color: var(--text); border-color: var(--border-bright); }
 .a2ui-badge { max-width: 100%; overflow-wrap: anywhere; font: 600 10px var(--font-mono); padding: 2px 8px; border-radius: 99px; background: var(--elevated); color: var(--text-secondary); border: 1px solid var(--border); }
 .a2ui-badge-info { color: var(--cyan); } .a2ui-badge-success { color: var(--green); } .a2ui-badge-warning { color: var(--orange); } .a2ui-badge-danger { color: var(--a2ui-red); }
 .a2ui-progress { display: flex; flex-direction: column; gap: 3px; min-width: 120px; flex: 1; }

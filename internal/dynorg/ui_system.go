@@ -74,13 +74,18 @@ func askRef(agentID, qid string) (chatevents.UIRef, string) {
 	return chatevents.UIRef{Kind: surfaces.RefAsk, ID: id}, id
 }
 
-// askSurface shows a worker's question as an Ask card.
-func (c *Conductor) askSurface(agentID, qid, question string) {
+// askSurface shows a worker's questions as one Ask card.
+func (c *Conductor) askSurface(agentID, qid string, questions ...string) {
 	if c.cfg.UI == nil {
 		return
 	}
 	ref, id := askRef(agentID, qid)
-	msgs, err := surfaces.Ask(id, []surfaces.Question{{Text: question}})
+	qs := make([]surfaces.Question, len(questions))
+	for i, q := range questions {
+		bounded, _, _ := chatevents.BoundText(q, 2000)
+		qs[i] = surfaces.Question{Text: bounded}
+	}
+	msgs, err := surfaces.Ask(id, qs)
 	if err != nil {
 		return
 	}

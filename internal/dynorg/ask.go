@@ -29,7 +29,7 @@ import (
 // ToolAskUser is the worker's question tool.
 const ToolAskUser = "ask_user"
 
-// MaxQuestions caps a worker's questions per run.
+// MaxQuestions caps a worker's questions per run, however they are spread over calls.
 const MaxQuestions = 3
 
 // AskTimeout bounds one question; unanswered, the worker is told to go on
@@ -45,16 +45,41 @@ type AnswerSource interface {
 	Answer(ctx context.Context, agentID, questionID string) (text string, ok bool, err error)
 }
 
-const askRule = "- If a decision only the user can make blocks you, call ask_user with one short question " +
-	"(at most 3 per task) on its own, not alongside other tool calls, and wait for the answer; otherwise " +
-	"decide yourself and say what you assumed.\n"
+const askRule = "- If a decision only the user can make blocks you, call ask_user on its own, not alongside " +
+	"other tool calls, and wait for the answer; otherwise decide yourself and say what you assumed. Put every " +
+	"question you have in that one call (questions, at most 3 per task): the user answers them together.\n"
 
 func askSpec() monomind.ToolSpec {
 	return monomind.ToolSpec{
-		Name:        ToolAskUser,
-		Description: "Ask the user one short question and wait for the answer. Use it only for a decision you can't make yourself.",
-		Schema:      obj(map[string]any{"question": str("The question, one or two sentences.")}, "question"),
+		Name: ToolAskUser,
+		Description: "Ask the user and wait for the answer. Use it only for decisions you can't make yourself. " +
+			"Put all your questions in one call: the user answers them together.",
+		Schema: obj(map[string]any{"questions": map[string]any{
+			"type": "array", "description": "The questions, each one or two sentences.",
+			"items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": MaxQuestions,
+		}}, "questions"),
 	}
+}
+
+// askArgs reads an ask_user call's questions. "question" is the single
+// question older prompts send.
+func askArgs(args json.RawMessage) ([]string, error) {
+	var a struct {
+		Question  string   `json:"question"`
+		Questions []string `json:"questions"`
+	}
+	var out []string
+	if err := json.Unmarshal(orEmpty(args), &a); err == nil {
+		for _, q := range append([]string{a.Question}, a.Questions...) {
+			if q = strings.TrimSpace(q); q != "" {
+				out = append(out, q)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("questions is required: a list of 1 to %d questions", MaxQuestions)
+	}
+	return out, nil
 }
 
 // workerTools gives the worker its caller tools when its exec can take
@@ -93,13 +118,11 @@ func (c *Conductor) workerTools(w *worker, m Model, opts *monomind.ExecOptions) 
 		if !asks || name != ToolAskUser {
 			return "", fmt.Errorf("unknown tool %q", name)
 		}
-		var a struct {
-			Question string `json:"question"`
+		questions, err := askArgs(args)
+		if err != nil {
+			return "", err
 		}
-		if err := json.Unmarshal(orEmpty(args), &a); err != nil || strings.TrimSpace(a.Question) == "" {
-			return "", fmt.Errorf("question is required")
-		}
-		return c.ask(ctx, w, strings.TrimSpace(a.Question))
+		return c.ask(ctx, w, questions)
 	}
 	if m.Runtime == "claude" {
 		// Claude Code times out MCP calls on its own; let the wait run.
@@ -112,20 +135,34 @@ func (c *Conductor) workerTools(w *worker, m Model, opts *monomind.ExecOptions) 
 	}
 }
 
-// ask journals a worker's question and waits for the user's answer.
-func (c *Conductor) ask(ctx context.Context, w *worker, question string) (string, error) {
+// ask journals a worker's questions as one question of the journal and one
+// card, and waits for the user's answer to all of them.
+func (c *Conductor) ask(ctx context.Context, w *worker, questions []string) (string, error) {
+	question := questions[0]
+	if len(questions) > 1 {
+		numbered := make([]string, len(questions))
+		for i, q := range questions {
+			numbered[i] = strconv.Itoa(i+1) + ". " + q
+		}
+		question = strings.Join(numbered, "\n")
+	}
 	c.mu.Lock()
 	// One question at a time: tool calls of one message run concurrently,
 	// and a second ask would release nothing and retake a second slot.
 	if w.openQuestion != "" {
 		c.mu.Unlock()
-		return "", fmt.Errorf("you already have an open question for the user; wait for its answer before asking another")
+		return "", fmt.Errorf("you already have an open question for the user; wait for its answer before asking another " +
+			"(put all your questions in one call)")
 	}
-	if w.askedThisRun >= MaxQuestions {
+	if left := MaxQuestions - w.askedThisRun; len(questions) > left {
+		asked := w.askedThisRun
 		c.mu.Unlock()
-		return "", fmt.Errorf("you already asked %d questions; decide yourself and say what you assumed", MaxQuestions)
+		if left > 0 {
+			return "", fmt.Errorf("you can ask %d more question(s) in this task; ask only what matters most, in one call", left)
+		}
+		return "", fmt.Errorf("you already asked %d questions; decide yourself and say what you assumed", asked)
 	}
-	w.askedThisRun++
+	w.askedThisRun += len(questions)
 	w.questionSeq++
 	qid := "q" + strconv.Itoa(w.questionSeq)
 	w.openQuestion = question // claimed here, in the same critical section as the check
@@ -137,11 +174,11 @@ func (c *Conductor) ask(ctx context.Context, w *worker, question string) (string
 	c.suspend(w)
 	// Status first: the stage clears "needs you" on the next status change.
 	c.setStatus(w, chatevents.AgentWaitingUser, qid)
-	bounded, cut, _ := chatevents.BoundText(question, 2000)
+	bounded, cut, _ := chatevents.BoundText(question, 2000*len(questions))
 	c.cfg.Emit.Emit(chatevents.EventAgentMessage, chatevents.AgentMessagePayload{
 		AgentID: w.id, Direction: "question", QuestionID: qid, From: w.id, To: "user", Text: bounded, Truncated: cut,
 	})
-	c.askSurface(w.id, qid, bounded)
+	c.askSurface(w.id, qid, questions...)
 
 	answer, answered, err := c.waitAnswer(ctx, w.id, qid)
 	c.mu.Lock()

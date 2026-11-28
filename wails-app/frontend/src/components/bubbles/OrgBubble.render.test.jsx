@@ -117,7 +117,29 @@ describe('an org bubble', () => {
     expect(screen.getByTestId('org-chat-approval')).toHaveAttribute('data-pending', 'false')
   })
 
+  // Two questions wait in the fixture: both are answered, then sent together (#1803).
+  it('holds the answers of several waiting questions until all are sent together', async () => {
+    api.answerOrgChat.mockResolvedValue({ ok: true, state: 'answered', already: false })
+    render(<Harness />)
+    await waitFor(() => expect(screen.getAllByTestId('org-chat-question')).toHaveLength(3))
+    const [, first, second] = screen.getAllByTestId('org-chat-question')
+    fireEvent.change(first.querySelector('input'), { target: { value: 'Yes, run e2e' } })
+    fireEvent.keyDown(first.querySelector('input'), { key: 'Enter' })
+    expect(first.querySelector('[data-testid="org-chat-answer"]')).toBeNull()
+    const send = within(screen.getByTestId('answer-set-bar')).getByRole('button', { name: 'Send all' })
+    expect(send).toBeDisabled()
+    fireEvent.click(send)
+    expect(api.answerOrgChat).not.toHaveBeenCalled()
+    fireEvent.change(second.querySelector('input'), { target: { value: 'Tomorrow' } })
+    fireEvent.click(send)
+    await waitFor(() => expect(api.answerOrgChat).toHaveBeenCalledTimes(2))
+    expect(api.answerOrgChat.mock.calls.map(c => c[2])).toEqual(['Yes, run e2e', 'Tomorrow'])
+  })
+
   it('answers a question once, however often it is clicked', async () => {
+    const waiting = history.items.filter(it => it.kind === 'question' && it.pending).map(it => it.ref)
+    const items = history.items.map(it => (it.ref === waiting[1] ? { ...it, pending: false, answer: 'later' } : it))
+    api.getOrgChatHistory.mockResolvedValue({ ...history, items })
     const pending = deferred()
     api.answerOrgChat.mockReturnValue(pending.promise)
     render(<Harness />)

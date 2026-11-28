@@ -6,6 +6,9 @@
  * Text, Row, Column, Card, Divider, Button, TextField, CheckBox, ChoicePicker,
  * Progress, Badge. Anything else is a muted placeholder.
  *
+ * When several cards wait at once (a2ui_timeline.js: setGrouped), a Button sends
+ * nothing: the card holds what the person picked until the set is sent (#1803).
+ *
  * Fields (TextField, CheckBox, ChoicePicker) change the LOCAL data model only.
  * A Button builds the A2UI action envelope and hands it to `onAction`:
  *
@@ -21,7 +24,11 @@
  * each component drawn at most once, depth 12, text clipped; a surface that cannot be drawn
  * becomes one error card instead of throwing.
  *
- * Use:  const m = MonoA2UIRender.mount(document, surface, { onAction });
+ * A pick holds only for the card version it was made on (opts.revision()), and a
+ * typed value only while its field means the same: otherwise it is cleared and
+ * the card says so. Each action names the version the person saw.
+ *
+ * Use:  const m = MonoA2UIRender.mount(document, surface, { onAction, onChange, onEdit, revision });
  *       parent.appendChild(m.el);  ...  m.sync(surface) after each model change.
  */
 
@@ -41,6 +48,13 @@
   const SENT = "Sent. The buttons work again in a few seconds.";
   const WORKING = "Working. Do not press again: this can take a while.";
   const STILL = "Still in progress. Do not press again: this card shows how it ends.";
+  const ANSWER_FIRST = "Answer every question first.";
+  const PICK_DROPPED = "This card changed, so your pick was cleared. Look at it again.";
+  const TYPED_DROPPED = "This card changed: what you typed into a changed field was cleared.";
+  const SET_NOTES = {
+    ask: "Answer here, then send all the questions together below.", askReady: "Ready. Not sent yet: use Send all below.",
+    pick: "Pick a button. It is sent only with Send all below.", picked: "Picked. Not sent yet: use Send all below.", skipped: "Skipped: this card is left out and stays open.",
+  };
   const TONE = { info: ["i", "Note"], success: ["✓", "Success"], warning: ["!", "Warning"], danger: ["✕", "Problem"] };
   const FLEX = { start: "flex-start", center: "center", end: "flex-end", stretch: "stretch", spaceBetween: "space-between", spaceAround: "space-around", spaceEvenly: "space-evenly" };
   let uid = 0;
@@ -86,6 +100,20 @@
     let s = surface;
     let binds = []; // closures that refresh a bound value after the model changed
     let buttons = []; // the surface's button elements
+    let declared = []; // {el, id, comp} of the buttons that send an event
+    // The card as part of a set: whether it is one, the button picked, whether it is skipped, whether the set is going out.
+    let grouped = false;
+    let picked = o.picked && typeof o.picked.chosen === "string" ? o.picked.chosen : "";
+    let skipped = !!(o.picked && o.picked.skipped);
+    let pickedOn = o.picked && typeof o.picked.rev === "string" ? o.picked.rev : ""; // the card version picked on
+    const rev = () => (typeof o.revision === "function" ? String(o.revision() || "") : "");
+    let shownRev = ""; // the version on screen
+    let pickDropped = false;
+    let typedDropped = false;
+    const typed = new Map(); // path -> {value, meaning, was}: what the person changed
+    let setBusy = false;
+    let hint = null; // says what the card waits for
+    let skip = null; // leaves an agent's card out of the set
     let timer = null; // re-enables them after a press
     let held = false; // a press has not answered, or is still in progress
     let seen = { struct: -1, data: -1 };
@@ -138,6 +166,7 @@
     /** press marks the whole surface as sent (or not): one press, one answer. */
     function setSent(sent) {
       for (const b of buttons) {
+        b.dataset.sent = String(sent);
         if (sent) {
           b.setAttribute("aria-disabled", "true");
           b.setAttribute("aria-describedby", named(status));
@@ -147,7 +176,148 @@
         }
       }
       if (status) status.textContent = sent ? SENT : "";
-      if (!sent) clearT(timer);
+      if (!sent) {
+        clearT(timer);
+        paint();
+      }
+    }
+    const asks = () => s.provenance === "system" && String(s.id).startsWith("ask-");
+    /** answered: every field the button sends holds something. */
+    function answered(b) {
+      const ctx = b && isObj(b.comp.action.event.context) ? b.comp.action.event.context : {};
+      return Object.values(ctx).every((v) => {
+        if (!pathOf(v)) return true;
+        const x = dyn(v);
+        return Array.isArray(x) ? x.length > 0 : x !== undefined && x !== null && String(x).trim() !== "";
+      });
+    }
+    const chosen = () => (pickedOn === rev() && declared.some((b) => b.id === picked) ? picked : "");
+    const leftOut = () => skipped && pickedOn === rev();
+    /** dropStale forgets a pick or a skip made on an earlier version of the card. */
+    function dropStale() {
+      if ((!picked && !skipped) || pickedOn === rev()) return;
+      picked = "";
+      skipped = false;
+      pickDropped = true;
+      if (typeof o.onPick === "function") o.onPick(null);
+    }
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    /** meaning is what a field's value says to the person: the inputs bound to the path and the buttons that send it. */
+    function meaning(path) {
+      const read = (v) => {
+        const x = dyn(v);
+        return x === undefined ? null : x;
+      };
+      const comps = Object.keys(s.components).map((k) => s.components[k]).filter(isObj);
+      const textAt = (id) => {
+        const c = Object.prototype.hasOwnProperty.call(s.components, id) ? s.components[id] : null;
+        return c && c.component === "Text" ? read(c.text) : null;
+      };
+      const out = [];
+      for (const c of comps) {
+        if (pathOf(c.value) === path) {
+          const parent = comps.find((p) => Array.isArray(p.children) && p.children.includes(c.id));
+          const above = parent ? textAt(parent.children[parent.children.indexOf(c.id) - 1]) : null;
+          const options = (Array.isArray(c.options) ? c.options : []).map((op) => (isObj(op) ? [read(op.label), op.value] : null));
+          out.push([c.id, c.component, read(c.label), options, c.variant || null, read(c.placeholder), above]);
+        }
+        const ev = isObj(c.action) && isObj(c.action.event) ? c.action.event : null;
+        const ctx = ev && isObj(ev.context) ? ev.context : {};
+        for (const k of Object.keys(ctx)) if (pathOf(ctx[k]) === path) out.push([c.id, ev.name, k, textAt(c.child)]);
+      }
+      return JSON.stringify(out);
+    }
+    const keep = (path, entry) => {
+      if (entry) typed.set(path, entry);
+      else typed.delete(path);
+      if (typeof o.onEdit === "function") o.onEdit(path, entry);
+    };
+    /** checkTyped clears what was typed into a field whose meaning changed; a value the agent replaced is just forgotten. */
+    function checkTyped() {
+      for (const [path, t] of [...typed]) {
+        const held = same(Model().getAt(s.dataModel, path), t.value);
+        if (meaning(path) !== t.meaning) {
+          if (held) Model().writeLocal(s, path, t.was);
+          typedDropped = true;
+          keep(path, null);
+        } else if (!held) keep(path, null);
+      }
+    }
+    /** reopen puts saved typing back, where the field is still what it was. */
+    function reopen(saved) {
+      for (const path of Object.keys(isObj(saved) ? saved : {})) {
+        const t = saved[path];
+        if (!isObj(t)) continue;
+        const now = meaning(path) === t.meaning;
+        if (now && same(Model().getAt(s.dataModel, path), t.was)) {
+          Model().writeLocal(s, path, t.value);
+          typed.set(path, t);
+        } else {
+          if (!now) typedDropped = true;
+          keep(path, null);
+        }
+      }
+    }
+    /** waiting is what the card adds to a set; null when there is nothing to answer. */
+    function waiting() {
+      if (s.deleted || !declared.length) return null;
+      if (asks()) return { asks: true, skipped: false, ready: answered(declared[0]) };
+      if (s.provenance === "system") return null; // approvals and missions are pressed on their own
+      return { asks: false, skipped: leftOut(), ready: leftOut() || !!chosen() };
+    }
+    /** collect is the card's part of a set: {action}, or {skip} when the person left it out. */
+    function collect() {
+      const w = waiting();
+      if (!w || !w.ready) return null;
+      if (w.skipped) return { skip: s.id };
+      const b = asks() ? declared[0] : declared.find((d) => d.id === chosen());
+      const env = envelope(b.comp.action, b.id);
+      return env ? { action: env.action } : null;
+    }
+    /** paint shows each button and the note under the card as the card stands: alone, or part of a set. */
+    function paint() {
+      dropStale();
+      const w = waiting();
+      const ask = asks();
+      const unanswered = !!w && ask && !w.ready;
+      for (const b of declared) {
+        b.el.hidden = grouped && ask; // the set's own button sends a question
+        if (grouped && !ask) b.el.setAttribute("aria-pressed", String(!leftOut() && chosen() === b.id));
+        else b.el.removeAttribute("aria-pressed");
+        const sent = b.el.dataset.sent === "true";
+        if (setBusy || sent || (!grouped && unanswered)) b.el.setAttribute("aria-disabled", "true");
+        else b.el.removeAttribute("aria-disabled");
+      }
+      if (skip) {
+        skip.hidden = !grouped || ask;
+        skip.textContent = leftOut() ? "Skipped (press to undo)" : "Skip this one";
+        skip.setAttribute("aria-pressed", String(leftOut()));
+      }
+      if (!hint) return;
+      let text = "";
+      if (pickDropped) text = PICK_DROPPED;
+      else if (typedDropped) text = TYPED_DROPPED;
+      else if (grouped && w) text = ask ? SET_NOTES[w.ready ? "askReady" : "ask"] : SET_NOTES[leftOut() ? "skipped" : chosen() ? "picked" : "pick"];
+      else if (unanswered) text = ANSWER_FIRST;
+      if (hint.textContent !== text) hint.textContent = text;
+    }
+    const changed = () => {
+      paint();
+      if (typeof o.onChange === "function") o.onChange();
+    };
+    function pick(id, leave) {
+      picked = id;
+      skipped = leave;
+      pickedOn = shownRev; // what the person saw, even if a change is already on its way
+      pickDropped = false;
+      if (typeof o.onPick === "function") o.onPick({ chosen: picked, skipped, rev: pickedOn });
+      changed();
+    }
+    function setGrouped(on, busy) {
+      if (grouped === on && setBusy === !!busy) return;
+      grouped = on;
+      setBusy = !!busy;
+      paint();
     }
     /**
      * pressed hands a press over. While onAction's promise is open the buttons
@@ -191,10 +361,14 @@
         get: () => (path ? dyn(v) : lit),
         set: (x) => {
           if (path) {
+            const was = typed.has(path) ? typed.get(path).was : dyn(v);
             Model().writeLocal(s, path, x);
             localData = s.dataVersion;
             seen.data = s.dataVersion;
             for (const b of binds) b();
+            typedDropped = false;
+            keep(path, { value: x, meaning: meaning(path), was });
+            changed();
           } else lit = x;
         },
       };
@@ -286,11 +460,13 @@
           if (k) e.appendChild(k);
         }
         buttons.push(e);
+        if (envelope(c.action, id)) declared.push({ el: e, id, comp: c });
         e.addEventListener("click", () => {
           if (e.getAttribute("aria-disabled") === "true") return;
           const env = envelope(c.action, id);
           if (!env) return;
-          pressed(env);
+          if (!grouped) pressed(env);
+          else if (!asks()) pick(picked === id && pickedOn === shownRev ? "" : id, false);
         });
         return e;
       },
@@ -454,7 +630,9 @@
           ctx[k] = v === undefined ? null : Model().clean(v, 0);
         }
       }
-      return { version: "1.0", action: { name: ev.name, surfaceId: s.id, sourceComponentId: sourceId, timestamp: now(), context: ctx } };
+      const sent = { name: ev.name, surfaceId: s.id, sourceComponentId: sourceId, timestamp: now(), context: ctx };
+      if (shownRev) sent.revision = shownRev;
+      return { version: "1.0", action: sent };
     }
 
     function provenance() {
@@ -507,6 +685,7 @@
       const cid = focused && focused.dataset && wrap.contains && wrap.contains(focused) ? focused.dataset.cid : "";
       binds = [];
       buttons = [];
+      declared = [];
       count = 0;
       visits = 0;
       drawn = new Set();
@@ -521,9 +700,24 @@
         while (frag.children && frag.children.length) frag.removeChild(frag.children[0]);
         binds = [];
         buttons = [];
+        declared = [];
         const err = mk("div", "a2ui-card a2ui-error");
         err.textContent = "This card could not be shown.";
         frag.appendChild(err);
+      }
+      hint = doc.createElement("div");
+      hint.className = "a2ui-hint";
+      frag.appendChild(hint);
+      skip = null;
+      if (declared.length && s.provenance !== "system") {
+        skip = doc.createElement("button");
+        skip.type = "button";
+        skip.className = "a2ui-skip";
+        skip.dataset.cid = "set:skip";
+        skip.addEventListener("click", () => {
+          if (!setBusy) pick("", !leftOut());
+        });
+        frag.appendChild(skip);
       }
       status = mk("div", "a2ui-status");
       status.setAttribute("role", "status");
@@ -547,6 +741,8 @@
         return;
       }
       wrap.hidden = false;
+      shownRev = rev();
+      checkTyped();
       if (s.structVersion !== seen.struct) rebuild();
       else if (s.dataVersion !== seen.data) {
         // The agent changed the data: refresh what is bound, and let buttons act again.
@@ -554,16 +750,18 @@
         for (const b of binds) b();
       }
       seen = { struct: s.structVersion, data: s.dataVersion };
+      paint();
       rename();
     }
 
+    reopen(o.typed);
     sync(surface);
     function destroy() {
       clearT(timer);
       unwatch();
       if (doc.fonts && doc.fonts.removeEventListener) doc.fonts.removeEventListener("loadingdone", growAll);
     }
-    return { el: wrap, sync, destroy };
+    return { el: wrap, sync, destroy, waiting, collect, setGrouped };
   }
 
   root.MonoA2UIRender = { mount, textOf, clip, MAX_NODES, MAX_DEPTH };

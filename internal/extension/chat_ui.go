@@ -22,7 +22,9 @@ import (
 // enforces the operator rule itself).
 //
 //	chat.ui_action {profile, conversation, action}
-//	    action is the A2UI action envelope {"version":"1.0","action":{...}}.
+//	    action is the A2UI action envelope {"version":"1.0","action":{...}}, or
+//	    the set envelope {"version":"1.0","actions":[...],"skipped"?:[ids]} of
+//	    the cards sent together.
 //	    -> the `chat ui action` document: {outcome, reason?, delivered?,
 //	       handled?, message?, agent_id?}
 //	chat.ui_sync   {profile, conversation}
@@ -116,10 +118,10 @@ func (cb *chatBridge) uiAction(b ChatUIBackend) RequestHandler {
 			return nil, invalidParam("action must be an A2UI action envelope")
 		}
 		raw, err := json.Marshal(env)
-		if err != nil || len(raw) > a2ui.DefaultLimits.MaxActionBytes {
-			return nil, invalidParam("action is larger than %d bytes", a2ui.DefaultLimits.MaxActionBytes)
+		if err != nil || len(raw) > a2ui.DefaultLimits.MaxSetBytes {
+			return nil, invalidParam("action is larger than %d bytes", a2ui.DefaultLimits.MaxSetBytes)
 		}
-		if _, err := a2ui.ParseAction(raw, a2ui.DefaultLimits); err != nil {
+		if _, err := a2ui.ParsePress(raw, a2ui.DefaultLimits); err != nil {
 			return nil, invalidParam("%v", err)
 		}
 		return b.UIAction(ctx, profile, conv, raw)
@@ -185,6 +187,7 @@ func (b *cliChatBackend) UIAction(ctx context.Context, profile, conversation str
 	if err != nil {
 		return nil, err
 	}
+	// A set never holds an approval, so only a single press can be a host's.
 	press, err := a2ui.ParseAction(action, a2ui.DefaultLimits)
 	host := err == nil && strings.HasPrefix(press.Name, "hil.")
 	wait := ctx

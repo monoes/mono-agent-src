@@ -84,7 +84,13 @@
   // the scripts, or without such an event, none of this does anything.
   const A2 = globalThis.MonoA2UIModel && globalThis.MonoA2UIRender && globalThis.MonoA2UIRender.timeline ? globalThis.MonoA2UIRender : null;
   const onUiAction = (envelope) => pressSurface(envelope);
-  const ui = A2 ? A2.timeline(document, { onAction: onUiAction }) : null;
+  // Typing on a card is saved a moment later, so reopening the panel shows it again.
+  let draftTimer = null;
+  const onDirty = () => {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => uiSave(), 400);
+  };
+  const ui = A2 ? A2.timeline(document, { onAction: onUiAction, onSet: onUiAction, onDirty }) : null;
   const uiKey = () => `chatUi:${profile || "_"}`;
   const uiSave = () => (ui && ui.has() ? chrome.storage.local.set({ [uiKey()]: ui.dump(chat.conversation) }) : Promise.resolve());
   const lastMessageId = () => (chat.messages.length ? chat.messages[chat.messages.length - 1].id : "");
@@ -98,9 +104,10 @@
   const uiQueue = []; // {message, profile, conversation}
   const UI_QUEUE_MAX = 5;
 
-  /** pressSurface sends a button press to the backend and acts on the answer. */
+  /** pressSurface sends a button press, or a set of them, to the backend and acts on the answer. */
   async function pressSurface(envelope) {
-    const act = envelope && envelope.action;
+    const set = !!(envelope && Array.isArray(envelope.actions));
+    const act = set ? Object.assign({}, envelope.actions[0], { name: "Send all" }) : envelope && envelope.action;
     if (!ui || !act || !chat.conversation) return;
     const sid = act.surfaceId;
     const mine = loadSeq; // a profile or chat switched during the press changes it
