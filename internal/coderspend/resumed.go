@@ -72,6 +72,8 @@ type turnReports struct {
 	models map[string]chatevents.CoderModelUsage
 	mixed  bool // two different sets of counters: neither can be trusted
 	follow *chatevents.FollowUpUsage
+	// perTurn: the cost is the turn's own (monomind's agent-exec-turn-cost), nothing to subtract.
+	perTurn bool
 }
 
 func (r *turnReports) addModels(m map[string]chatevents.CoderModelUsage) {
@@ -165,6 +167,7 @@ func turnCosts(q Querier, profileID, conversationID string) (map[string]float64,
 				CostUSD  *float64                  `json:"costUsd"`
 				Source   string                    `json:"source"`
 				FollowUp *chatevents.FollowUpUsage `json:"followUp"`
+				PerTurn  bool                      `json:"costPerTurn"`
 			}
 			if json.Unmarshal([]byte(raw), &p) != nil || !validCost(p.CostUSD) {
 				continue // not numeric, negative: not a cost
@@ -182,6 +185,7 @@ func turnCosts(q Querier, profileID, conversationID string) (map[string]float64,
 			if cur, seen := lead[turn]; !seen || *p.CostUSD > cur {
 				lead[turn] = *p.CostUSD
 			}
+			r.perTurn = r.perTurn || p.PerTurn
 			if p.FollowUp != nil && validCost(&p.FollowUp.CostUSD) {
 				r.follow = p.FollowUp
 				continue
@@ -206,7 +210,8 @@ func turnCosts(q Querier, profileID, conversationID string) (map[string]float64,
 // runtime: each report is compared with that of the previous turn of the SAME runtime session (Added), the turns taken
 // in the order they were created. When that turn recorded no cost, nothing is known of where the session stood. Such a
 // turn, one that bound no session and the first of a session all leave nothing to subtract: the whole figure is
-// charged, so a doubt charges more, never less.
+// charged, so a doubt charges more, never less. A turn whose cost is marked as its own is charged as reported, and
+// leaves no total to compare a later one with.
 func deltaOfResumedSessions(lead map[string]float64, reports map[string]*turnReports) {
 	order := make([]string, 0, len(reports))
 	for turn, r := range reports {
@@ -223,7 +228,7 @@ func deltaOfResumedSessions(lead map[string]float64, reports map[string]*turnRep
 	last := map[string]*Totals{} // session -> its latest report
 	for _, turn := range order {
 		r := reports[turn]
-		if _, reported := lead[turn]; !reported {
+		if _, reported := lead[turn]; !reported || r.perTurn {
 			delete(last, r.session)
 			continue
 		}
