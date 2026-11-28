@@ -85,6 +85,16 @@ func StartupTimeoutSetting(saved time.Duration) (time.Duration, string) {
 	return DefaultStartupTimeout, StartupTimeoutFromDefault
 }
 
+// withStartupHint adds to monomind's start-up failure which setting raises the limit. monomind reports it as a
+// non-fatal error before a nonzero exit.
+func withStartupHint(msg string) string {
+	if !strings.Contains(msg, "did not initialize") {
+		return msg
+	}
+	return msg + " — set " + StartupTimeoutEnv + " (e.g. 180s), or for coder turns `coder set --startup-timeout 180s` " +
+		"(in the app: Settings, Coder mode, Start-up limit), to give claude longer to start"
+}
+
 func startupTimeoutFor(opts ExecOptions) time.Duration {
 	if opts.StartupTimeout > 0 {
 		return min(opts.StartupTimeout, MaxStartupTimeout)

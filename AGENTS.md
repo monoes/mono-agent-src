@@ -2445,7 +2445,9 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   variable `MONOAGENT_STARTUP_TIMEOUT` overrides it, and applies to every
   other claude turn too. Both take a duration with its unit (`3m`, `180s`;
   at least 1s for the flag), and more than 1h is cut to 1h; an unreadable
-  variable is ignored with a warning. `coder status --json` shows
+  variable is ignored with a warning. In the app it is Settings, Coder mode,
+  "Start-up limit" (empty = the default). A turn that fails with "claude did
+  not initialize" names both in its error. `coder status --json` shows
   `startupTimeout` (the stored value), `startupTimeoutEffective` and
   `startupTimeoutSource` (`default`, `set` or `env`). A monomind too old for
   the flag ignores it.

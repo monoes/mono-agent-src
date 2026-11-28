@@ -4579,6 +4579,10 @@
     "limits_budget": "; el presupuesto, en {{names}}",
     "limits_no_budget": "; ningún entorno listo informa del coste, así que no hay presupuesto",
     "no_runtime": "ningún entorno listo",
+    "startup_limit": "Límite de arranque",
+    "startup_hint": "Cuánto puede tardar Claude en arrancar (sus hooks SessionStart y servidores MCP), p. ej. 3m. Vacío usa el valor predeterminado, 2m.",
+    "startup_effective": "En vigor ahora: {{value}}.",
+    "startup_env": "MONOAGENT_STARTUP_TIMEOUT tiene prioridad: está en vigor {{value}}.",
     "saving": "Guardando…",
     "save": "Guardar"
   },

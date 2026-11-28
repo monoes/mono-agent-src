@@ -36,7 +36,7 @@ describe('CoderOrgSection, this computer', () => {
     App.CoderSet.mockResolvedValue(status({ orgRouter: 'model' }))
     fireEvent.change(router, { target: { value: 'model' } })
     // Only the router changes: the other settings are passed as "leave alone".
-    await waitFor(() => expect(App.CoderSet).toHaveBeenCalledWith('', 0, '', -1, 'model'))
+    await waitFor(() => expect(App.CoderSet).toHaveBeenCalledWith('', 0, '', -1, 'model', ''))
     await waitFor(() => expect(router).toHaveValue('model'))
     expect(screen.getByText(/The lead names roles from its org roster/)).toBeInTheDocument()
   })

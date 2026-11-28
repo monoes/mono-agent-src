@@ -57,6 +57,7 @@ function formFrom(st) {
     maxTurns: st?.maxTurns ? String(st.maxTurns) : '',
     timeout: st?.timeout || '',
     budgetUsd: st?.budgetUsd ? String(st.budgetUsd) : '',
+    startupTimeout: st?.startupTimeout || '',
   }
 }
 
@@ -101,7 +102,10 @@ export default function CoderModeSection() {
     const budget = form.budgetUsd.trim() === '' ? 0 : Number(form.budgetUsd)
     if (form.maxTurns && !(maxTurns > 0)) throw new Error(t('coderMode.maxTurnsInvalid'))
     if (!(budget >= 0)) throw new Error(t('coderMode.budgetInvalid'))
-    apply(await api.coderSet({ workspaceRoot: form.workspaceRoot.trim(), maxTurns: maxTurns || 0, timeout: form.timeout.trim(), budgetUsd: budget }))
+    // The start-up limit is sent only when changed; cleared means the default again ('0').
+    const startup = form.startupTimeout.trim()
+    const startupTimeout = startup === (status.startupTimeout || '') ? '' : startup || '0'
+    apply(await api.coderSet({ workspaceRoot: form.workspaceRoot.trim(), maxTurns: maxTurns || 0, timeout: form.timeout.trim(), budgetUsd: budget, startupTimeout }))
     setNote(t('coderMode.saved'))
   })
 
@@ -187,6 +191,12 @@ export default function CoderModeSection() {
               <span style={label}>{t('ui6SetCoder.timeout')}</span>
               <input aria-label={t('ui6SetCoder.timeout')} value={form.timeout} onChange={set('timeout')} disabled={!!busy} placeholder="60m" style={input} />
             </div>
+            {status.startupTimeoutEffective && (
+              <div style={{ ...fieldRow, flex: '1 1 120px' }}>
+                <span style={label}>{t('ui6SetCoder.startup_limit')}</span>
+                <input aria-label={t('ui6SetCoder.startup_limit')} value={form.startupTimeout} onChange={set('startupTimeout')} disabled={!!busy} placeholder="2m" style={input} />
+              </div>
+            )}
             {showBudget && (
               <div style={{ ...fieldRow, flex: '1 1 120px' }}>
                 <span style={label}>{t('ui6SetCoder.budget_usd')}</span>
@@ -194,6 +204,12 @@ export default function CoderModeSection() {
               </div>
             )}
           </div>
+          {status.startupTimeoutEffective && (
+            <span data-testid="coder-startup-hint" style={hint}>
+              {t('ui6SetCoder.startup_hint')}{' '}
+              {t(status.startupTimeoutSource === 'env' ? 'ui6SetCoder.startup_env' : 'ui6SetCoder.startup_effective', { value: status.startupTimeoutEffective })}
+            </span>
+          )}
           {perRuntime && (
             <span data-testid="coder-limits-hint" style={hint}>
               {t('ui6SetCoder.limits', {
