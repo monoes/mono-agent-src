@@ -51,7 +51,7 @@ func (e *totalsExec) exec(_ context.Context, o monomind.ExecOptions, on func(mon
 	run := e.runs[min(len(e.calls), len(e.runs)-1)]
 	e.calls = append(e.calls, o)
 	e.mu.Unlock()
-	on(monomind.Event{Type: monomind.EventStart, CostFields: monomind.CostFields{CostPerTurn: run.perTurn}})
+	on(monomind.Event{Type: monomind.EventStart, CostFields: monomind.CostFields{CostWhole: run.perTurn}})
 	if run.session != "" {
 		on(monomind.Event{Type: monomind.EventSession, SessionID: run.session})
 	}

@@ -115,8 +115,9 @@ type Event struct {
 
 // CostFields are set by Exec, not by monomind, on the events of a resumed claude turn.
 type CostFields struct {
-	// CostPerTurn: cost_usd is this turn's own (CapAgentExecTurnCost), not the session's running total.
-	CostPerTurn bool `json:"cost_per_turn,omitempty"`
+	// CostWhole: nothing is to be subtracted from cost_usd. It is the turn's own (CapAgentExecTurnCost), or Exec
+	// could not confirm that it is the session's running total.
+	CostWhole bool `json:"cost_whole,omitempty"`
 }
 
 // ResultFields are a `result` event's visibility fields (protocol rev 30,
@@ -140,7 +141,7 @@ type ResultFields struct {
 
 // ModelUsage is one model's token usage in ResultFields.ModelUsage. On the claude runtime these are the runtime
 // session's running counters, as its cost_usd is (a resume that restored the total carries both over), unless the
-// turn's cost is marked as its own (CostFields): then they are this turn's.
+// turn's cost is its own (monomind's CapAgentExecTurnCost): then they are this turn's.
 type ModelUsage struct {
 	Input         int64 `json:"input"`
 	Output        int64 `json:"output"`
