@@ -1002,6 +1002,33 @@ func TestRowsOnlyDeactivateWaitsAndThenReportsBusy(t *testing.T) {
 	}
 }
 
+// pauseBeforeCommit runs change in the background and returns once it waits before its commit step, where it stays until
+// release is closed; publicationWait is then short, for the kill switch the test runs against it. The paused change keeps a
+// long wait of its own: it must get to its commit step on a slow machine, and its context must still be live when it wakes,
+// so that only the kill switch can stop its commit.
+func pauseBeforeCommit(t *testing.T, change func() error) (done chan error, release chan struct{}) {
+	t.Helper()
+	entered := make(chan struct{})
+	done, release = make(chan error, 1), make(chan struct{})
+	guardedCommitFault = func() error { close(entered); <-release; return nil }
+	old := publicationWait
+	publicationWait = time.Minute
+	t.Cleanup(func() { publicationWait = old; guardedCommitFault = nil })
+	go func() { done <- change() }()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("the change ended before its commit step: %v", err)
+	case <-time.After(time.Minute):
+		t.Fatal("the change never reached its commit step")
+	}
+	guardedCommitFault = nil
+	// The change has read its wait already (Publish reads it before the first attempt). The kill switch waits this long for
+	// the open change before it switches the rows off anyway.
+	publicationWait = 2 * time.Second
+	return done, release
+}
+
 // An activation that is paused when the kill switch gives up waiting cannot commit afterwards: the
 // workflow stays off.
 func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
@@ -1010,22 +1037,14 @@ func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
 	if _, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil {
 		t.Fatal(err)
 	}
-	entered, release := make(chan struct{}), make(chan struct{})
-	guardedCommitFault = func() error { close(entered); <-release; return nil }
-	old := publicationWait
-	publicationWait = 150 * time.Millisecond
-	t.Cleanup(func() { publicationWait = old })
-	done := make(chan error, 1)
-	go func() { done <- h.SetWorkflowActive(ctx, "wf-g", true) }()
-	<-entered // the activation has written its file and waits before its commit
-	guardedCommitFault = nil
+	done, release := pauseBeforeCommit(t, func() error { return h.SetWorkflowActive(ctx, "wf-g", true) })
 	note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false)
 	if err != nil || note != RowsOnlyNote {
 		t.Fatalf("%q %v", note, err)
 	}
 	close(release)
-	if err := <-done; err == nil {
-		t.Fatal("the paused activation committed over the kill switch")
+	if err := <-done; !errors.Is(err, ErrPublicationLost) {
+		t.Fatalf("the paused activation committed over the kill switch, or failed for another reason: %v", err)
 	}
 	if rows, _ := s.GetWorkflow(ctx, "wf-g"); rows.IsActive {
 		t.Fatal("the workflow was switched back on")
@@ -1041,27 +1060,15 @@ func TestAPausedActivationCannotCommitOverTheKillSwitch(t *testing.T) {
 func TestAHungSaveCannotCommitAfterTheKillSwitch(t *testing.T) {
 	ctx := context.Background()
 	h, s, hash, nodes := guardedRig(t) // the workflow is off
-	entered, release := make(chan struct{}), make(chan struct{})
-	guardedCommitFault = func() error { close(entered); <-release; return nil }
-	old := publicationWait
-	publicationWait = 150 * time.Millisecond
-	t.Cleanup(func() { publicationWait = old })
-	done := make(chan error, 1)
-	go func() { done <- h.SaveNodesGuarded(ctx, "wf-g", nodes, SaveGuard{ExpectHash: hash}) }()
-	select {
-	case <-entered:
-	case err := <-done:
-		t.Fatalf("the save ended before its commit step: %v", err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("the save never reached its commit step")
-	}
-	guardedCommitFault = nil
+	done, release := pauseBeforeCommit(t, func() error {
+		return h.SaveNodesGuarded(ctx, "wf-g", nodes, SaveGuard{ExpectHash: hash})
+	})
 	if note, err := h.SetWorkflowActiveNoted(ctx, "wf-g", false); err != nil || note != RowsOnlyNote {
 		t.Fatalf("%q %v", note, err)
 	}
 	close(release)
-	if err := <-done; err == nil {
-		t.Fatal("the hung save committed after the kill switch")
+	if err := <-done; !errors.Is(err, ErrPublicationLost) {
+		t.Fatalf("the hung save committed after the kill switch, or failed for another reason: %v", err)
 	}
 	if sqlConfig(t, s, "wf-g", "g-set") == "edited" {
 		t.Fatal("the hung save changed the workflow after the kill switch")
