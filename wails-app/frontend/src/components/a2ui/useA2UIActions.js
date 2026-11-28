@@ -1,8 +1,9 @@
 // Wires a surface's button press to the CLI (`chat ui action`) and acts on the
 // answer. A press that was accepted for the next turn sends the CLI's message as
 // the next user message of the chat it was made in; if a turn is running there,
-// or another chat is on screen, it is held (per chat, in order) and sent when
-// that chat is shown and idle. Rejected/stale presses show their reason
+// the chat is still loading or another chat is on screen, it is held (per chat,
+// in order, also while the chat is closed) and sent when that chat is shown and
+// idle. Rejected/stale presses show their reason
 // as a toast. Every answer is followed by onChanged, which reads the journal
 // turns the CLI wrote (the press and any replaced card). submitSet sends the
 // questions of an AnswerSetBar together: the cards in one press, and what the
@@ -12,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, notify } from '../../services/api.js'
+import { holdMessage, takeHeld } from '../../lib/answerDrafts.js'
 
 const WATCH_MS = 1500
 const RETRY_MS = 1000
@@ -21,7 +23,6 @@ const bytesOf = s => new TextEncoder().encode(s).length
 
 export function useA2UIActions({ conversationId, send, streaming, onChanged }) {
   const { t } = useTranslation()
-  const held = useRef(new Map()) // conversation id -> messages waiting to be sent there
   const convRef = useRef(conversationId)
   convRef.current = conversationId
   const sendRef = useRef(send)
@@ -66,13 +67,13 @@ export function useA2UIActions({ conversationId, send, streaming, onChanged }) {
     // The chat on screen may have changed while the press ran.
     const elsewhere = convRef.current !== pressedIn
     if (elsewhere || streamingRef.current) {
-      held.current.set(pressedIn, [...(held.current.get(pressedIn) || []), message])
+      holdMessage(pressedIn, message)
       notify('a2ui', t(elsewhere ? 'a2ui.queuedElsewhere' : 'a2ui.queued'), '', t('a2ui.queuedTitle'))
       return true
     }
     const taken = await sendRef.current(message)
     if (taken === null) {
-      held.current.set(pressedIn, [...(held.current.get(pressedIn) || []), message])
+      holdMessage(pressedIn, message)
       retryLater()
       return true
     }
@@ -109,14 +110,13 @@ export function useA2UIActions({ conversationId, send, streaming, onChanged }) {
   }, [conversationId, press, deliver, t])
 
   useEffect(() => {
-    const waiting = held.current.get(conversationId)
-    if (streaming || flushing.current || !waiting?.length) return
-    const [next, ...rest] = waiting
-    held.current.set(conversationId, rest)
+    if (!conversationId || streaming || flushing.current) return
+    const next = takeHeld(conversationId)
+    if (!next) return
     flushing.current = true
     Promise.resolve(sendRef.current(next)).then(taken => {
       if (taken !== null) return
-      held.current.set(conversationId, [next, ...(held.current.get(conversationId) || [])])
+      holdMessage(conversationId, next, { first: true })
       retryLater()
     }).finally(() => { flushing.current = false })
   }, [conversationId, streaming, retry, retryLater])

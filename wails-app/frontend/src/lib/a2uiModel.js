@@ -170,6 +170,8 @@ export function applySurfaceEvent(surfaces, payload, seq, partIndex = 0) {
 export function applyActionEvent(surfaces, payload) {
   const idx = surfaces.findIndex(s => s.surfaceId === payload?.surfaceId)
   if (idx === -1 || surfaces[idx].provenance === 'system') return surfaces
+  // A refused later press opens no answered card again.
+  if (surfaces[idx].status === 'resolved' && payload.outcome !== 'accepted') return surfaces
   const status = payload.outcome === 'accepted' ? 'resolved' : payload.outcome === 'stale' ? 'resolved' : 'live'
   const out = surfaces.slice()
   out[idx] = { ...surfaces[idx], status, lastOutcome: payload.outcome, lastReason: payload.reason || '' }

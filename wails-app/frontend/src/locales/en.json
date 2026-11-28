@@ -1779,7 +1779,8 @@
     "answer": "Answer",
     "answerLabel": "Your answer",
     "answerPlaceholder": "Type your answer…",
-    "answerInCard": "Answer in the card; all waiting questions are sent together."
+    "answerInCard": "Answer in the card; all waiting questions are sent together.",
+    "typedHere": "You typed here: {{text}}"
   },
   "stage": {
     "subagent": "Subagent",

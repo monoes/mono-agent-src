@@ -38,7 +38,7 @@ const ask = (agent, question) => {
   const id = `${agent}.q1`
   return [
     ['agent.spawned', { agentId: agent, role: agent }],
-    ['agent.status', { agentId: agent, status: 'waiting_user' }],
+    ['agent.status', { agentId: agent, from: 'working', to: 'waiting_user', detail: 'q1' }],
     ['agent.message', { agentId: agent, direction: 'question', questionId: 'q1', from: agent, to: 'user', text: question }],
     ['ui.surface', { surfaceId: `ask-${id}`, provenance: 'system', ref: { kind: 'ask', id }, message: v({ createSurface: {
       surfaceId: `ask-${id}`, dataModel: { answers: { q0: '' } },
@@ -291,6 +291,73 @@ describe('a card that changes under an answer', () => {
     render(view(finished([block('Delete')])))
     expect(await screen.findByRole('button', { name: 'Delete' })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText(/This question changed/)).toBeInTheDocument()
+  })
+})
+
+// A worker's row has an Answer box of its own: it must not send around the set.
+describe('a lone question beside an agent card', () => {
+  const both = [...ask('w1', 'Which region?'), card('db')]
+
+  it('offers no way to send the question alone', () => {
+    render(view(live(both)))
+    expect(sendAll()).toBeDisabled()
+    expect(screen.getByTestId('agent-question')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Answer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+  })
+
+  it('keeps showing what was typed in the row when the card arrives', () => {
+    const { rerender } = render(view(live(ask('w1', 'Which region?'))))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your answer' }), { target: { value: 'eu-west' } })
+    rerender(view(live(both)))
+    expect(screen.queryByRole('button', { name: 'Answer' })).toBeNull()
+    expect(screen.getByTestId('agent-question')).toHaveTextContent('eu-west')
+    expect(api.answerAgentQuestion).not.toHaveBeenCalled()
+  })
+
+  it('has the row box when the question is alone', () => {
+    render(view(live(ask('w1', 'Which region?'))))
+    expect(screen.getByRole('button', { name: 'Answer' })).toBeInTheDocument()
+  })
+})
+
+describe('a set the host refuses', () => {
+  const run = [...ask('w1', 'Which region?'), card('a'), card('b')]
+  const gone = ['ui.surface', { surfaceId: 'b', provenance: 'agent', message: v({ deleteSurface: { surfaceId: 'b' } }) }]
+  const journal = (surfaceId, outcome) => ['ui.action', { surfaceId, name: 'x', outcome }]
+
+  it('keeps the cards still waiting answerable, with what was typed', () => {
+    const { rerender } = render(view(live(run)))
+    type('w1', 'eu')
+    fireEvent.click(screen.getByRole('button', { name: 'Yes a' }))
+    rerender(view(live([...run, gone, journal('b', 'stale'), journal('a', 'rejected')])))
+    expect(field('w1')).toHaveValue('eu')
+    expect(screen.getByRole('button', { name: 'Yes a' })).toHaveAttribute('aria-pressed', 'true')
+    expect(sendAll()).toBeEnabled()
+  })
+
+  it('reopens no card that was already answered', () => {
+    render(view(finished([card('a'), journal('a', 'accepted'), journal('a', 'rejected')])))
+    expect(screen.getByTestId('a2ui-surface')).toHaveAttribute('data-status', 'resolved')
+  })
+})
+
+describe('a held message', () => {
+  const turn = (id, c) => ({ role: 'turn', turnId: id, state: turnState(id, [card(c), done]) })
+
+  it('is sent when the chat is opened again after it was closed', async () => {
+    api.chatUIAction.mockResolvedValue({ outcome: 'accepted', delivered: 'next_turn', message: 'yes_region' })
+    const c = mk({ messages: [turn('t1', 'region')], streaming: true, activeTurnId: 't3', liveTurn: turnState('t3', []) })
+    const first = render(view(c))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes region' }))
+    await waitFor(() => expect(notify).toHaveBeenCalled())
+    first.unmount() // the bubble is collapsed
+    const again = mk({ messages: c.messages, loading: true })
+    const { rerender } = render(view(again))
+    expect(again.send).not.toHaveBeenCalled() // not before the chat has said whether a turn runs
+    rerender(view({ ...again, loading: false }))
+    await waitFor(() => expect(again.send).toHaveBeenCalledWith('yes_region', []))
+    expect(again.send).toHaveBeenCalledTimes(1)
   })
 })
 
