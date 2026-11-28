@@ -137,3 +137,76 @@ test("what was typed and picked comes back after the panel reopens, and is not s
   assert.equal(all(again.log).filter((n) => String(n.className).includes("a2ui-setbar")).length, 1);
   assert.match(again.log.children.at(-1).className, /a2ui-setbar/);
 });
+
+const rewrite = (id, seq) => ({ seq, turn: "t1", type: "ui.surface", payload: { surfaceId: id, provenance: "agent", message: { version: "1.0", updateComponents: { surfaceId: id, components: [
+  { id: "gl", component: "Text", text: "Delete the files" }, { id: "go", component: "Button", child: "gl", action: { event: { name: "delete_all", context: {} } } }] } } } });
+
+test("a pick is dropped, and said so, when the agent changes the card; each action names its card's version", () => {
+  const p = panel();
+  p.feed(agentCard("files", 1), agentCard("db", 2));
+  button(p.log, "Yes files").fire("click");
+  button(p.log, "Yes db").fire("click");
+  assert.equal(on(button(p.log, "Send all")), true);
+  p.feed(rewrite("files", 3));
+  assert.equal(button(p.log, "Delete the files").getAttribute("aria-pressed"), "false");
+  assert.match(p.log.textContent, /This card changed/);
+  assert.equal(on(button(p.log, "Send all")), false);
+  button(p.log, "Send all").fire("click");
+  assert.equal(p.sets.length + p.one.length, 0);
+  button(p.log, "Delete the files").fire("click");
+  button(p.log, "Send all").fire("click");
+  assert.deepEqual(p.sets[0].actions.map((a) => [a.name, a.revision]), [["delete_all", "t1:3"], ["yes_db", "t1:2"]]);
+});
+
+test("a change that arrived but is not drawn yet sends nothing", () => {
+  const p = panel();
+  p.feed(agentCard("files", 1), agentCard("db", 2));
+  button(p.log, "Yes files").fire("click");
+  button(p.log, "Yes db").fire("click");
+  const send = button(p.log, "Send all");
+  p.tl.ingest(rewrite("files", 3), ""); // no place(): the old card is still on screen
+  send.fire("click");
+  assert.equal(p.sets.length, 0);
+  const q = panel();
+  q.feed(agentCard("files", 1));
+  const old = button(q.log, "Yes files");
+  q.tl.ingest(rewrite("files", 2), "");
+  old.fire("click");
+  assert.equal(q.one[0].action.revision, "t1:1", "the press names the card the person saw");
+});
+
+test("a pick saved with the panel is dropped when the card changed meanwhile", () => {
+  const p = panel();
+  p.feed(agentCard("files", 1), agentCard("db", 2));
+  button(p.log, "Yes files").fire("click");
+  const saved = JSON.parse(JSON.stringify(p.tl.dump("c1")));
+  const again = panel();
+  again.tl.restore(saved, "c1");
+  again.feed(rewrite("files", 3));
+  assert.equal(button(again.log, "Delete the files").getAttribute("aria-pressed"), "false");
+  assert.match(again.log.textContent, /This card changed/);
+});
+
+test("a typed value is cleared when its field is relabelled, live and after reopening, not on a progress update", () => {
+  const form = { seq: 1, turn: "t1", type: "ui.surface", payload: { surfaceId: "f", provenance: "agent", message: { version: "1.0", createSurface: { surfaceId: "f", dataModel: { v: "", w: "" }, components: [
+    { id: "root", component: "Column", children: ["in", "go"] }, { id: "in", component: "TextField", label: "Folder to keep", value: { "@path": "/v" } },
+    { id: "gl", component: "Text", text: "Save" }, { id: "go", component: "Button", child: "gl", action: { event: { name: "save", context: { v: { "@path": "/v" } } } } }] } } } };
+  const progress = { seq: 2, turn: "t1", type: "ui.surface", payload: { surfaceId: "f", provenance: "agent", message: { version: "1.0", updateDataModel: { surfaceId: "f", path: "/w", value: "50%" } } } };
+  const relabel = { seq: 3, turn: "t1", type: "ui.surface", payload: { surfaceId: "f", provenance: "agent", message: { version: "1.0", updateComponents: { surfaceId: "f", components: [
+    { id: "in", component: "TextField", label: "Folder to DELETE", value: { "@path": "/v" } }] } } } };
+  const p = panel();
+  p.feed(form);
+  type(p.log, 0, "photos");
+  p.feed(progress);
+  assert.equal(inputs(p.log)[0].value, "photos");
+  const saved = JSON.parse(JSON.stringify(p.tl.dump("c1")));
+  p.feed(relabel);
+  assert.equal(inputs(p.log)[0].value, "");
+  assert.match(p.log.textContent, /This card changed/);
+  button(p.log, "Save").fire("click");
+  assert.equal(p.one[0].action.context.v, "");
+  const again = panel();
+  again.tl.restore(saved, "c1");
+  again.feed(relabel);
+  assert.equal(inputs(again.log)[0].value, "");
+});

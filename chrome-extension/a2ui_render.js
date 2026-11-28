@@ -24,7 +24,11 @@
  * each component drawn at most once, depth 12, text clipped; a surface that cannot be drawn
  * becomes one error card instead of throwing.
  *
- * Use:  const m = MonoA2UIRender.mount(document, surface, { onAction, onChange, onEdit });
+ * A pick holds only for the card version it was made on (opts.revision()), and a
+ * typed value only while its field means the same: otherwise it is cleared and
+ * the card says so. Each action names the version the person saw.
+ *
+ * Use:  const m = MonoA2UIRender.mount(document, surface, { onAction, onChange, onEdit, revision });
  *       parent.appendChild(m.el);  ...  m.sync(surface) after each model change.
  */
 
@@ -45,6 +49,8 @@
   const WORKING = "Working. Do not press again: this can take a while.";
   const STILL = "Still in progress. Do not press again: this card shows how it ends.";
   const ANSWER_FIRST = "Answer every question first.";
+  const PICK_DROPPED = "This card changed, so your pick was cleared. Look at it again.";
+  const TYPED_DROPPED = "This card changed: what you typed into a changed field was cleared.";
   const SET_NOTES = {
     ask: "Answer here, then send all the questions together below.", askReady: "Ready. Not sent yet: use Send all below.",
     pick: "Pick a button. It is sent only with Send all below.", picked: "Picked. Not sent yet: use Send all below.", skipped: "Skipped: this card is left out and stays open.",
@@ -99,6 +105,12 @@
     let grouped = false;
     let picked = o.picked && typeof o.picked.chosen === "string" ? o.picked.chosen : "";
     let skipped = !!(o.picked && o.picked.skipped);
+    let pickedOn = o.picked && typeof o.picked.rev === "string" ? o.picked.rev : ""; // the card version picked on
+    const rev = () => (typeof o.revision === "function" ? String(o.revision() || "") : "");
+    let shownRev = ""; // the version on screen
+    let pickDropped = false;
+    let typedDropped = false;
+    const typed = new Map(); // path -> {value, meaning, was}: what the person changed
     let setBusy = false;
     let hint = null; // says what the card waits for
     let skip = null; // leaves an agent's card out of the set
@@ -179,13 +191,79 @@
         return Array.isArray(x) ? x.length > 0 : x !== undefined && x !== null && String(x).trim() !== "";
       });
     }
-    const chosen = () => (declared.some((b) => b.id === picked) ? picked : "");
+    const chosen = () => (pickedOn === rev() && declared.some((b) => b.id === picked) ? picked : "");
+    const leftOut = () => skipped && pickedOn === rev();
+    /** dropStale forgets a pick or a skip made on an earlier version of the card. */
+    function dropStale() {
+      if ((!picked && !skipped) || pickedOn === rev()) return;
+      picked = "";
+      skipped = false;
+      pickDropped = true;
+      if (typeof o.onPick === "function") o.onPick(null);
+    }
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    /** meaning is what a field's value says to the person: the inputs bound to the path and the buttons that send it. */
+    function meaning(path) {
+      const read = (v) => {
+        const x = dyn(v);
+        return x === undefined ? null : x;
+      };
+      const comps = Object.keys(s.components).map((k) => s.components[k]).filter(isObj);
+      const textAt = (id) => {
+        const c = Object.prototype.hasOwnProperty.call(s.components, id) ? s.components[id] : null;
+        return c && c.component === "Text" ? read(c.text) : null;
+      };
+      const out = [];
+      for (const c of comps) {
+        if (pathOf(c.value) === path) {
+          const parent = comps.find((p) => Array.isArray(p.children) && p.children.includes(c.id));
+          const above = parent ? textAt(parent.children[parent.children.indexOf(c.id) - 1]) : null;
+          const options = (Array.isArray(c.options) ? c.options : []).map((op) => (isObj(op) ? [read(op.label), op.value] : null));
+          out.push([c.id, c.component, read(c.label), options, c.variant || null, read(c.placeholder), above]);
+        }
+        const ev = isObj(c.action) && isObj(c.action.event) ? c.action.event : null;
+        const ctx = ev && isObj(ev.context) ? ev.context : {};
+        for (const k of Object.keys(ctx)) if (pathOf(ctx[k]) === path) out.push([c.id, ev.name, k, textAt(c.child)]);
+      }
+      return JSON.stringify(out);
+    }
+    const keep = (path, entry) => {
+      if (entry) typed.set(path, entry);
+      else typed.delete(path);
+      if (typeof o.onEdit === "function") o.onEdit(path, entry);
+    };
+    /** checkTyped clears what was typed into a field whose meaning changed; a value the agent replaced is just forgotten. */
+    function checkTyped() {
+      for (const [path, t] of [...typed]) {
+        const held = same(Model().getAt(s.dataModel, path), t.value);
+        if (meaning(path) !== t.meaning) {
+          if (held) Model().writeLocal(s, path, t.was);
+          typedDropped = true;
+          keep(path, null);
+        } else if (!held) keep(path, null);
+      }
+    }
+    /** reopen puts saved typing back, where the field is still what it was. */
+    function reopen(saved) {
+      for (const path of Object.keys(isObj(saved) ? saved : {})) {
+        const t = saved[path];
+        if (!isObj(t)) continue;
+        const now = meaning(path) === t.meaning;
+        if (now && same(Model().getAt(s.dataModel, path), t.was)) {
+          Model().writeLocal(s, path, t.value);
+          typed.set(path, t);
+        } else {
+          if (!now) typedDropped = true;
+          keep(path, null);
+        }
+      }
+    }
     /** waiting is what the card adds to a set; null when there is nothing to answer. */
     function waiting() {
       if (s.deleted || !declared.length) return null;
       if (asks()) return { asks: true, skipped: false, ready: answered(declared[0]) };
       if (s.provenance === "system") return null; // approvals and missions are pressed on their own
-      return { asks: false, skipped, ready: skipped || !!chosen() };
+      return { asks: false, skipped: leftOut(), ready: leftOut() || !!chosen() };
     }
     /** collect is the card's part of a set: {action}, or {skip} when the person left it out. */
     function collect() {
@@ -198,12 +276,13 @@
     }
     /** paint shows each button and the note under the card as the card stands: alone, or part of a set. */
     function paint() {
+      dropStale();
       const w = waiting();
       const ask = asks();
       const unanswered = !!w && ask && !w.ready;
       for (const b of declared) {
         b.el.hidden = grouped && ask; // the set's own button sends a question
-        if (grouped && !ask) b.el.setAttribute("aria-pressed", String(!skipped && chosen() === b.id));
+        if (grouped && !ask) b.el.setAttribute("aria-pressed", String(!leftOut() && chosen() === b.id));
         else b.el.removeAttribute("aria-pressed");
         const sent = b.el.dataset.sent === "true";
         if (setBusy || sent || (!grouped && unanswered)) b.el.setAttribute("aria-disabled", "true");
@@ -211,12 +290,14 @@
       }
       if (skip) {
         skip.hidden = !grouped || ask;
-        skip.textContent = skipped ? "Skipped (press to undo)" : "Skip this one";
-        skip.setAttribute("aria-pressed", String(skipped));
+        skip.textContent = leftOut() ? "Skipped (press to undo)" : "Skip this one";
+        skip.setAttribute("aria-pressed", String(leftOut()));
       }
       if (!hint) return;
       let text = "";
-      if (grouped && w) text = ask ? SET_NOTES[w.ready ? "askReady" : "ask"] : SET_NOTES[skipped ? "skipped" : chosen() ? "picked" : "pick"];
+      if (pickDropped) text = PICK_DROPPED;
+      else if (typedDropped) text = TYPED_DROPPED;
+      else if (grouped && w) text = ask ? SET_NOTES[w.ready ? "askReady" : "ask"] : SET_NOTES[leftOut() ? "skipped" : chosen() ? "picked" : "pick"];
       else if (unanswered) text = ANSWER_FIRST;
       if (hint.textContent !== text) hint.textContent = text;
     }
@@ -227,7 +308,9 @@
     function pick(id, leave) {
       picked = id;
       skipped = leave;
-      if (typeof o.onPick === "function") o.onPick({ chosen: picked, skipped });
+      pickedOn = shownRev; // what the person saw, even if a change is already on its way
+      pickDropped = false;
+      if (typeof o.onPick === "function") o.onPick({ chosen: picked, skipped, rev: pickedOn });
       changed();
     }
     function setGrouped(on, busy) {
@@ -278,11 +361,13 @@
         get: () => (path ? dyn(v) : lit),
         set: (x) => {
           if (path) {
+            const was = typed.has(path) ? typed.get(path).was : dyn(v);
             Model().writeLocal(s, path, x);
             localData = s.dataVersion;
             seen.data = s.dataVersion;
             for (const b of binds) b();
-            if (typeof o.onEdit === "function") o.onEdit(path, x);
+            typedDropped = false;
+            keep(path, { value: x, meaning: meaning(path), was });
             changed();
           } else lit = x;
         },
@@ -381,7 +466,7 @@
           const env = envelope(c.action, id);
           if (!env) return;
           if (!grouped) pressed(env);
-          else if (!asks()) pick(chosen() === id ? "" : id, false);
+          else if (!asks()) pick(picked === id && pickedOn === shownRev ? "" : id, false);
         });
         return e;
       },
@@ -545,7 +630,9 @@
           ctx[k] = v === undefined ? null : Model().clean(v, 0);
         }
       }
-      return { version: "1.0", action: { name: ev.name, surfaceId: s.id, sourceComponentId: sourceId, timestamp: now(), context: ctx } };
+      const sent = { name: ev.name, surfaceId: s.id, sourceComponentId: sourceId, timestamp: now(), context: ctx };
+      if (shownRev) sent.revision = shownRev;
+      return { version: "1.0", action: sent };
     }
 
     function provenance() {
@@ -628,7 +715,7 @@
         skip.className = "a2ui-skip";
         skip.dataset.cid = "set:skip";
         skip.addEventListener("click", () => {
-          if (!setBusy) pick("", !skipped);
+          if (!setBusy) pick("", !leftOut());
         });
         frag.appendChild(skip);
       }
@@ -654,6 +741,8 @@
         return;
       }
       wrap.hidden = false;
+      shownRev = rev();
+      checkTyped();
       if (s.structVersion !== seen.struct) rebuild();
       else if (s.dataVersion !== seen.data) {
         // The agent changed the data: refresh what is bound, and let buttons act again.
@@ -665,6 +754,7 @@
       rename();
     }
 
+    reopen(o.typed);
     sync(surface);
     function destroy() {
       clearT(timer);

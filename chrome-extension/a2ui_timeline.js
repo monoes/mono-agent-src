@@ -6,7 +6,8 @@
  * Two or more cards of one turn that wait for the person are a set (#1803): none
  * sends alone, and one bar under them sends them all with `onSet`, once each is
  * answered (or, an agent's card, skipped). What was typed or picked is saved
- * with the cards and never sent by itself.
+ * with the cards and never sent by itself; a card's version ("turn:seq" of its
+ * last event) goes with each press, and a pick made on an earlier one is dropped.
  */
 
 (function (root) {
@@ -35,7 +36,8 @@
     const notes = new Map(); // surfaceId -> text of a refused/stale action
     let turns = new Map(); // surfaceId -> the turn that made it: the set it belongs to
     let settled = new Set(); // agent cards the host accepted a press of
-    let drafts = new Map(); // surfaceId -> {turn, values: {path: value}, picked}
+    let drafts = new Map(); // surfaceId -> {turn, values: {path: {value, meaning, was}}, picked}
+    let revs = new Map(); // surfaceId -> its version
     const bars = new Map(); // turn -> {el, count, text, button}
     const sending = new Set(); // turns whose set is going out
     const edited = () => typeof o.onDirty === "function" && o.onDirty();
@@ -52,6 +54,7 @@
       turns = new Map();
       settled = new Set();
       drafts = new Map();
+      revs = new Map();
       notes.clear();
       store = M().newStore();
       anchors = new Map();
@@ -76,6 +79,7 @@
       if (ev.type !== "ui.surface") return false;
       const s = M().apply(store, ev);
       if (!s) return false;
+      revs.set(s.id, `${ev.turn || ""}:${ev.seq}`);
       const msg = ev.payload && ev.payload.message;
       if (isObj(msg) && msg.createSurface) {
         const turn = String(ev.turn || "");
@@ -84,8 +88,6 @@
         settled.delete(s.id);
         if (drafts.has(s.id) && drafts.get(s.id).turn !== turns.get(s.id)) drafts.delete(s.id);
       }
-      // The agent changed the card: what was typed into the old one no longer stands.
-      if (isObj(msg) && (msg.updateDataModel || msg.updateComponents) && drafts.has(s.id)) drafts.get(s.id).values = {};
       if (!anchors.has(s.id)) anchors.set(s.id, anchorId || "");
       saved.push({ turn: ev.turn || "", seq: ev.seq, at: ev.at, payload: ev.payload });
       // The oldest agent event goes first: agents cannot push a host card out.
@@ -110,11 +112,13 @@
     /** mountCard draws a surface with what the person had typed and picked on it. */
     function mountCard(id, s) {
       const d = drafts.get(id);
-      if (d) for (const path of Object.keys(d.values)) M().writeLocal(s, path, d.values[path]);
       return mount(doc, s, Object.assign({}, o, {
         picked: d && d.picked,
-        onEdit: (path, value) => {
-          draftOf(id).values[path] = value;
+        typed: d && Object.assign({}, d.values),
+        revision: () => revs.get(id) || "",
+        onEdit: (path, entry) => {
+          if (entry) draftOf(id).values[path] = entry;
+          else delete draftOf(id).values[path];
           edited();
         },
         onPick: (picked) => {
