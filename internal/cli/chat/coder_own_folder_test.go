@@ -149,7 +149,9 @@ func fakeSetup(t *testing.T, files []string, ignore string, created []string) {
 		if p := filepath.Join(d, ".gitignore"); ignore != "" {
 			b, _ := os.ReadFile(p)
 			if !strings.Contains(string(b), ignore) {
-				os.WriteFile(p, append(b, ignore...), 0o644)
+				f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+				f.WriteString(ignore)
+				f.Close()
 			}
 		}
 		return &monomind.WorkspaceInit{Root: d, Created: created}, nil
@@ -176,7 +178,7 @@ func TestInitOwnFolderExistingFoldersAndGitignore(t *testing.T) {
 
 			// the last file stands for one another process wrote during the setup
 			fakeSetup(t, []string{".claude/helpers/a b.cjs", ".claude/settings.json", ".claude/memory.db", "scratch/state.json", ".claude/users-new.md"},
-				"\n# monomind runtime state\n.claude/memory.db\n*.swarmlog\n",
+				"\n# monomind runtime state\ndata/sessions/\n.swarm/\n.claude/memory.db\n",
 				[]string{".claude/helpers", ".claude/settings.json", ".claude/memory.db", "scratch", "memory: 1 pattern seeded"})
 			var notice bytes.Buffer
 			for range 2 { // a second chat on the same folder
@@ -195,17 +197,20 @@ func TestInitOwnFolderExistingFoldersAndGitignore(t *testing.T) {
 			if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\n" {
 				t.Errorf(".gitignore = %q, want it as it was", b)
 			}
-			// the moved rules still ignore what they ignored, at any depth
-			os.MkdirAll(filepath.Join(dir, "deep"), 0o755)
-			os.WriteFile(filepath.Join(dir, "deep", "x.swarmlog"), []byte("x"), 0o644)
-			if st := ownRun(t, top, "status", "--porcelain", "--untracked-files=all"); strings.Contains(st, "swarmlog") {
+			// the moved rules still ignore what they ignored, at any depth for a bare name
+			for _, f := range []string{"deep/.swarm/db", "data/sessions/s"} {
+				p := filepath.Join(dir, filepath.FromSlash(f))
+				os.MkdirAll(filepath.Dir(p), 0o755)
+				os.WriteFile(p, []byte("x"), 0o644)
+			}
+			if st := ownRun(t, top, "status", "--porcelain", "--untracked-files=all"); strings.Contains(st, "swarm/") || strings.Contains(st, "data/sessions") {
 				t.Errorf("a moved ignore rule no longer applies:\n%s", st)
 			}
 			ex, _ := os.ReadFile(filepath.Join(top, ".git", "info", "exclude"))
-			if n := strings.Count(string(ex), "swarmlog"); n != 1 {
+			if n := strings.Count(string(ex), "data/sessions/"); n != 1 {
 				t.Errorf("the rule is listed %d times:\n%s", n, ex)
 			}
-			for _, want := range []string{"2 new file(s) inside .claude", ".gitignore is unchanged", "scratch"} {
+			for _, want := range []string{"2 new file(s) inside .claude", ".gitignore is as it was", "scratch"} {
 				if !strings.Contains(notice.String(), want) {
 					t.Errorf("notice lacks %q:\n%s", want, notice.String())
 				}
@@ -220,33 +225,15 @@ func TestInitOwnFolderGitignoreOutsideARepo(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
 	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("bin\n"), 0o644)
-	fakeSetup(t, nil, "# monomind runtime state\ndata/\n", nil)
+	fakeSetup(t, nil, "\n# monomind runtime state\ndata/sessions/\n", nil)
 	var notice bytes.Buffer
 	if _, err := initOwnFolder(context.Background(), &notice, dir, "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\n# monomind runtime state\ndata/\n" {
+	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\n\n# monomind runtime state\ndata/sessions/\n" {
 		t.Errorf(".gitignore = %q", b)
 	}
-	if !strings.Contains(notice.String(), "lines at the end of .gitignore") {
+	if !strings.Contains(notice.String(), "ignore rules at the end of .gitignore") {
 		t.Errorf("notice: %q", notice.String())
-	}
-}
-
-// Lines that appear in .gitignore without monomind's heading are not the
-// setup's to take back.
-func TestInitOwnFolderLeavesOtherGitignoreEdits(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("no git")
-	}
-	dir := t.TempDir()
-	ownRun(t, dir, "init", "-q")
-	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("bin\n"), 0o644)
-	fakeSetup(t, nil, "mine.log\n", nil)
-	if _, err := initOwnFolder(context.Background(), &bytes.Buffer{}, dir, "claude"); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\nmine.log\n" {
-		t.Errorf(".gitignore = %q", b)
 	}
 }

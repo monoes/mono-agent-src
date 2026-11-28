@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -36,9 +35,9 @@ func untrackedTop(ctx context.Context, dir string) (names map[string]bool, ok bo
 // initOwnFolder sets up a folder the user picked as a monomind project and
 // keeps what that adds out of their way: every new top-level entry, and every
 // file the setup reports it created inside a folder that was already there, is
-// listed in .git/info/exclude (local to this clone). Lines the setup appends to
-// an existing .gitignore are moved there too, so the user's file stays as it
-// was. w is told what was added.
+// listed in .git/info/exclude (local to this clone, shared by its work trees).
+// The block the setup appends to an existing .gitignore is moved there too
+// (keepGitignore). w is told what was added.
 func initOwnFolder(ctx context.Context, w io.Writer, dir, target string) (*monomind.WorkspaceInit, error) {
 	before, isRepo := untrackedTop(ctx, dir)
 	filesBefore := untrackedFiles(ctx, dir)
@@ -48,14 +47,10 @@ func initOwnFolder(ctx context.Context, w io.Writer, dir, target string) (*monom
 			existing[e.Name()] = true
 		}
 	}
-	ignorePath := filepath.Join(dir, ".gitignore")
-	ignore, ignoreErr := os.ReadFile(ignorePath)
+	ignore := readIgnoreFile(filepath.Join(dir, ".gitignore"))
 	res, err := initWorkspace(ctx, "", dir, target)
-	appended := ""
-	if ignoreErr == nil {
-		// also after a failed setup: it may have written before it failed
-		appended = keepGitignore(ctx, w, dir, ignorePath, ignore, isRepo)
-	}
+	// also after a failed setup: it may have written before it failed
+	appended := keepGitignore(ctx, w, dir, ignore, isRepo)
 	if err != nil {
 		return res, err
 	}
@@ -101,34 +96,12 @@ func initOwnFolder(ctx context.Context, w io.Writer, dir, target string) (*monom
 	fmt.Fprintf(w, "monoagent added %s to %s so coder turns can run there", strings.Join(added, ", "), dir)
 	if isRepo {
 		fmt.Fprint(w, " (kept out of git status through .git/info/exclude)")
+		if sharedExclude(ctx, dir) {
+			fmt.Fprint(w, "; this repository's other work trees share that file, so the same paths are hidden from git status there too")
+		}
 	}
 	fmt.Fprintln(w)
 	return res, nil
-}
-
-// keepGitignore undoes the block monomind appended to the .gitignore that held
-// was; any other change is left alone, it may be the user's. In a git work tree they go to .git/info/exclude, so they still ignore what
-// they ignored, and the file is put back; elsewhere, or when that cannot be
-// done, the lines stay. The result names the change for the notice.
-func keepGitignore(ctx context.Context, w io.Writer, dir, path string, was []byte, isRepo bool) string {
-	now, err := os.ReadFile(path)
-	if err != nil || len(now) <= len(was) || !bytes.HasPrefix(now, was) ||
-		!bytes.HasPrefix(bytes.TrimSpace(now[len(was):]), []byte("# monomind")) {
-		return ""
-	}
-	const left = "lines at the end of .gitignore"
-	if !isRepo {
-		return left
-	}
-	if err := appendInfoExclude(ctx, dir, excludePatterns(string(now[len(was):]), repoPrefix(ctx, dir))); err != nil {
-		fmt.Fprintf(w, "note: could not move the new .gitignore lines to .git/info/exclude: %v\n", err)
-		return left
-	}
-	if err := os.WriteFile(path, was, 0o644); err != nil {
-		fmt.Fprintf(w, "note: could not put .gitignore back: %v\n", err)
-		return left
-	}
-	return "ignore rules (to .git/info/exclude, your .gitignore is unchanged)"
 }
 
 // excludePatterns rewrites the lines of a .gitignore found at prefix below the
@@ -205,6 +178,13 @@ func untrackedFiles(ctx context.Context, dir string) map[string]bool {
 // escapeIgnore makes a path match itself in an ignore file.
 func escapeIgnore(p string) string {
 	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(p)
+}
+
+// sharedExclude reports a repository with more than one work tree: they all
+// read the same info/exclude.
+func sharedExclude(ctx context.Context, dir string) bool {
+	out, err := gitsafe.Command(ctx, "-C", dir, "worktree", "list", "--porcelain").Output()
+	return err == nil && strings.Count("\n"+string(out), "\nworktree ") > 1
 }
 
 // repoPrefix is dir's path below the work tree's top, with a trailing slash ("" at the top).
