@@ -447,15 +447,6 @@ func TestAWakesLimitOfNRunsExactlyNWakeTurns(t *testing.T) {
 	}
 }
 
-func (w *pworld) lastWakeTurn() string {
-	w.t.Helper()
-	var turn string
-	if err := w.st.db.QueryRow(`SELECT turn_id FROM coder_session_commands WHERE kind = 'send' AND turn_id LIKE 'pursuit-%' ORDER BY id DESC LIMIT 1`).Scan(&turn); err != nil {
-		w.t.Fatal(err)
-	}
-	return turn
-}
-
 // Layers refuse a pursuit turn on a host where the loop is off: the run-time recheck (which also reaches the pin check of the
 // gate) and the cap rule at the start of the turn. The cap rule is tested alone; the recheck is redundant with the gate's pin
 // check by design, so removing only its own ready() test is not noticed (the turn is still refused twice over).

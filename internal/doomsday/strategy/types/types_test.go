@@ -141,7 +141,8 @@ func TestCanonicalIsDomainSeparatedAndLengthDelimited(t *testing.T) {
 }
 
 func TestEpochIDIsIdempotent(t *testing.T) {
-	if EpochID("p", 2, 7) != EpochID("p", 2, 7) || EpochID("p", 2, 7) == EpochID("p", 3, 7) || EpochID("p", 2, 7) == EpochID("p", 2, 8) {
+	id, again := EpochID("p", 2, 7), EpochID("p", 2, 7)
+	if id != again || id == EpochID("p", 3, 7) || id == EpochID("p", 2, 8) {
 		t.Fatal("epoch id must be a pure function of (profile, generation, seq) and differ across them")
 	}
 }

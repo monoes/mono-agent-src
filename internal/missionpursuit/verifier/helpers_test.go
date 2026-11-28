@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
@@ -56,15 +55,14 @@ func (m *fakeMeter) Reserve(_ context.Context, capUSD float64) (func(int64, bool
 
 // reviewer is a scripted runner.
 type reviewer struct {
-	mu       sync.Mutex
-	calls    int
-	opts     monomind.ExecOptions
-	runtime  string
-	model    string
-	text     string
-	cost     *float64
-	err      error
-	noResult bool
+	mu      sync.Mutex
+	calls   int
+	opts    monomind.ExecOptions
+	runtime string
+	model   string
+	text    string
+	cost    *float64
+	err     error
 }
 
 func (r *reviewer) exec(_ context.Context, o monomind.ExecOptions, on func(monomind.Event)) (*monomind.TurnResult, error) {
@@ -192,15 +190,6 @@ func scratchEntries(t *testing.T, base string) []string {
 }
 
 func fileExists(c string) Criterion { return crit(c, "file", "a.txt", "exists") }
-
-func mustContain(t *testing.T, got string, subs ...string) {
-	t.Helper()
-	for _, s := range subs {
-		if !strings.Contains(got, s) {
-			t.Fatalf("missing %q in %q", s, got)
-		}
-	}
-}
 
 func dump(r Result) string { return fmt.Sprintf("%+v", r) }
 

@@ -100,13 +100,6 @@ func TestAIRun(t *testing.T) {
 	}
 }
 
-type approvals struct{ ids []string }
-
-func (a *approvals) ApproveDefinition(_ context.Context, id string) error {
-	a.ids = append(a.ids, id)
-	return nil
-}
-
 // A refusal says how to fix a marker a long-lived process inherited: the
 // app, the daemon or the bridge started from a marked shell refuses the
 // user's own actions until it is started again from their own terminal.

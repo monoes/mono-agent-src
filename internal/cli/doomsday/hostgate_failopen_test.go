@@ -49,11 +49,10 @@ func TestHostGateClosedDatabaseWithNoRunFailsOpen(t *testing.T) {
 // seededGate is a gate over a database whose run row was entered directly (no engine, so no pinned connection): the gate has
 // read nothing yet, and the run directory holds no trace unless the test adds one.
 type seededGate struct {
-	db   *storage.Database
-	st   *store.SQLStore
-	g    *HostGate
-	dir  stop.RunDir
-	runs int
+	db  *storage.Database
+	st  *store.SQLStore
+	g   *HostGate
+	dir stop.RunDir
 }
 
 func seedRun(t *testing.T, st *store.SQLStore) {

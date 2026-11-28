@@ -20,7 +20,6 @@ type chatEngine struct {
 	fakeEngine
 	log           *[]string
 	active        bool // a run exists (Status)
-	activeNow     func() bool
 	checkErr      error
 	enterErr      error
 	enterRuns     bool // Enter fails AFTER the run exists

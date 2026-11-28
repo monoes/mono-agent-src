@@ -122,7 +122,6 @@ type boundToken struct {
 	scope  string
 	gen    procbind.Generation
 	mint   procbind.MintToken
-	h      procbind.Handle
 }
 
 // deliver runs steps 2 to 5 for the turn whose process is pid with start stamp. A mission child's turn gets a second

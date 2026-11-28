@@ -91,16 +91,6 @@ func platformCookieDomains(loginURL string) []string {
 	return []string{strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")}
 }
 
-func stringField(m map[string]interface{}, key string) string {
-	v, _ := m[key].(string)
-	return v
-}
-
-func boolField(m map[string]interface{}, key string) bool {
-	v, _ := m[key].(bool)
-	return v
-}
-
 // upsertSessionRow stores platform/username's cookie jar as a "session"-kind
 // vault entry and upserts the corresponding crawler_sessions row to point
 // at it via vault_ref — UPDATE-then-INSERT (rather than INSERT OR REPLACE)

@@ -123,13 +123,6 @@ func definitionHash(w *Workflow) (string, error) {
 	return snapshotOf(w).hash()
 }
 
-// sameDefinition reports whether a and b have the same definition.
-func sameDefinition(a, b *Workflow) bool {
-	ha, errA := definitionHash(a)
-	hb, errB := definitionHash(b)
-	return errA == nil && errB == nil && ha == hb
-}
-
 // Apply returns a copy of base whose definition (name, description,
 // settings, nodes, connections) is s. Identity, profile and activation stay
 // base's.

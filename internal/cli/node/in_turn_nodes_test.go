@@ -275,6 +275,8 @@ var noReferenceCase = map[string]string{
 }
 
 // browserPackages: executors of these packages read {{secret:}} in an action through the browser bridge.
+//
+//lint:ignore U1000 a record of why these packages have no case; secretReadingFiles and its failure message name it
 var browserPackages = map[string]string{
 	"github.com/monoes/mono-agent/internal/nodes":            "browser nodes: need the browser bridge; a non-builtin package is refused before it (TestNodeRunInATurnRunsNoRecordedBrowserAction)",
 	"github.com/monoes/mono-agent/internal/nodes/browserjev": "goal-driven browser node: needs the user's browser",

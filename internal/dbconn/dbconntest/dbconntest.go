@@ -69,10 +69,10 @@ type conn struct {
 	trip *Trip
 }
 
-// Begin wraps the transaction a database/sql Tx begins, so that its Commit goes through the same hooks as a COMMIT
+// BeginTx wraps the transaction a database/sql Tx begins, so that its Commit goes through the same hooks as a COMMIT
 // statement on a dedicated connection.
-func (c *conn) Begin() (driver.Tx, error) {
-	tx, err := c.Conn.Begin()
+func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	tx, err := c.Conn.(driver.ConnBeginTx).BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
