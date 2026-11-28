@@ -147,6 +147,9 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 		if _, err := mp.Start(context.Background(), "p", 77, startLimits, op); err != nil {
 			t.Fatal(err)
 		}
+		// Start stamps the row with the real clock, and the world runs on clk, which stands at the world's creation. On a slow
+		// machine that stamp is seconds later than what the test parks next, which then does not count: use the world's clock.
+		w.exec(`UPDATE mission_pursuit SET updated_at = ? WHERE session_id = 77`, clk.Now().Format(time.RFC3339))
 		clk.Advance(2 * time.Second) // everything after the start is after the person's last action
 	}
 	w.exec(`INSERT INTO tasks (profile_id, title, status, position, session_id, kind, created_at, updated_at) VALUES ('p', 'open work', 'ready', 0, 77, 'task', 'x', 'x')`)

@@ -84,15 +84,17 @@ func TestSSHStallingServerCantHoldTheNode(t *testing.T) {
 		{"sftp session", false, map[string]interface{}{"resource": "file", "operation": "download", "path": "/etc/hostname"}, "waiting for the server to open an sftp session"},
 	} {
 		port := startStallServer(t, tc.inHandshake)
+		// 4 s: the session cases need their handshake done inside the timeout, on a loaded machine too. No host key is
+		// remembered: a later server may get the same port with another key, which would be refused as a changed key.
 		cfg := map[string]interface{}{"host": "127.0.0.1", "port": float64(port), "username": "user",
-			"password": "x", "command": "true", "timeout_seconds": float64(1)}
+			"password": "x", "command": "true", "timeout_seconds": float64(4), "allow_unknown_host_key": true}
 		for k, v := range tc.extra {
 			cfg[k] = v
 		}
 		start := time.Now()
 		_, err := (&SSHNode{}).Execute(context.Background(), workflow.NodeInput{ExecutionID: "e1"}, cfg)
-		if took := time.Since(start); took > 5*time.Second {
-			t.Errorf("%s: the node took %s with a 1 s timeout", tc.name, took)
+		if took := time.Since(start); took > 10*time.Second {
+			t.Errorf("%s: the node took %s with a 4 s timeout", tc.name, took)
 		}
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v", tc.name, err)
@@ -184,10 +186,14 @@ func startSlowServer(t *testing.T, delay time.Duration, stage string) int {
 // over the dial, the handshake, the session and its environment request;
 // the command then has timeout_seconds of its own.
 func TestSSHConnectingHasOneDeadline(t *testing.T) {
-	const timeout, delay = 2 * time.Second, 1500 * time.Millisecond
+	// The numbers leave a loaded machine room: the handshake has timeout-delay (4 s) after the server's delay to finish
+	// inside the connect deadline, and the node has slack (3 s) after that deadline to return. A deadline of its own for
+	// each stage would end no sooner than delay+timeout (12 s), past timeout+slack (11 s).
+	const timeout, delay, slack = 8 * time.Second, 4 * time.Second, 3 * time.Second
 	run := func(port int, extra map[string]interface{}) (time.Duration, error) {
+		// No host key is remembered: a later server may get the same port with another key.
 		cfg := map[string]interface{}{"host": "127.0.0.1", "port": float64(port), "username": "user",
-			"password": "x", "command": "true", "timeout_seconds": timeout.Seconds()}
+			"password": "x", "command": "true", "timeout_seconds": timeout.Seconds(), "allow_unknown_host_key": true}
 		for k, v := range extra {
 			cfg[k] = v
 		}
@@ -196,23 +202,30 @@ func TestSSHConnectingHasOneDeadline(t *testing.T) {
 		return time.Since(start), err
 	}
 	sftpDownload := map[string]interface{}{"resource": "file", "operation": "download", "path": "/etc/hostname"}
+	// The cases each wait out their own timeouts against their own server, so they run side by side.
 	for _, tc := range []struct {
-		stage string
-		extra map[string]interface{}
-		want  string
+		name, stage string
+		extra       map[string]interface{}
+		want        string
 	}{
-		{"session", nil, "open a session"},
-		{"env", nil, "environment request"},
-		{"session", sftpDownload, "open an sftp session"},
+		{"stalled at session", "session", nil, "open a session"},
+		{"stalled at env", "env", nil, "environment request"},
+		{"stalled at sftp session", "session", sftpDownload, "open an sftp session"},
 	} {
-		took, err := run(startSlowServer(t, delay, tc.stage), tc.extra)
-		if took > timeout+750*time.Millisecond || err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("a slow handshake, then stalled at %s %v: %s %v", tc.stage, tc.extra != nil, took, err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			took, err := run(startSlowServer(t, delay, tc.stage), tc.extra)
+			if took >= timeout+slack || err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("a slow handshake, then %s: %s %v", tc.name, took, err)
+			}
+		})
 	}
 	// The command keeps its own timeout_seconds after a slow connect.
-	took, err := run(startSlowServer(t, delay, "command"), nil)
-	if took < delay+timeout-250*time.Millisecond || err == nil || !strings.Contains(err.Error(), "command timed out") {
-		t.Errorf("a slow connect, then a command that never ends: %s %v", took, err)
-	}
+	t.Run("command", func(t *testing.T) {
+		t.Parallel()
+		took, err := run(startSlowServer(t, delay, "command"), nil)
+		if took < delay+timeout-250*time.Millisecond || err == nil || !strings.Contains(err.Error(), "command timed out") {
+			t.Errorf("a slow connect, then a command that never ends: %s %v", took, err)
+		}
+	})
 }
