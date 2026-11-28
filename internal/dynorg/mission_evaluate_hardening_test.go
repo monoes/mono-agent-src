@@ -119,13 +119,9 @@ func TestEvaluationReadsTheCurrentKEachTime(t *testing.T) {
 	if _, err := r.evaluate(c, ToolMissionEvaluate, evalArgs(map[string]any{"k": 3}, candidatesJSON(5))); err == nil || !strings.Contains(err.Error(), "at most 1") {
 		t.Fatalf("k=3 over the lowered K: %v", err)
 	}
-	for _, n := range r.sessionNotes() {
-		if strings.Contains(n, `"k":3`) && strings.Contains(n, `"k":3`) && len(r.sessionNotes()) > 2 {
-			t.Fatalf("a refused call recorded: %s", n)
-		}
-	}
-	if len(r.sessionNotes()) != 2 {
-		t.Fatalf("notes %d", len(r.sessionNotes()))
+	// the two calls that were answered are recorded, the refused one is not
+	if notes := r.sessionNotes(); len(notes) != 2 {
+		t.Fatalf("notes %d, want 2 (a refused call records none): %v", len(notes), notes)
 	}
 }
 

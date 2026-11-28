@@ -42,7 +42,12 @@ func TestMasterAnswersAChildsQuestionWithTheSessionTokenAndNothingElse(t *testin
 		if code == 0 || !strings.Contains(out, "not one of your child sessions") {
 			t.Fatalf("%v: exit %d %s", args, code, out)
 		}
-		texts = append(texts, out)
+		// keep the text without the ids it echoes back from the arguments
+		texts = append(texts, strings.NewReplacer(args[2], "SESSION", "question "+args[3]+" ", "question N ").Replace(out))
+	}
+	// the three refusals read the same: none tells whether the question exists
+	if texts[1] != texts[0] || texts[2] != texts[0] {
+		t.Errorf("the refusals differ:\n%s", strings.Join(texts, "\n"))
 	}
 	if len(pendingCommands(t, m.dbPath)) != before || cs.OpenParked("default", other.ID) != 1 {
 		t.Fatal("a refused answer changed something")

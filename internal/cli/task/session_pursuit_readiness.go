@@ -119,10 +119,7 @@ func buildReadiness(in readinessInput) readinessDoc {
 	}
 	add(ItemGoal, blocked(missionpursuit.BlockNoRubric), fmt.Sprintf("goal %s with %d criteria (hash %.8s)", g.State, len(g.Criteria), g.Hash), goalMiss,
 		fmt.Sprintf("ask the lead to propose one (its mission_goal_propose tool), or propose it yourself with at least one rubric criterion: `monoagentcli task session goal propose %d --criteria FILE`", in.Session))
-	needsChecker := false
-	for _, cr := range g.Criteria {
-		needsChecker = needsChecker || cr.Kind != missionpursuit.KindRubric
-	}
+	needsChecker := missionpursuit.NeedsChecker(g.Criteria)
 	checkerMiss := "the goal has command checks and no goal checker is set up on the host"
 	if in.Host.VerifierReason != "" {
 		checkerMiss += ": " + in.Host.VerifierReason

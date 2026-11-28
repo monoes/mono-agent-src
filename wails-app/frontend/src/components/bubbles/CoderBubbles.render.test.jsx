@@ -5,9 +5,10 @@ import '@testing-library/jest-dom/vitest'
 import { render, renderHook, screen, fireEvent, waitFor, cleanup, act, within } from '@testing-library/react'
 import '../../i18n.js'
 
-const { api, chatAccess, listeners, mockConfirm, openStartApi, navigateMock, statusMock } = vi.hoisted(() => ({
+const { api, chatAccess, listeners, mockConfirm, openStartApi, navigateMock, statusMock, probeMock } = vi.hoisted(() => ({
   navigateMock: vi.fn(),
   statusMock: vi.fn(),
+  probeMock: vi.fn(),
   openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn() },
   listeners: { chat: new Set() },
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
@@ -43,7 +44,7 @@ vi.mock('../../lib/chatAccessApi.js', () => ({ chatAccessApi: chatAccess }))
 vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
 vi.mock('../../services/controlRoom.js', async importOriginal => {
   const orig = await importOriginal()
-  return { ...orig, controlRoomApi: { ...orig.controlRoomApi, status: (...a) => statusMock(...a) } }
+  return { ...orig, controlRoomApi: { ...orig.controlRoomApi, status: (...a) => statusMock(...a), probe: (...a) => probeMock(...a) } }
 })
 vi.mock('../ConfirmDialog.jsx', () => ({ confirm: (...a) => mockConfirm(...a) }))
 
@@ -67,6 +68,7 @@ const conv = { id: 'c1', cwd: '/home/u/monoagent-coder/20260929-brisk-otter', mo
 beforeEach(() => {
   vi.clearAllMocks()
   statusMock.mockResolvedValue({ error: 'unread' })
+  probeMock.mockResolvedValue({ error: 'unread' })
   // jsdom has no scrolling; the transcript follows new output with it.
   Element.prototype.scrollTo = function scrollTo() {}
   listeners.chat.clear()
@@ -243,6 +245,36 @@ describe('coder bubbles', () => {
     expect(chatAccess.create).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('radio', { name: 'Off' }))
     expect(await within(overlay()).findByPlaceholderText('Type a message...')).toBeInTheDocument()
+  })
+
+  // A new open-ended chat has no conversation yet: the probe says there is no run, so there is nothing to stop. Once
+  // the start has made one, the Stop is there at once, not at the next poll.
+  it('shows no "Stop run" before any run exists, and shows it as soon as the start made one', async () => {
+    probeMock.mockResolvedValue({ mode_available: true, run_exists: false })
+    api.getChatModeOptions.mockResolvedValue({ options: [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: true }] })
+    openStartApi.render.mockResolvedValue({ start_token: 'tok-1', hash: 'ab12cd34' + 'e'.repeat(56), lines: [], lift_count: 0, text: 'CHARTER', phrase_template: 'I understand: lift <N> lines, charter <first 8 characters of the hash>' })
+    openStartApi.start.mockImplementation(() => {
+      probeMock.mockResolvedValue({ mode_available: true, run_exists: true })
+      return Promise.resolve({ ok: true, started: true, output: '{"run_id":"p/1","first_turn":"failed"}', chat: { id: 'made-1', runtimeId: 'claude', access: 'full', cwd: '/w' } })
+    })
+    render(<Harness />)
+    fireEvent.click(await screen.findByLabelText('New chat'))
+    fireEvent.click(await screen.findByRole('radio', { name: 'Open-ended' }))
+    await screen.findByTestId('open-start')
+    await waitFor(() => expect(screen.queryByTestId('chat-stop')).toBeNull())
+    const type = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    type('Goal', 'ship it')
+    fireEvent.click(screen.getByRole('button', { name: 'Add a command criterion' }))
+    type('Criterion 1 command', 'go test ./...'); type('Criterion 1 expected result', 'ok')
+    type('Boss provider', 'a'); type('Boss model', 'b'); type('Boss version', '1')
+    type('Verifier provider', 'a'); type('Verifier model', 'c'); type('Verifier version', '1')
+    type('Judging policy', 'default')
+    fireEvent.click(screen.getByLabelText('Unlimited (no ceiling of its own)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByTestId('open-review')
+    expect(screen.queryByTestId('chat-stop')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(await screen.findByTestId('chat-stop')).toBeInTheDocument()
   })
 
   // The real overlay: the start's own words must outlive the form. The form unmounts when the run starts; a boss with no first

@@ -13,14 +13,14 @@ import (
 
 // scene is a journal that a dead host left, over a real git repository.
 type scene struct {
-	t                     *testing.T
-	r                     *ddRig
-	repo, branch, op      string
-	before, tip, fp       string
-	gone, recorded        bool
-	failAbort, noopAbort  bool
-	calls                 []string
-	recordedAsked, gaveUp int
+	t                    *testing.T
+	r                    *ddRig
+	repo, branch, op     string
+	before, tip, fp      string
+	gone, recorded       bool
+	failAbort, noopAbort bool
+	calls                []string
+	recordedAsked        int
 }
 
 func newScene(t *testing.T, repo, before, tip, fp string) *scene {

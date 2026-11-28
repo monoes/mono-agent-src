@@ -18,7 +18,8 @@ import (
 // usage.updated snapshot is a running total within its turn, so a turn's figure is the largest
 // non-negative cost it reported (a lower final snapshot does not lower it), and a worker's
 // agent.finished cost counts once per (turn, worker). Claude's figure for a resumed session is a total for the session, so a claude
-// turn counts what it added over the previous turn of the same runtime session (coderspend.deltaOfResumedSessions). A turn whose runtime reported NO cost does not
+// turn counts what it added over the previous turn of the same runtime session (coderspend.deltaOfResumedSessions),
+// unless its cost is marked CostWhole (the turn's own, or not confirmed to be the session's total). A turn whose runtime reported NO cost does not
 // count as $0: it counts as having spent the whole cap it ran under (turn caps are recorded when the
 // turn starts), so a runtime that cannot report cost cannot spend a multiple of the budget.
 
@@ -75,15 +76,6 @@ func (s *Store) DropUnstartedCaps() {
 // DropTurnCap forgets the cap of a turn that did not start.
 func (s *Store) DropTurnCap(profileID, conversationID, turnID string) {
 	_, _ = s.db.Exec(`DELETE FROM coder_session_turn_caps WHERE profile_id = ? AND conversation_id = ? AND turn_id = ?`, profileID, conversationID, turnID)
-}
-
-// runningCap is the cap of the turn the session is running now (0 when none, or none capped).
-func (s *Store) runningCap(profileID, conversationID string) (turn string, capUSD float64) {
-	return s.runningCapIn(s.db, profileID, conversationID)
-}
-
-func (s *Store) runningCapIn(q querier, profileID, conversationID string) (turn string, capUSD float64) {
-	return coderspend.RunningCap(q, profileID, conversationID)
 }
 
 // Spent is what the session's turns have cost.

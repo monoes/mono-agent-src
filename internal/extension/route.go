@@ -134,15 +134,6 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 	}
 }
 
-// writeCommand marshals cmd and writes it to the browser t resolves to.
-func (s *Server) writeCommand(t Target, cmd *Command) error {
-	c, err := s.resolve(t)
-	if err != nil {
-		return err
-	}
-	return s.deliver(c, t.Profile, cmd)
-}
-
 // CreateTabFor opens a tab at url in the browser t resolves to.
 func (s *Server) CreateTabFor(t Target, url string) (int, error) {
 	resp, err := s.SendCommandTo(t, &Command{

@@ -373,7 +373,7 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 		return "", err
 	}
 	if c.profile {
-		ws, err := profileCoderWorkspace(cmd.Context(), db.DB, cfg.ProfileID(), rt.InitTarget)
+		ws, err := profileCoderWorkspace(cmd.Context(), cmd.ErrOrStderr(), db.DB, cfg.ProfileID(), rt.InitTarget)
 		if err != nil {
 			return "", err
 		}

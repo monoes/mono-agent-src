@@ -193,7 +193,7 @@ func TestDialersRefuseWhatIsNotOursInTheShortDirectory(t *testing.T) {
 		t.Fatal("a plain file was taken for the socket")
 	}
 	mustNoErr(t, os.Remove(path))
-	other := filepath.Join(t.TempDir(), "o.sock")
+	other := filepath.Join(shortTempDir(t), "o.sock")
 	plantListener(t, other, forgedOK)
 	mustNoErr(t, os.Symlink(other, path))
 	if _, err := long.dialSock(path); err == nil {

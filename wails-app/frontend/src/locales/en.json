@@ -4592,6 +4592,10 @@
     "limits_budget": "; the budget on {{names}}",
     "limits_no_budget": "; no ready runtime reports cost, so there is no budget",
     "no_runtime": "no ready runtime",
+    "startup_limit": "Start-up limit",
+    "startup_hint": "How long Claude may take to start (its SessionStart hooks and MCP servers), e.g. 3m. Empty uses the default, 2m.",
+    "startup_effective": "In effect now: {{value}}.",
+    "startup_env": "MONOAGENT_STARTUP_TIMEOUT overrides this: {{value}} is in effect.",
     "saving": "Saving…",
     "save": "Save"
   },

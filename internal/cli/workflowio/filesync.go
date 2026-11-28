@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -131,69 +130,6 @@ func StampFileWorkflows(ctx context.Context, db *sql.DB, dir string) error {
 
 // stampTestHook, when set by a test, runs before each locked step of the stamp pass.
 var stampTestHook func(fileID string)
-
-func syncOneWorkflowToSQL(ctx context.Context, db *sql.DB, s *workflow.SQLiteWorkflowStore, wf *workflow.Workflow) error {
-	for _, q := range []struct {
-		table string
-		ids   []string
-	}{
-		{"workflow_nodes", nodeIDs(wf.Nodes)},
-		{"workflow_connections", connIDs(wf.Connections)},
-	} {
-		if len(q.ids) == 0 {
-			continue
-		}
-		args := []any{wf.ID}
-		for _, id := range q.ids {
-			args = append(args, id)
-		}
-		var n int
-		stmt := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE workflow_id != ? AND id IN (%s)`, q.table,
-			strings.TrimSuffix(strings.Repeat("?,", len(q.ids)), ","))
-		if err := db.QueryRowContext(ctx, stmt, args...).Scan(&n); err != nil {
-			return err
-		}
-		if n > 0 {
-			return fmt.Errorf("workflow %s shares %d %s ids with another workflow", wf.ID, n, q.table)
-		}
-	}
-	existing, err := s.GetWorkflow(ctx, wf.ID)
-	if err != nil {
-		return err
-	}
-	if existing == nil {
-		stub := *wf
-		stub.Nodes, stub.Connections = nil, nil
-		if err := s.CreateWorkflow(ctx, &stub); err != nil {
-			return err
-		}
-	}
-	nodes := append([]workflow.WorkflowNode(nil), wf.Nodes...)
-	if err := s.SaveWorkflowNodes(ctx, wf.ID, nodes); err != nil {
-		return err
-	}
-	return s.SaveWorkflowConnections(ctx, wf.ID, wf.Connections)
-}
-
-func nodeIDs(ns []workflow.WorkflowNode) []string {
-	out := make([]string, 0, len(ns))
-	for _, n := range ns {
-		if n.ID != "" {
-			out = append(out, n.ID)
-		}
-	}
-	return out
-}
-
-func connIDs(cs []workflow.WorkflowConnection) []string {
-	out := make([]string, 0, len(cs))
-	for _, c := range cs {
-		if c.ID != "" {
-			out = append(out, c.ID)
-		}
-	}
-	return out
-}
 
 // stampEligible says which files the stamp pass may open. Before the files older versions left are
 // taken in, all of them may need an owner; after it, only the files of workflows that have rows do

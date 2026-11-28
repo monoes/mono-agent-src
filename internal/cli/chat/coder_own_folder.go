@@ -2,9 +2,12 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -30,18 +33,24 @@ func untrackedTop(ctx context.Context, dir string) (names map[string]bool, ok bo
 }
 
 // initOwnFolder sets up a folder the user picked as a monomind project and
-// keeps what that adds out of their way: every top-level entry the setup newly
-// created is listed in .git/info/exclude (local to this clone, never the
-// user's tracked .gitignore), and w is told which entries were added.
+// keeps what that adds out of their way: every new top-level entry, and every
+// file the setup reports it created inside a folder that was already there, is
+// listed in .git/info/exclude (local to this clone, shared by its work trees).
+// The block the setup appends to an existing .gitignore is moved there too
+// (keepGitignore). w is told what was added.
 func initOwnFolder(ctx context.Context, w io.Writer, dir, target string) (*monomind.WorkspaceInit, error) {
 	before, isRepo := untrackedTop(ctx, dir)
+	filesBefore := untrackedFiles(ctx, dir)
 	existing := map[string]bool{}
 	if entries, err := os.ReadDir(dir); err == nil {
 		for _, e := range entries {
 			existing[e.Name()] = true
 		}
 	}
+	ignore := readIgnoreFile(filepath.Join(dir, ".gitignore"))
 	res, err := initWorkspace(ctx, "", dir, target)
+	// also after a failed setup: it may have written before it failed
+	appended := keepGitignore(ctx, w, dir, ignore, isRepo)
 	if err != nil {
 		return res, err
 	}
@@ -54,29 +63,128 @@ func initOwnFolder(ctx context.Context, w io.Writer, dir, target string) (*monom
 		}
 	}
 	sort.Strings(added)
-	if len(added) == 0 {
-		return res, nil
-	}
+	var lines []string
+	inside := map[string]int{} // new files per top-level folder that was already there
 	if isRepo {
 		after, _ := untrackedTop(ctx, dir)
 		prefix := repoPrefix(ctx, dir)
-		var lines []string
+		// anchored at the work tree's top, so a folder below it needs its path in front
 		for _, n := range added {
 			if after[n] && !before[n] {
-				// anchored at the work tree's top, so a folder below it needs its path in front
-				lines = append(lines, "/"+prefix+n)
+				lines = append(lines, "/"+escapeIgnore(prefix+n))
 			}
+		}
+		for _, f := range createdInside(res, existing, filesBefore, untrackedFiles(ctx, dir)) {
+			top, _, _ := strings.Cut(f, "/")
+			inside[top]++
+			lines = append(lines, "/"+escapeIgnore(prefix+f))
 		}
 		if err := appendInfoExclude(ctx, dir, lines); err != nil {
 			fmt.Fprintf(w, "note: could not add the new files to .git/info/exclude: %v\n", err)
 		}
 	}
+	for top, n := range inside {
+		added = append(added, fmt.Sprintf("%d new file(s) inside %s", n, top))
+	}
+	sort.Strings(added[len(added)-len(inside):])
+	if appended != "" {
+		added = append(added, appended)
+	}
+	if len(added) == 0 {
+		return res, nil
+	}
 	fmt.Fprintf(w, "monoagent added %s to %s so coder turns can run there", strings.Join(added, ", "), dir)
 	if isRepo {
 		fmt.Fprint(w, " (kept out of git status through .git/info/exclude)")
+		if sharedExclude(ctx, dir) {
+			fmt.Fprint(w, "; this repository's other work trees share that file, so the same paths are hidden from git status there too")
+		}
 	}
 	fmt.Fprintln(w)
 	return res, nil
+}
+
+// excludePatterns rewrites the lines of a .gitignore found at prefix below the
+// work tree's top ("" is the top) so that they mean the same in info/exclude.
+func excludePatterns(ignore, prefix string) []string {
+	var out []string
+	for _, l := range strings.Split(ignore, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "#") {
+			continue
+		}
+		if prefix != "" {
+			neg := ""
+			if strings.HasPrefix(l, "!") {
+				neg, l = "!", l[1:]
+			}
+			if strings.Contains(strings.TrimSuffix(l, "/"), "/") {
+				l = strings.TrimPrefix(l, "/")
+			} else {
+				l = "**/" + l // a bare name matches at any depth below its .gitignore
+			}
+			l = neg + "/" + escapeIgnore(prefix) + l
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// createdInside lists the files that became untracked during the setup, below a
+// top-level entry that was already there, and that the setup itself reports as
+// created (the file, or a folder above it). Anything else that appeared
+// meanwhile is the user's and stays visible.
+func createdInside(res *monomind.WorkspaceInit, existing, before, after map[string]bool) []string {
+	if res == nil || before == nil {
+		return nil
+	}
+	created := map[string]bool{}
+	for _, c := range res.Created {
+		created[path.Clean(c)] = true
+	}
+	var out []string
+	for f := range after {
+		top, _, nested := strings.Cut(f, "/")
+		if before[f] || !nested || !existing[top] {
+			continue
+		}
+		for p := f; p != "."; p = path.Dir(p) {
+			if created[p] {
+				out = append(out, f)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// untrackedFiles lists every untracked, non-ignored file below dir, relative to
+// it (nil outside a work tree).
+func untrackedFiles(ctx context.Context, dir string) map[string]bool {
+	out, err := gitsafe.Command(ctx, "-C", dir, "ls-files", "--others", "--exclude-standard", "-z").Output()
+	if err != nil {
+		return nil
+	}
+	files := map[string]bool{}
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" {
+			files[f] = true
+		}
+	}
+	return files
+}
+
+// escapeIgnore makes a path match itself in an ignore file.
+func escapeIgnore(p string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(p)
+}
+
+// sharedExclude reports a repository with more than one work tree: they all
+// read the same info/exclude.
+func sharedExclude(ctx context.Context, dir string) bool {
+	out, err := gitsafe.Command(ctx, "-C", dir, "worktree", "list", "--porcelain").Output()
+	return err == nil && strings.Count("\n"+string(out), "\nworktree ") > 1
 }
 
 // repoPrefix is dir's path below the work tree's top, with a trailing slash ("" at the top).
@@ -102,6 +210,24 @@ func appendInfoExclude(ctx context.Context, dir string, lines []string) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
+	}
+	// a second chat on the folder must not list the same patterns again
+	old, err := os.ReadFile(p)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	have := map[string]bool{}
+	for _, l := range strings.Split(string(old), "\n") {
+		have[strings.TrimSpace(l)] = true
+	}
+	var missing []string
+	for _, l := range lines {
+		if !have[l] {
+			missing = append(missing, l)
+		}
+	}
+	if lines = missing; len(lines) == 0 {
+		return nil
 	}
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {

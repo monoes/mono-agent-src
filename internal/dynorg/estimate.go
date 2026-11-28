@@ -103,6 +103,7 @@ func finalRun(res *monomind.TurnResult, events monomind.TurnResult) monomind.Tur
 	if run.ModelUsage == nil {
 		run.ModelUsage = events.ModelUsage
 	}
+	run.CostWhole = run.CostWhole || events.CostWhole
 	return run
 }
 

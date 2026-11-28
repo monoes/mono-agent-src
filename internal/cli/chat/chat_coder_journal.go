@@ -379,7 +379,8 @@ func compactContext(ctx context.Context, journal *turnJournal, opts monomind.Exe
 // the runtime session the turn ran in: claude reports a resumed session's cost
 // as its running total when it restored it, so a report of that session adds
 // what coderspend.Added says it did (#1744). The report itself is journaled
-// with the snapshot, for coderspend to judge the later turns by.
+// with the snapshot, for coderspend to judge the later turns by. A report
+// marked CostWhole is added as it is.
 func (j *turnJournal) addUsage(r *monomind.TurnResult, sessionID string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -396,7 +397,8 @@ func (j *turnJournal) addUsage(r *monomind.TurnResult, sessionID string) {
 	if r.HasCostUSD {
 		added := r.CostUSD
 		var report *chatevents.FollowUpUsage
-		if j.runtimeID == coderspend.CumulativeRuntime {
+		u.CostWhole = u.CostWhole || r.CostWhole
+		if j.runtimeID == coderspend.CumulativeRuntime && !r.CostWhole {
 			report = &chatevents.FollowUpUsage{SessionID: r.SessionID, CostUSD: r.CostUSD, Models: chatevents.ModelUsageOf(r.ModelUsage)}
 			if u.HasCostUSD && r.SessionID == sessionID {
 				added = coderspend.Added(coderspend.Totals{CostUSD: u.CostUSD, Models: chatevents.ModelUsageOf(u.ModelUsage)},

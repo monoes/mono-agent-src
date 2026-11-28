@@ -16,6 +16,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// hostStopGrace is how long a host that was asked to stop gets to run its own cleanup (host.json, bindings, registry)
+// before it is ended by force: its extension-shutdown wait plus a margin.
+var hostStopGrace = hostStopWait + 5*time.Second
+
 func stopHostOS(cfg *Deps, info hostInfo) (string, error) {
 	return stopPinnedHost(winHostStopOps(hostStopGrace), info, filepath.Join(hostDir(cfg), hostInfoFile))
 }

@@ -194,24 +194,6 @@ func (d Deps) startPageOf(platform string) startPage {
 	return sp
 }
 
-// readAccountName opens for platform (browserpkg.StartURL reads the same
-// action source), and whether a package names that page at all.
-func (d Deps) pageTrust(platform string) (string, bool) {
-	_, _ = d.OpenRegistry() // boots the action source, as a login lookup would
-	src := action.CurrentDefSource()
-	if src == nil {
-		return "", false
-	}
-	pkg := src.Package(strings.ToLower(platform))
-	if pkg == nil {
-		return "", false
-	}
-	if t, ok := pkg.(interface{ Trust() string }); ok {
-		return t.Trust(), true
-	}
-	return "", true
-}
-
 // readAccountName opens url (platform's start page) in a tab, reads the
 // account name and closes the tab again.
 func (d Deps) readAccountName(bridge browserpkg.ExtensionBridge, platform, url string) string {

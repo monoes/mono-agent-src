@@ -80,7 +80,6 @@ func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
 		w.endCommandsDone()
 		w.advance(31 * time.Minute)
 	}
-	judges, wakes := w.model.count(), w.wakeRows()
 	// 3. check 1: b.txt is not there
 	w.untilChecked(1)
 	if got := w.checks(); len(got) != 1 || got[0] != "1:done:failed:criteria-failed" {
@@ -124,7 +123,7 @@ func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
 		w.step()
 		w.endCommandsDone()
 	}
-	judges, wakes = w.model.count(), w.wakeRows()
+	judges, wakes := w.model.count(), w.wakeRows()
 	if got := w.checks(); len(got) != 2 || got[1] != "2:done:passed-machine:" {
 		t.Fatalf("checks = %v", got)
 	}

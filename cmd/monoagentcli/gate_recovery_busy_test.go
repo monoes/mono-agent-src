@@ -269,9 +269,8 @@ func TestTheBusyMessageStripsControlCharactersFromARecordedPath(t *testing.T) {
 			t.Fatalf("a control character reached the message: %q", err.Error())
 		}
 	}
-	want := filepath.Join(filepath.Dir(host), "hil[31mredx.db")
 	canon, _ := filepath.EvalSymlinks(filepath.Dir(host))
-	want = filepath.Join(canon, "hil[31mredx.db")
+	want := filepath.Join(canon, "hil[31mredx.db")
 	if !strings.Contains(err.Error(), "owns "+want+" is busy") || !strings.Contains(err.Error(), entryFileOf(t, dir, host)) {
 		t.Fatalf("the sanitized message is not the expected one: %q", err.Error())
 	}

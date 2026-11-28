@@ -1,7 +1,8 @@
 # HTML view spike: sandboxed model-written HTML in chat
 
-Status: spike, default OFF. Not wired to any send/app-link callbacks by any
-caller yet (the `HtmlViewContext` provider is not mounted anywhere).
+Status: spike, default OFF (`localStorage['chat.htmlViews']='true'`). `ChatHosts`
+mounts `HtmlViewContext`: `onSend` is confirmed with the user before sending and
+`onAppLink` goes through the same app-link opener as block links.
 
 ## What it is
 
@@ -42,14 +43,13 @@ Files (`wails-app/frontend/src/components/chat/`):
 
 The bridge lives inside the frame, so hostile script can post a fake
 `gesture`. The frame cannot be trusted to attest to its own clicks. Mitigation
-implemented: a frame `gesture` only counts if the HOST saw a pointer over the
-frame wrapper (`pointerenter`/`pointerleave` on the parent element, which the
-frame cannot forge). That stops background/automatic sends, but a script can
-still fire send/open while the user's pointer merely rests over the frame
-without clicking. Keyboard-only use is not supported. A real fix needs the host
-to observe the click itself (e.g. `blur` with `activeElement === iframe`), not
-done here. Treat `onSend` as "user may be tricked into sending text while
-hovering"; callers should show the text for confirmation before sending.
+implemented: a frame `gesture` only counts if the HOST window lost focus
+(`blur`) while the iframe was the active element, within the last 2 s, and each
+blur backs one message. That stops background/automatic sends, but after a
+person clicks or tabs into the frame, hostile script can still fire one
+send/open without the click having meant it. `onSend` therefore never sends on
+the frame's say-so: the host shows the text and sends only on a click on its own
+Send button. `onAppLink` has no such confirmation.
 
 ## Verified
 
@@ -128,7 +128,7 @@ Verify against the real app before enabling the flag for anyone (see below).
 - CSP `form-action`, `frame-src`, `base-uri`, `object-src` effects: present in the
   policy, not probed in WKWebView.
 - Real user clicks: no real mouse click was driven in WKWebView, so the
-  `isTrusted` click handler, pointer-over gating, and `host.send/open` through
+  `isTrusted` click handler, blur gating, and `host.send/open` through
   a real gesture are untested outside jsdom. Auto-resize with real content
   height was not measured (the frame only sends a height when its script calls
   `host.resize`; there is no ResizeObserver in the bridge).
@@ -137,10 +137,8 @@ Verify against the real app before enabling the flag for anyone (see below).
 
 ## Open questions
 
-1. Who mounts `HtmlViewContext` and what do `onSend`/`onAppLink` do? (Lane A
-   app links own the `monoagent://` resolver; send should show the text in the
-   composer for confirmation rather than sending.)
-2. Replace the hover-based gesture with host-observed click detection?
+1. (Resolved: `ChatHosts` mounts it; send is user-confirmed, app links use the shared opener.)
+2. (Resolved: the gesture gate now uses host window blur. Known limit: repeated clicks in an already-focused frame do not send again until focus leaves and returns.)
 3. Should the model be told the `html-view` convention (prompt change)? Not in
    this spike.
 4. Add a ResizeObserver to the bridge, or keep manual `host.resize`?

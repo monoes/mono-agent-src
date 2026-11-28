@@ -25,70 +25,76 @@ import (
 // package may name the header, since it could not use the prover.
 func TestSourcePin_EveryTokenSenderGoesThroughTheProver(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+	// every source file of the package, whatever its build tags
+	names, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	files := map[string]*ast.File{}
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if files[name], err = parser.ParseFile(fset, name, nil, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
 	senders := 0
-	for _, pkg := range pkgs {
-		for file, f := range pkg.Files {
-			for _, d := range f.Decls {
-				fn, ok := d.(*ast.FuncDecl)
-				if !ok || fn.Body == nil {
-					continue
-				}
-				sets, proves := false, false
-				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					call, ok := n.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-					switch fun := call.Fun.(type) {
-					case *ast.SelectorExpr:
-						if fun.Sel.Name == "Set" && len(call.Args) > 0 {
-							if id, ok := call.Args[0].(*ast.Ident); ok && id.Name == "tokenHeader" {
-								sets = true
-							}
-						}
-						if fun.Sel.Name == "prove" || fun.Sel.Name == "proveBridge" {
-							proves = true
-						}
-					case *ast.Ident:
-						if fun.Name == "proveBridge" {
-							proves = true
-						}
-					}
+	for file, f := range files {
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			sets, proves := false, false
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
 					return true
-				})
-				if sets {
-					senders++
-					if !proves {
-						t.Errorf("%s: %s attaches the pairing token header without going through prove()/proveBridge(): "+
-							"a listener that has not proven it holds the token would receive it", filepath.Base(file), fn.Name.Name)
+				}
+				switch fun := call.Fun.(type) {
+				case *ast.SelectorExpr:
+					if fun.Sel.Name == "Set" && len(call.Args) > 0 {
+						if id, ok := call.Args[0].(*ast.Ident); ok && id.Name == "tokenHeader" {
+							sets = true
+						}
 					}
+					if fun.Sel.Name == "prove" || fun.Sel.Name == "proveBridge" {
+						proves = true
+					}
+				case *ast.Ident:
+					if fun.Name == "proveBridge" {
+						proves = true
+					}
+				}
+				return true
+			})
+			if sets {
+				senders++
+				if !proves {
+					t.Errorf("%s: %s attaches the pairing token header without going through prove()/proveBridge(): "+
+						"a listener that has not proven it holds the token would receive it", filepath.Base(file), fn.Name.Name)
 				}
 			}
 		}
 	}
 	// every request goes through newBridgeClient (it refuses redirects): no other http.Client literal
-	for _, pkg := range pkgs {
-		for file, f := range pkg.Files {
-			for _, d := range f.Decls {
-				fn, ok := d.(*ast.FuncDecl)
-				if !ok || fn.Body == nil || fn.Name.Name == "newBridgeClient" {
-					continue
-				}
-				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					if cl, ok := n.(*ast.CompositeLit); ok {
-						if se, ok := cl.Type.(*ast.SelectorExpr); ok && se.Sel.Name == "Client" {
-							if id, ok := se.X.(*ast.Ident); ok && id.Name == "http" {
-								t.Errorf("%s: %s builds its own http.Client: use newBridgeClient (it refuses redirects, which would carry the token and body elsewhere)", filepath.Base(file), fn.Name.Name)
-							}
+	for file, f := range files {
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Name.Name == "newBridgeClient" {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if cl, ok := n.(*ast.CompositeLit); ok {
+					if se, ok := cl.Type.(*ast.SelectorExpr); ok && se.Sel.Name == "Client" {
+						if id, ok := se.X.(*ast.Ident); ok && id.Name == "http" {
+							t.Errorf("%s: %s builds its own http.Client: use newBridgeClient (it refuses redirects, which would carry the token and body elsewhere)", filepath.Base(file), fn.Name.Name)
 						}
 					}
-					return true
-				})
-			}
+				}
+				return true
+			})
 		}
 	}
 	if senders < 4 {

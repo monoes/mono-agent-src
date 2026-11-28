@@ -30,9 +30,9 @@ type beginCountConn struct {
 	n *atomic.Int64
 }
 
-func (c beginCountConn) Begin() (driver.Tx, error) {
+func (c beginCountConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	c.n.Add(1)
-	return c.Conn.Begin()
+	return c.Conn.(driver.ConnBeginTx).BeginTx(ctx, opts)
 }
 
 var (

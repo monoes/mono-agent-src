@@ -110,8 +110,23 @@ test("a bridge that accepts and never answers does not hang the step", async () 
   assert.equal(r.kind, "down");
 });
 
-test("the configured address is asked first", () => {
-  assert.deepEqual(A.bases({ wsUrl: "ws://127.0.0.1:9500/monoagent" }), ["http://127.0.0.1:9500", "http://127.0.0.1:9222", "http://127.0.0.1:9323"]);
+test("a configured address is the only one asked; without one, learned then default", () => {
+  assert.deepEqual(A.bases({ wsUrl: "ws://127.0.0.1:9500/monoagent", pairedWsUrl: "ws://127.0.0.1:9600/monoagent" }), ["http://127.0.0.1:9500"]);
+  assert.deepEqual(A.bases({ pairedWsUrl: "ws://127.0.0.1:9600/monoagent" }), ["http://127.0.0.1:9600", "http://127.0.0.1:9222", "http://127.0.0.1:9323"]);
+});
+
+test("a bridge on a configured port is claimed from (#1756)", async () => {
+  const b = fakeBridge({ ports: [9431], doc: { signedIn: true } });
+  const r = await A.step({ fetch: b.impl, known: { wsUrl: "ws://127.0.0.1:9431/monoagent" } });
+  assert.equal(r.kind, "claimed");
+  assert.equal(r.wsUrl, "ws://127.0.0.1:9431/monoagent");
+});
+
+test("with the configured bridge down, no other bridge is asked to pair", async () => {
+  const b = fakeBridge({ ports: [9222, 9323], doc: { signedIn: true } });
+  const r = await A.step({ fetch: b.impl, known: { wsUrl: "ws://127.0.0.1:9431/monoagent" } });
+  assert.equal(r.kind, "down");
+  assert.deepEqual(b.calls.filter((c) => !c.url.startsWith("http://127.0.0.1:9431/")), []);
 });
 
 const pendingReply = json({ pending: true, claimId: "c1c1c1c1c1c1c1c1", pollSecret: "s".repeat(64), code: "K7M-2QX", expiresAt: "2099-01-01T00:00:00Z" }, 202);
