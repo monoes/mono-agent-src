@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,7 +46,10 @@ func TestHelperUnplacedHost(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "child.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	select {} // killed by the test
+	// Killed by the test. A sleep, not select{}: with no other goroutine the runtime would end this host as deadlocked (it
+	// does on macOS). The delivery stays reachable, so the write end of its pipe is not closed by a finalizer.
+	time.Sleep(time.Minute)
+	runtime.KeepAlive(d)
 }
 
 // TestHelperUnplacedChild is the child: the turn's first act, reading the credential frame.
