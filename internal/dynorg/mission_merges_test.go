@@ -1,6 +1,7 @@
 package dynorg
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,7 +71,12 @@ func TestMissionPendingMergesAreInTheStoreAndSurviveANewConductor(t *testing.T) 
 	if v := r.finish(); v.Finished {
 		t.Fatalf("it closed without merged-tree checks: %+v", v)
 	}
-	r.next(r.c)
+	// the first integration verifier's run ends a moment after its verdict closed the task, and
+	// mission_next leaves a task with a running worker alone: wait for it, then the lead takes it
+	eventually(r.t, "the integration verifier to end", func() bool { return r.c.taskWorker(it.ID) == nil })
+	if res := r.next(r.c); !slices.Contains(r.startedIDs(res), it.ID) {
+		t.Fatalf("the lead takes the requeued integration task: %+v", res)
+	}
 	if _, err := r.store.SessionFinish(tbg, "default", r.sid, it.ID, tasks.Outcome{Result: "merged-tree checks pass"}, lead); err != nil {
 		t.Fatal(err)
 	}
