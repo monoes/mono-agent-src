@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -76,8 +77,38 @@ func (r *sysRig) pressOne(t *testing.T, body map[string]any) UIActionResult {
 	return res
 }
 
+// revision names the version of a card a renderer shows: the turn and seq of the
+// last journal event that drew it.
+func (r *sysRig) revision(t *testing.T, id string) string {
+	t.Helper()
+	evs, err := r.store.UIEvents("default", r.conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := ""
+	for _, ev := range evs {
+		var p chatevents.UISurfacePayload
+		if ev.Type == chatevents.EventUISurface && json.Unmarshal(ev.Payload, &p) == nil && p.SurfaceID == id {
+			rev = fmt.Sprintf("%s:%d", ev.TurnID, ev.Seq)
+		}
+	}
+	return rev
+}
+
+// pressSet sends a set as a renderer does: each action names the version of the
+// card it answers, unless the test says which.
 func (r *sysRig) pressSet(t *testing.T, skipped []string, bodies ...map[string]any) UIActionResult {
 	t.Helper()
+	for i, b := range bodies {
+		if _, set := b["revision"]; set {
+			continue
+		}
+		with := map[string]any{"revision": r.revision(t, fmt.Sprint(b["surfaceId"]))}
+		for k, v := range b {
+			with[k] = v
+		}
+		bodies[i] = with
+	}
 	env := map[string]any{"version": "1.0", "actions": bodies}
 	if len(skipped) > 0 {
 		env["skipped"] = skipped
@@ -293,6 +324,221 @@ func TestAnUndrawnButtonIsNotWaitedFor(t *testing.T) {
 	r.appendLive(t, chatevents.EventUISurface, chatevents.UISurfacePayload{SurfaceID: "ghost", Provenance: "agent", Message: json.RawMessage(body)})
 	if res := r.pressOne(t, cardBody("region")); res.Outcome != "accepted" {
 		t.Fatalf("%+v", res)
+	}
+}
+
+// rewrite changes what a live card's button does, as its agent can.
+func rewrite(t *testing.T, r *sysRig, id, action string) {
+	t.Helper()
+	body := `{"version":"1.0","updateComponents":{"surfaceId":"` + id + `","components":[{"id":"bl","component":"Text","text":"Delete the files"},` +
+		`{"id":"b","component":"Button","child":"bl","action":{"event":{"name":"` + action + `","context":{}}}}]}}`
+	r.appendLive(t, chatevents.EventUISurface, chatevents.UISurfacePayload{SurfaceID: id, Provenance: "agent", Message: json.RawMessage(body)})
+}
+
+// A press answers the card as it was shown: once the agent has changed it, the
+// press goes nowhere, alone or in a set.
+func TestAPressOnAChangedCardIsRefused(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	askLive(t, r, "w1", "Which region?")
+	agentCard(t, r, "files")
+	old := r.revision(t, "files")
+	// The same action name, another meaning: only the version tells them apart.
+	rewrite(t, r, "files", "pick_files")
+	stale := cardBody("files")
+	stale["revision"] = old
+	res := r.pressSet(t, nil, answerBody("w1", "eu"), stale)
+	if res.Outcome != "rejected" || res.Message != "" || !strings.Contains(res.Reason, "changed") {
+		t.Fatalf("%+v", res)
+	}
+	if got, ok := r.answerOf(t, "w1"); ok {
+		t.Fatalf("part of a refused set was delivered: %q", got)
+	}
+	bare := cardBody("files")
+	bare["revision"] = ""
+	if res := r.pressSet(t, nil, answerBody("w1", "eu"), bare); res.Outcome != "rejected" || !strings.Contains(res.Reason, "revision") {
+		t.Fatalf("a set press that names no version: %+v", res)
+	}
+	if res := r.pressSet(t, nil, answerBody("w1", "eu"), cardBody("files")); res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestASinglePressOnAChangedCardIsRefused(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	agentCard(t, r, "files")
+	stale := cardBody("files")
+	stale["revision"] = r.revision(t, "files")
+	rewrite(t, r, "files", "pick_files")
+	if res := r.pressOne(t, stale); res.Outcome != "rejected" || res.Message != "" || !strings.Contains(res.Reason, "changed") {
+		t.Fatalf("%+v", res)
+	}
+	stale["revision"] = r.revision(t, "files")
+	if res := r.pressOne(t, stale); res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// bigCard journals an agent card whose button carries size bytes the agent put there.
+func bigCard(t *testing.T, r *sysRig, id string, size int) {
+	t.Helper()
+	ctx := map[string]any{}
+	for i := 0; size > 0; i++ {
+		n := min(size, 3500)
+		ctx[fmt.Sprintf("k%d", i)] = strings.Repeat("x", n)
+		size -= n
+	}
+	body, _ := json.Marshal(map[string]any{"version": "1.0", "createSurface": map[string]any{"surfaceId": id, "components": []any{
+		map[string]any{"id": "root", "component": "Column", "children": []any{"b"}},
+		map[string]any{"id": "bl", "component": "Text", "text": "Go"},
+		map[string]any{"id": "b", "component": "Button", "child": "bl", "action": map[string]any{"event": map[string]any{"name": "pick_" + id, "context": ctx}}},
+	}}})
+	r.appendLive(t, chatevents.EventUISurface, chatevents.UISurfacePayload{SurfaceID: id, Provenance: "agent", Message: body})
+}
+
+func bigBody(t *testing.T, r *sysRig, id string) map[string]any {
+	t.Helper()
+	s := r.surfaceNow(t, id)
+	action, _ := s.Components["b"]["action"].(map[string]any)
+	ev, _ := action["event"].(map[string]any)
+	return map[string]any{"name": "pick_" + id, "surfaceId": id, "sourceComponentId": "b", "context": ev["context"]}
+}
+
+// A next-turn message over what a chat message holds is refused before any card
+// is settled or any answer stored.
+func TestAnOversizedSetIsRefusedBeforeAnythingSettles(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	askLive(t, r, "w1", "Which region?")
+	ids := []string{"a", "b", "c", "d", "e"}
+	for _, id := range ids {
+		bigCard(t, r, id, 3600)
+	}
+	bodies := []map[string]any{answerBody("w1", "eu")}
+	for _, id := range ids {
+		bodies = append(bodies, bigBody(t, r, id))
+	}
+	res := r.pressSet(t, nil, bodies...)
+	if res.Outcome != "rejected" || res.Message != "" || !strings.Contains(res.Reason, "16384") {
+		t.Fatalf("outcome %s, %d bytes, %q", res.Outcome, len(res.Message), res.Reason)
+	}
+	if _, ok := r.answerOf(t, "w1"); ok {
+		t.Fatal("an answer went out of a refused set")
+	}
+	// Nothing was settled: a smaller set of the same cards still goes.
+	res = r.pressSet(t, []string{"b", "c", "d", "e"}, answerBody("w1", "eu"), bigBody(t, r, "a"))
+	if res.Outcome != "accepted" || len(res.Message) > 16<<10 {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// What the caller appends (a message's choices and forms) counts too.
+func TestASetCountsWhatTheCallerAppends(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	agentCard(t, r, "region")
+	body := cardBody("region")
+	body["revision"] = r.revision(t, "region")
+	raw, _ := json.Marshal(map[string]any{"version": "1.0", "actions": []any{body}, "appendBytes": 16 << 10})
+	res, err := r.uiRig.press(t, string(raw))
+	if err != nil || res.Outcome != "rejected" || !strings.Contains(res.Reason, "16384") {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+func TestAnOversizedSinglePressIsRefused(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	bigCard(t, r, "a", 17<<10)
+	if res := r.pressOne(t, bigBody(t, r, "a")); res.Outcome != "rejected" || res.Message != "" || !strings.Contains(res.Reason, "16384") {
+		t.Fatalf("outcome %s, %d bytes", res.Outcome, len(res.Message))
+	}
+}
+
+// outcomes is what the journal says of each card's presses.
+func (r *sysRig) outcomes(t *testing.T) map[string]string {
+	t.Helper()
+	evs, err := r.store.UIEvents("default", r.conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, ev := range evs {
+		var a chatevents.UIActionPayload
+		if ev.Type == chatevents.EventUIAction && json.Unmarshal(ev.Payload, &a) == nil {
+			out[a.SurfaceID] += a.Outcome + ";"
+		}
+	}
+	return out
+}
+
+// One removed card must not close the others of its set: only it is journaled
+// stale, and the rest are still answerable.
+func TestARemovedCardLeavesTheRestOfTheSetOpen(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	askLive(t, r, "w1", "Which region?")
+	agentCard(t, r, "a")
+	agentCard(t, r, "b")
+	bodies := []map[string]any{answerBody("w1", "eu"), cardBody("a"), cardBody("b")}
+	for _, b := range bodies[1:] {
+		b["revision"] = r.revision(t, fmt.Sprint(b["surfaceId"]))
+	}
+	r.appendLive(t, chatevents.EventUISurface, chatevents.UISurfacePayload{SurfaceID: "b", Provenance: "agent",
+		Message: json.RawMessage(`{"version":"1.0","deleteSurface":{"surfaceId":"b"}}`)})
+	if res := r.pressSet(t, nil, bodies...); res.Outcome != "stale" {
+		t.Fatalf("%+v", res)
+	}
+	got := r.outcomes(t)
+	if got["b"] != "stale;" || got["a"] != "rejected;" || got["ask-w1.q1"] != "rejected;" {
+		t.Fatalf("journal %v", got)
+	}
+	if res := r.pressSet(t, nil, answerBody("w1", "eu"), cardBody("a")); res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// A second, late set says nothing about cards the first one settled.
+func TestALateSetReopensNoSettledCard(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	agentCard(t, r, "a")
+	agentCard(t, r, "b")
+	if res := r.pressSet(t, nil, cardBody("a"), cardBody("b")); res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+	if res := r.pressSet(t, nil, cardBody("a"), cardBody("b")); res.Outcome == "accepted" {
+		t.Fatalf("%+v", res)
+	}
+	if got := r.outcomes(t); got["a"] != "accepted;" || got["b"] != "accepted;" {
+		t.Fatalf("journal %v", got)
+	}
+}
+
+// `chat turn answer` is no way around the set, unless the person says so.
+func TestTurnAnswerOfOneQuestionOfASetNeedsAlone(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	askLive(t, r, "w1", "Which region?")
+	agentCard(t, r, "db")
+	run := func(extra ...string) error {
+		cmd := newChatTurnAnswerCmd(r.cfg)
+		cmd.SetArgs(append([]string{r.conv.ID, "live", "--agent", "w1", "--question", "q1", "--text", "eu"}, extra...))
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		return cmd.Execute()
+	}
+	if err := run(); err == nil || !strings.Contains(err.Error(), "--alone") {
+		t.Fatalf("err %v", err)
+	}
+	if _, ok := r.answerOf(t, "w1"); ok {
+		t.Fatal("the worker was answered around the set")
+	}
+	if err := run("--alone"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.answerOf(t, "w1"); got != "eu" {
+		t.Fatalf("got %q", got)
 	}
 }
 

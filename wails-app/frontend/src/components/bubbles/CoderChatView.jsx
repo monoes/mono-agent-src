@@ -157,7 +157,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   const canBlockSend = !blocked && !steering && !conv.streaming && !!conv.conversationId
   const blockSend = useCallback(async (text) => (await conv.send(text, [])) !== false, [conv])
   // A2UI surface buttons: the CLI decides what a press does; an accepted press for the next turn is sent as the next message.
-  const a2ui = useA2UIActions({ conversationId: conv.conversationId || '', send: text => conv.send(text, []), streaming: conv.streaming, onChanged: conv.refreshUI })
+  const a2ui = useA2UIActions({ conversationId: conv.conversationId || '', send: text => conv.send(text, []), streaming: conv.streaming || conv.loading, onChanged: conv.refreshUI })
   // Cards are folded over the whole conversation: a later turn can change or close an earlier one.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- turnList is rebuilt each render from these
   const surfacesByTurn = useMemo(() => foldConversationSurfaces(turnList), [conv.messages, conv.liveTurn, conv.streaming])

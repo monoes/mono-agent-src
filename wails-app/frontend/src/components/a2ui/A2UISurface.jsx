@@ -7,7 +7,7 @@
 // the person's choice and the turn's AnswerSetBar sends them all (#1803).
 import { Component, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getPointer, isAskCard, setPointer } from '../../lib/a2uiModel.js'
+import { fieldMeaning, getPointer, isAskCard, setPointer } from '../../lib/a2uiModel.js'
 import { SkipToggle, useAnswerItem } from '../answerSet/AnswerSet.jsx'
 import { useDraft } from '../answerSet/useDraft.js'
 import { Check, Choice, Field, isBinding } from './A2UIInputs.jsx'
@@ -28,27 +28,30 @@ const NO_PICK = { chosen: '', skip: false }
 
 // Local edits layered over the server data model. An edit lasts until the
 // server changes the value it was based on, so a progress update does not wipe
-// what the user is typing.
-function effectiveModel(server, edits) {
+// what the user is typing, or changes what the field means.
+function effectiveModel(server, edits, meaning) {
   let m = server
   for (const e of edits) {
-    if (same(getPointer(server, e.path), e.base)) m = setPointer(m, e.path, e.value)
+    if (same(getPointer(server, e.path), e.base) && e.meaning === meaning(e.path)) m = setPointer(m, e.path, e.value)
   }
   return m
 }
 
 function useSurfaceModel(surface, draftKey) {
   const [edits, setEdits, drop] = useDraft(draftKey && `${draftKey}|edits`, NO_EDITS)
-  const model = useMemo(() => effectiveModel(surface.dataModel, edits), [surface.dataModel, edits])
+  const meaning = useCallback(path => fieldMeaning(surface.components, surface.dataModel, path), [surface.components, surface.dataModel])
+  const model = useMemo(() => effectiveModel(surface.dataModel, edits, meaning), [surface.dataModel, edits, meaning])
   const write = useCallback((path, value) => {
-    setEdits(prev => [...prev.filter(e => e.path !== path), { path, value, base: getPointer(surface.dataModel, path) }])
-  }, [surface.dataModel, setEdits])
-  return [model, write, drop]
+    setEdits(prev => [...prev.filter(e => e.path !== path), { path, value, base: getPointer(surface.dataModel, path), meaning: meaning(path) }])
+  }, [surface.dataModel, setEdits, meaning])
+  const cleared = useMemo(() => edits.some(e => e.meaning !== meaning(e.path)), [edits, meaning])
+  return [model, write, drop, cleared]
 }
 
 // What pressing the button sends: the v1.0 action envelope with its context read
 // from the model; null when the button names no event.
-function envelopeOf(surfaceId, id, comp, model) {
+// revision is the version of the card the person saw.
+function envelopeOf(surfaceId, id, comp, model, revision) {
   const ev = comp?.action && comp.action.event
   if (!ev || typeof ev.name !== 'string' || !ev.name) return null
   const context = {}
@@ -56,7 +59,7 @@ function envelopeOf(surfaceId, id, comp, model) {
     const x = isBinding(v) ? getPointer(model, v['@path']) : v
     if (x !== undefined) context[k] = x
   }
-  return { version: '1.0', action: { name: ev.name, surfaceId, sourceComponentId: id, timestamp: new Date().toISOString(), context } }
+  return { version: '1.0', action: { name: ev.name, surfaceId, sourceComponentId: id, timestamp: new Date().toISOString(), context, ...(revision ? { revision } : {}) } }
 }
 
 const filled = v => (Array.isArray(v) ? v.length > 0 : v != null && String(v).trim() !== '')
@@ -156,7 +159,7 @@ function ProgressBar({ value, max, label }) {
 }
 
 function ActionButton({ id, comp, ctx, label }) {
-  const env = () => envelopeOf(ctx.surfaceId, id, comp, ctx.model)
+  const env = () => envelopeOf(ctx.surfaceId, id, comp, ctx.model, ctx.rev)
   const ev = comp.action && comp.action.event
   const variant = ['primary', 'borderless', 'danger'].includes(comp.variant) ? comp.variant : 'default'
   // A question's Continue has no place in a set: the set's own button sends it.
@@ -188,7 +191,7 @@ function SurfaceBody({ surface, plan, onAction, group, live }) {
   const asks = isAskCard(surface)
   // A draft belongs to one question card of one turn; approvals keep none.
   const draftKey = group && (asks || surface.provenance === 'agent') ? `${group}|${surface.surfaceId}` : ''
-  const [model, write, dropEdits] = useSurfaceModel(surface, draftKey)
+  const [model, write, dropEdits, cleared] = useSurfaceModel(surface, draftKey)
   const [pick, setPick, dropPick] = useDraft(draftKey && `${draftKey}|pick`, NO_PICK)
   const [pressed, setPressed] = useState(false)
   const timer = useRef(null)
@@ -217,20 +220,23 @@ function SurfaceBody({ surface, plan, onAction, group, live }) {
   const buttons = plan.order.filter(id => surface.components[id]?.component === 'Button' && surface.components[id].action?.event?.name)
   // Waiting for the person: a worker's question while its turn runs, or an agent's card with a button.
   const waiting = !resolved && buttons.length > 0 && (asks ? live : surface.provenance === 'agent')
-  const chosen = buttons.includes(pick.chosen) ? pick.chosen : ''
-  const skipped = !asks && !!pick.skip
+  // A pick or a skip stands for the card as it was when made: any change drops it.
+  const current = pick.rev === surface.rev
+  const dropped = !current && (!!pick.chosen || !!pick.skip)
+  const chosen = current && buttons.includes(pick.chosen) ? pick.chosen : ''
+  const skipped = !asks && current && !!pick.skip
   const ready = asks ? waiting && allFilled(surface.components[buttons[0]], model) : skipped || !!chosen
   const collect = () => {
     if (skipped) return { skip: surface.surfaceId }
     const id = asks ? buttons[0] : chosen
-    const envelope = envelopeOf(surface.surfaceId, id, surface.components[id], model)
+    const envelope = envelopeOf(surface.surfaceId, id, surface.components[id], model, surface.rev)
     return envelope && { action: envelope.action }
   }
   const { grouped, sending } = useAnswerItem(draftKey, { group: waiting && draftKey ? group : '', ready, skipped, collect })
   useEffect(() => { if (resolved || buttons.length === 0) { dropEdits(); dropPick() } }, [resolved, buttons.length, dropEdits, dropPick])
   const locked = pressed || resolved || sending
-  const choose = id => setPick({ chosen: chosen === id ? '' : id, skip: false })
-  const ctx = { components: surface.components, model, write, press, surfaceId: surface.surfaceId, locked, resolved, reasonId, asks, grouped, chosen: skipped ? '' : chosen, choose }
+  const choose = id => setPick({ chosen: chosen === id ? '' : id, skip: false, rev: surface.rev })
+  const ctx = { components: surface.components, model, write, press, surfaceId: surface.surfaceId, locked, resolved, reasonId, asks, grouped, chosen: skipped ? '' : chosen, choose, rev: surface.rev }
   const hasButton = plan.order.some(id => surface.components[id]?.component === 'Button')
   const unanswered = asks && waiting && !grouped && !ready
   return (
@@ -238,7 +244,8 @@ function SurfaceBody({ surface, plan, onAction, group, live }) {
       {plan.root && <Node node={plan.root} ctx={ctx} />}
       {plan.truncated && <Placeholder>{t('a2ui.truncated')}</Placeholder>}
       {grouped && <p className="a2ui-reason">{t(asks ? (ready ? 'a2ui.setReady' : 'a2ui.setAnswer') : (skipped ? 'a2ui.setSkipped' : chosen ? 'a2ui.setChosen' : 'a2ui.setChoose'))}</p>}
-      {grouped && !asks && <SkipToggle skipped={skipped} disabled={locked} onChange={skip => setPick({ chosen: '', skip })} />}
+      {grouped && !asks && <SkipToggle skipped={skipped} disabled={locked} onChange={skip => setPick({ chosen: '', skip, rev: surface.rev })} />}
+      {!resolved && (dropped || cleared) && <p role="alert" className="a2ui-reason a2ui-changed">{t(dropped ? 'a2ui.pickDropped' : 'a2ui.typedDropped')}</p>}
       {locked && hasButton && !(grouped && asks) && <p id={reasonId} className="a2ui-reason">{t(resolved ? 'a2ui.lockedDone' : working || sending ? 'a2ui.lockedWorking' : 'a2ui.lockedSent')}</p>}
       {!locked && unanswered && <p id={reasonId} className="a2ui-reason">{t('a2ui.answerFirst')}</p>}
     </>

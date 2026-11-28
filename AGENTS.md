@@ -2898,7 +2898,10 @@ questions go in one call, show on one card and are answered together (#1803).
   row has an answer box that calls it, except while the question holds
   several questions or others wait with it, which are answered in their cards
   and sent together. The running turn passes the answer to the worker within a
-  second. The command itself answers the one question it names.
+  second. The command itself answers the one question it names, and refuses it
+  while other cards wait with it in the turn unless `--alone` is passed. A
+  refused set is journaled `stale` only for cards that are gone and `rejected`
+  for those still waiting; nothing is journaled for any other.
 - **How a question closes:** always as `agent.message` `direction:
   "followup"` with the same `questionId`, from `"user"` (the answer) or from
   `"system"` (no answer within 10 minutes, or the worker was stopped). After
@@ -4479,7 +4482,13 @@ They go as one set, `{"version":"1.0","actions":[<action>,...],"skipped":
 [<surfaceId>,...]}`: every waiting card is in `actions` or, for an agent's
 card only, in `skipped`; the set is delivered whole or not at all (the workers'
 answers in one transaction, the agent cards' presses as one next-turn
-message); approvals and mission buttons are never part of it. The app and the
+message); approvals and mission buttons are never part of it. An agent
+card's action names the `revision` it answers (`<turn>:<seq>` of the card's
+last `ui.surface` event; required in a set, optional alone) and is refused once
+the card has changed; the app and the side panel also drop a pick, and a typed
+value whose field changed meaning. A press that would make a next-turn message
+over 16 KB (`a2ui.MaxNextTurnBytes`, with the set's `appendBytes`) is refused
+before anything is stored or settled. The app and the
 side panel hold each answer until their **Send all**, also for choices and
 forms in a message (those never reach this command).
 

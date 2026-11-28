@@ -216,7 +216,7 @@ function eventPatch(state, ev) {
     case 'ui.surface':
       return {
         surfaces: applySurfaceEvent(state.surfaces || [], payload, ev.seq, state.parts.length),
-        surfaceLog: [...(state.surfaceLog || []), { type: 'surface', payload, at: ev.at, partIndex: state.parts.length }],
+        surfaceLog: [...(state.surfaceLog || []), { type: 'surface', payload, seq: ev.seq, at: ev.at, partIndex: state.parts.length }],
       }
 
     case 'ui.action':

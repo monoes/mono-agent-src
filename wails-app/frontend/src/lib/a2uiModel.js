@@ -106,6 +106,27 @@ export function applyMessage(surface, msg, meta = {}) {
 // The host's card ids (internal/a2ui SystemSurfacePrefixes): no agent may name one.
 const SYSTEM_ID = /^(hil|send|ask|mission)-/
 
+// What a field's value means to the person: the inputs bound to the path (kind,
+// label, options, the text just above) and the buttons that send it. A value
+// typed under another meaning is not carried over.
+export function fieldMeaning(components, data, path) {
+  const read = v => (v && typeof v === 'object' && typeof v['@path'] === 'string' ? getPointer(data, v['@path']) : v) ?? null
+  const all = Object.values(components || {})
+  const textOf = id => (components[id]?.component === 'Text' ? read(components[id].text) : null)
+  const out = []
+  for (const c of all) {
+    if (c?.value?.['@path'] === path) {
+      const parent = all.find(p => Array.isArray(p?.children) && p.children.includes(c.id))
+      const above = parent ? textOf(parent.children[parent.children.indexOf(c.id) - 1]) : null
+      out.push([c.id, c.component, read(c.label), (Array.isArray(c.options) ? c.options : []).map(o => [read(o?.label), o?.value]), c.variant ?? null, read(c.placeholder), above])
+    }
+    for (const [k, v] of Object.entries(c?.action?.event?.context || {})) {
+      if (v?.['@path'] === path) out.push([c.id, c.action.event.name, k, textOf(c.child)])
+    }
+  }
+  return JSON.stringify(out)
+}
+
 // The host's card of a worker's question.
 export const isAskCard = sf => sf?.provenance === 'system' && String(sf.surfaceId).startsWith('ask-')
 
@@ -149,6 +170,8 @@ export function applySurfaceEvent(surfaces, payload, seq, partIndex = 0) {
 export function applyActionEvent(surfaces, payload) {
   const idx = surfaces.findIndex(s => s.surfaceId === payload?.surfaceId)
   if (idx === -1 || surfaces[idx].provenance === 'system') return surfaces
+  // A refused later press opens no answered card again.
+  if (surfaces[idx].status === 'resolved' && payload.outcome !== 'accepted') return surfaces
   const status = payload.outcome === 'accepted' ? 'resolved' : payload.outcome === 'stale' ? 'resolved' : 'live'
   const out = surfaces.slice()
   out[idx] = { ...surfaces[idx], status, lastOutcome: payload.outcome, lastReason: payload.reason || '' }
@@ -178,7 +201,10 @@ export function foldConversationSurfaces(turns) {
     const id = e.payload?.surfaceId
     const had = list.some(sf => sf.surfaceId === id)
     counts.set(id, (counts.get(id) || 0) + 1)
+    const before = list.find(sf => sf.surfaceId === id)
     list = applySurfaceEvent(list, e.payload, counts.get(id), e.partIndex)
+    // The card's version: the journal event that last drew it (the CLI checks a press against it).
+    if (list.find(sf => sf.surfaceId === id) !== before) list = list.map(sf => (sf.surfaceId === id ? { ...sf, rev: `${e.key}:${e.seq}` } : sf))
     if (!had && list.some(sf => sf.surfaceId === id) && !(isJournalTurn(e.key) && places.has(id))) {
       places.set(id, { key: e.key, partIndex: e.partIndex })
     }

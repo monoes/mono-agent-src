@@ -47,4 +47,37 @@ export function dropDraft(key) {
   write(next)
 }
 
-export function clearDrafts() { write({}) }
+// Messages a press asked to send as a chat's next one that could not go yet:
+// the person already sent them, so they wait here, per chat and in order, even
+// while the chat is closed.
+const HELD_KEY = 'monoagent.heldMessages.v1'
+let heldMemory = {}
+
+function readHeld() {
+  try {
+    const v = JSON.parse(globalThis.sessionStorage.getItem(HELD_KEY) || 'null')
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v
+  } catch { /* storage unavailable */ }
+  return heldMemory
+}
+
+function writeHeld(all) {
+  heldMemory = all
+  try { globalThis.sessionStorage.setItem(HELD_KEY, JSON.stringify(all)) } catch { /* best effort */ }
+}
+
+export function holdMessage(conversationId, message, { first = false } = {}) {
+  const all = readHeld()
+  const list = Array.isArray(all[conversationId]) ? all[conversationId] : []
+  writeHeld({ ...all, [conversationId]: first ? [message, ...list] : [...list, message] })
+}
+
+// Takes the chat's oldest held message, '' when it has none.
+export function takeHeld(conversationId) {
+  const all = readHeld()
+  const [next = '', ...rest] = Array.isArray(all[conversationId]) ? all[conversationId] : []
+  if (next) writeHeld({ ...all, [conversationId]: rest })
+  return next
+}
+
+export function clearDrafts() { write({}); writeHeld({}) }

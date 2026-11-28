@@ -47,6 +47,8 @@ function QuestionBox({ agent, scope, answerInCard }) {
     <form onSubmit={send} data-testid="agent-question" style={{ margin: '0 8px 6px 30px', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(251,191,36,0.35)', background: 'rgba(251,191,36,0.06)', display: 'flex', flexDirection: 'column', gap: 5 }}>
       <div style={{ fontFamily: mono, fontSize: 10, color: '#fbbf24', whiteSpace: 'pre-wrap' }}>{t('agentRow.questionFor')} {q.text}</div>
       {answerInCard && <div style={{ fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)' }}>{t('agentRow.answerInCard')}</div>}
+      {/* Typed here before the card took over: shown, so it can be put there. */}
+      {answerInCard && text.trim() && <div style={{ fontFamily: mono, fontSize: 9.5, color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{t('agentRow.typedHere', { text })}</div>}
       {canAnswer && (
         <div style={{ display: 'flex', gap: 6 }}>
           <input value={text} onChange={e => setText(e.target.value)} aria-label={t('agentRow.answerLabel')} placeholder={t('agentRow.answerPlaceholder')}

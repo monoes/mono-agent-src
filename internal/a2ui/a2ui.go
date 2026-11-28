@@ -56,6 +56,11 @@ func IsSystemSurfaceID(id string) bool {
 	return slices.ContainsFunc(SystemSurfacePrefixes, func(p string) bool { return strings.HasPrefix(id, p) })
 }
 
+// MaxNextTurnBytes is the longest message a chat takes as its next turn on every
+// path (the side panel's chat.send; the app's command line holds more). A press
+// that would make a longer one is refused before anything of it is delivered.
+const MaxNextTurnBytes = 16 << 10
+
 // Limits bound everything an untrusted surface can make us hold or draw.
 type Limits struct {
 	MaxMessageBytes   int // one raw envelope

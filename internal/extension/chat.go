@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/capturesummary"
 	"github.com/monoes/mono-agent/internal/profiledir"
@@ -51,7 +52,7 @@ const (
 const (
 	chatSendTimeout  = 10 * time.Minute
 	chatQueryTimeout = 30 * time.Second
-	chatMaxMessage   = 16 * 1024
+	chatMaxMessage   = a2ui.MaxNextTurnBytes
 	chatMaxCtxTitle  = 512
 	chatMaxCtxText   = 24 * 1024
 	chatMaxCtxSel    = 8 * 1024

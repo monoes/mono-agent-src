@@ -24,6 +24,7 @@ textarea.a2ui-input { resize: none; flex-shrink: 0; overflow-wrap: anywhere; }
 .a2ui-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .a2ui-mark { margin-right: 4px; }
 .a2ui-reason { margin: 6px 0 0; font-size: 11px; color: var(--text-secondary); }
+.a2ui-reason.a2ui-changed { color: #fbbf24; }
 .a2ui-check, .a2ui-choice { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
 .a2ui-choices { display: flex; gap: 6px; }
 .a2ui-choices-list { flex-direction: column; }

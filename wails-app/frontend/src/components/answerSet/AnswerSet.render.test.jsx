@@ -38,7 +38,7 @@ const ask = (agent, question) => {
   const id = `${agent}.q1`
   return [
     ['agent.spawned', { agentId: agent, role: agent }],
-    ['agent.status', { agentId: agent, status: 'waiting_user' }],
+    ['agent.status', { agentId: agent, from: 'working', to: 'waiting_user', detail: 'q1' }],
     ['agent.message', { agentId: agent, direction: 'question', questionId: 'q1', from: agent, to: 'user', text: question }],
     ['ui.surface', { surfaceId: `ask-${id}`, provenance: 'system', ref: { kind: 'ask', id }, message: v({ createSurface: {
       surfaceId: `ask-${id}`, dataModel: { answers: { q0: '' } },
@@ -202,6 +202,202 @@ describe('several agent cards', () => {
     rerender(view({ ...c, streaming: true }))
     rerender(view({ ...c, streaming: false }))
     await waitFor(() => expect(c.send).toHaveBeenCalledWith('yes_db', []))
+  })
+})
+
+// What the person picked or typed stands only for the card they saw.
+describe('a card that changes under an answer', () => {
+  const destructive = ['ui.surface', { surfaceId: 'files', provenance: 'agent', message: v({ updateComponents: { surfaceId: 'files', components: [
+    text('yes-l', 'Delete the files'), { id: 'yes', component: 'Button', child: 'yes-l', action: { event: { name: 'delete_all', context: {} } } }] } }) }]
+  const two = [card('files'), card('db')]
+  const after = [...two, destructive]
+
+  it('drops the pick, says so, and sends nothing until picked again', async () => {
+    api.chatUIAction.mockResolvedValue({ outcome: 'accepted', delivered: 'answer' })
+    const { rerender } = render(view(live(two)))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes db' }))
+    expect(sendAll()).toBeEnabled()
+    rerender(view(live(after)))
+    expect(screen.getByRole('button', { name: 'Delete the files' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText(/This card changed/)).toBeInTheDocument()
+    expect(sendAll()).toBeDisabled()
+    fireEvent.click(sendAll())
+    expect(api.chatUIAction).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete the files' }))
+    fireEvent.click(sendAll())
+    await waitFor(() => expect(api.chatUIAction).toHaveBeenCalledTimes(1))
+    expect(api.chatUIAction.mock.calls[0][1].actions.map(a => [a.name, a.revision])).toEqual([['delete_all', 't1:3'], ['yes_db', 't1:2']])
+  })
+
+  it('drops a pick kept across a reload', () => {
+    const first = render(view(live(two)))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes files' }))
+    first.unmount()
+    render(view(live(after)))
+    expect(screen.getByRole('button', { name: 'Delete the files' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText(/This card changed/)).toBeInTheDocument()
+  })
+
+  it('drops a skip made on the earlier card', () => {
+    const { rerender } = render(view(live(two)))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Skip this one' })[0])
+    rerender(view(live(after)))
+    expect(screen.queryByRole('button', { name: /Skipped/ })).toBeNull()
+  })
+
+  it('names the version of a card pressed alone', async () => {
+    api.chatUIAction.mockResolvedValue({ outcome: 'accepted', delivered: 'answer' })
+    render(view(live([card('files')])))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes files' }))
+    await waitFor(() => expect(api.chatUIAction.mock.calls[0][1].action.revision).toBe('t1:1'))
+  })
+
+  const form = (label, bind = '/v', options) => ['ui.surface', { surfaceId: 'f', provenance: 'agent', message: v({ createSurface: {
+    surfaceId: 'f', dataModel: { v: options ? [] : '', w: '' }, components: [{ id: 'root', component: 'Column', children: ['in', 'go'] },
+      options ? { id: 'in', component: 'ChoicePicker', variant: 'mutuallyExclusive', value: { '@path': bind }, options }
+        : { id: 'in', component: 'TextField', label, value: { '@path': bind } },
+      ...button('go', 'Save', 'save', { v: { '@path': '/v' } })] } }) }]
+  const change = (...msg) => ['ui.surface', { surfaceId: 'f', provenance: 'agent', message: v({ updateComponents: { surfaceId: 'f', components: msg } }) }]
+
+  it('clears a typed value when its field is relabelled or rebound, but not on a progress update', () => {
+    const evs = [form('Folder to keep')]
+    const { rerender } = render(view(live(evs)))
+    const box = name => screen.getByRole('textbox', { name })
+    fireEvent.change(box('Folder to keep'), { target: { value: 'photos' } })
+    const progress = ['ui.surface', { surfaceId: 'f', provenance: 'agent', message: v({ updateDataModel: { surfaceId: 'f', path: '/w', value: '50%' } }) }]
+    rerender(view(live([...evs, progress])))
+    expect(box('Folder to keep')).toHaveValue('photos')
+    rerender(view(live([...evs, progress, change({ id: 'in', component: 'TextField', label: 'Folder to DELETE', value: { '@path': '/v' } })])))
+    expect(box('Folder to DELETE')).toHaveValue('')
+    expect(screen.getByText(/This card changed/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  })
+
+  it('clears a choice when the options are relabelled', () => {
+    const opts = label => [{ label, value: 'a' }]
+    const evs = [form('', '/v', opts('Keep'))]
+    const { rerender } = render(view(live(evs)))
+    fireEvent.click(screen.getByRole('radio', { name: 'Keep' }))
+    rerender(view(live([...evs, change({ id: 'in', component: 'ChoicePicker', variant: 'mutuallyExclusive', value: { '@path': '/v' }, options: opts('Delete') })])))
+    expect(screen.getByRole('radio', { name: 'Delete' })).not.toBeChecked()
+  })
+
+  it('clears a chat block pick when the block is not the one picked on', async () => {
+    const block = label => ['assistant.delta', { partId: 'p1', text: '```choices\n' + JSON.stringify({ question: 'Files?', options: [{ id: 'a', label }, { id: 'b', label: 'Leave' }] }) + '\n```\n```choices\n{"question":"Db?","options":[{"id":"x","label":"pg"},{"id":"y","label":"my"}]}\n```\n' }]
+    const first = render(view(finished([block('Keep')])))
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep' }))
+    first.unmount()
+    render(view(finished([block('Delete')])))
+    expect(await screen.findByRole('button', { name: 'Delete' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText(/This question changed/)).toBeInTheDocument()
+  })
+})
+
+// A worker's row has an Answer box of its own: it must not send around the set.
+describe('a lone question beside an agent card', () => {
+  const both = [...ask('w1', 'Which region?'), card('db')]
+
+  it('offers no way to send the question alone', () => {
+    render(view(live(both)))
+    expect(sendAll()).toBeDisabled()
+    expect(screen.getByTestId('agent-question')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Answer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+  })
+
+  it('keeps showing what was typed in the row when the card arrives', () => {
+    const { rerender } = render(view(live(ask('w1', 'Which region?'))))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your answer' }), { target: { value: 'eu-west' } })
+    rerender(view(live(both)))
+    expect(screen.queryByRole('button', { name: 'Answer' })).toBeNull()
+    expect(screen.getByTestId('agent-question')).toHaveTextContent('eu-west')
+    expect(api.answerAgentQuestion).not.toHaveBeenCalled()
+  })
+
+  it('has the row box when the question is alone', () => {
+    render(view(live(ask('w1', 'Which region?'))))
+    expect(screen.getByRole('button', { name: 'Answer' })).toBeInTheDocument()
+  })
+})
+
+describe('a set the host refuses', () => {
+  const run = [...ask('w1', 'Which region?'), card('a'), card('b')]
+  const gone = ['ui.surface', { surfaceId: 'b', provenance: 'agent', message: v({ deleteSurface: { surfaceId: 'b' } }) }]
+  const journal = (surfaceId, outcome) => ['ui.action', { surfaceId, name: 'x', outcome }]
+
+  it('keeps the cards still waiting answerable, with what was typed', () => {
+    const { rerender } = render(view(live(run)))
+    type('w1', 'eu')
+    fireEvent.click(screen.getByRole('button', { name: 'Yes a' }))
+    rerender(view(live([...run, gone, journal('b', 'stale'), journal('a', 'rejected')])))
+    expect(field('w1')).toHaveValue('eu')
+    expect(screen.getByRole('button', { name: 'Yes a' })).toHaveAttribute('aria-pressed', 'true')
+    expect(sendAll()).toBeEnabled()
+  })
+
+  it('reopens no card that was already answered', () => {
+    render(view(finished([card('a'), journal('a', 'accepted'), journal('a', 'rejected')])))
+    expect(screen.getByTestId('a2ui-surface')).toHaveAttribute('data-status', 'resolved')
+  })
+})
+
+describe('a held message', () => {
+  const turn = (id, c) => ({ role: 'turn', turnId: id, state: turnState(id, [card(c), done]) })
+
+  it('is sent when the chat is opened again after it was closed', async () => {
+    api.chatUIAction.mockResolvedValue({ outcome: 'accepted', delivered: 'next_turn', message: 'yes_region' })
+    const c = mk({ messages: [turn('t1', 'region')], streaming: true, activeTurnId: 't3', liveTurn: turnState('t3', []) })
+    const first = render(view(c))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes region' }))
+    await waitFor(() => expect(notify).toHaveBeenCalled())
+    first.unmount() // the bubble is collapsed
+    const again = mk({ messages: c.messages, loading: true })
+    const { rerender } = render(view(again))
+    expect(again.send).not.toHaveBeenCalled() // not before the chat has said whether a turn runs
+    rerender(view({ ...again, loading: false }))
+    await waitFor(() => expect(again.send).toHaveBeenCalledWith('yes_region', []))
+    expect(again.send).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('what a next message can hold', () => {
+  const fence = o => '```choices\n' + JSON.stringify(o) + '\n```\n'
+  const block = ['assistant.delta', { partId: 'p1', text: fence({ question: 'Branch', options: [{ id: 'a', label: 'main' }, { id: 'b', label: 'dev' }] }) }]
+
+  it('tells the host how much the blocks add to the cards', async () => {
+    api.chatUIAction.mockResolvedValue({ outcome: 'accepted', delivered: 'next_turn', message: 'card' })
+    render(view(finished([block, card('region')])))
+    fireEvent.click(await screen.findByRole('button', { name: 'main' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes region' }))
+    fireEvent.click(sendAll())
+    await waitFor(() => expect(api.chatUIAction).toHaveBeenCalled())
+    expect(api.chatUIAction.mock.calls[0][1].appendBytes).toBe('Branch: main'.length)
+  })
+
+  const turn = (id, c) => ({ role: 'turn', turnId: id, state: turnState(id, [card(c), done]) })
+  const echo = () => api.chatUIAction.mockImplementation((_, env) => Promise.resolve({ outcome: 'accepted', delivered: 'next_turn', message: env.action.name }))
+
+  it('sends a press again when the chat did not take it', async () => {
+    echo()
+    // null: another send was starting.
+    const send = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(true)
+    render(view(mk({ messages: [turn('t1', 'region')], send })))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes region' }))
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2), { timeout: 4000 })
+    expect(send.mock.calls[1][0]).toBe('yes_region')
+  })
+
+  it('keeps a queued message the chat did not take', async () => {
+    echo()
+    const send = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(true)
+    const c = mk({ messages: [turn('t1', 'region')], send, streaming: true, activeTurnId: 't3', liveTurn: turnState('t3', []) })
+    const { rerender } = render(view(c))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes region' }))
+    await waitFor(() => expect(notify).toHaveBeenCalled())
+    rerender(view({ ...c, streaming: false }))
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2), { timeout: 4000 })
+    expect(send.mock.calls[1][0]).toBe('yes_region')
   })
 })
 

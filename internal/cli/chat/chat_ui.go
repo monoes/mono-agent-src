@@ -104,6 +104,9 @@ func newChatUIActionCmd(cfg *Deps, sys *SystemActions) *cobra.Command {
 			"When several cards of one reply wait for the user (workers' questions, or agent cards with buttons), a press " +
 			"of one alone is rejected: send them together as {\"version\":\"1.0\",\"actions\":[<action>,...],\"skipped\":[<surfaceId>,...]}. " +
 			"Every waiting card is either in actions or, for an agent's card only, in skipped; a set is delivered whole or not at all, " +
+			"each agent card's action names the card's \"revision\" (\"<turn>:<seq>\" of its last ui.surface event; a single action " +
+			"may name it too, and a changed card refuses it), the next-turn message holds at most 16384 bytes (with \"appendBytes\", " +
+			"what the caller adds to it), " +
 			"and never holds an approval or a mission button.\n\n" +
 			"An accepted press on an agent's surface is delivered to that agent: as the answer to its open question when the " +
 			"agent is waiting in a running turn (\"delivered\":\"answer\"), otherwise the document carries \"message\", the text " +
@@ -205,6 +208,9 @@ func runUIAction(ctx context.Context, cfg *Deps, sys *SystemActions, conversatio
 		}
 		return record(&UIActionResult{Outcome: outcome, Reason: err.Error()})
 	}
+	if why := changedCard(act, surf, replay); why != "" {
+		return record(&UIActionResult{Outcome: outcomeRejected, Reason: why})
+	}
 	waiting, err := waitingCards(store, profileID, conversationID, replay)
 	if err != nil {
 		return nil, err
@@ -257,7 +263,30 @@ func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.A
 			}
 		}
 	}
+	if why := tooLong(len(res.Message)); why != "" {
+		return record(&UIActionResult{Outcome: outcomeRejected, Reason: why, AgentID: author})
+	}
 	return record(res)
+}
+
+// changedCard refuses a press made on an earlier version of an agent's card: its
+// agent can change what a button says and does. "" lets the press go on (the
+// host's approval cards carry a digest of their own, and a caller that names no
+// version answers the card as it is now).
+func changedCard(a a2ui.Action, s *a2ui.Surface, replay *dynorg.UIReplay) string {
+	if s.Prov == a2ui.FromAgent && a.Revision != "" && a.Revision != replay.Revisions[a.SurfaceID] {
+		return "the card changed after you answered it: look at it again, then answer"
+	}
+	return ""
+}
+
+// tooLong refuses a next-turn message a chat cannot take whole.
+func tooLong(bytes int) string {
+	if bytes <= a2ui.MaxNextTurnBytes {
+		return ""
+	}
+	return fmt.Sprintf("these answers make a message of %d bytes and a chat message holds %d: shorten what you typed, or skip a card",
+		bytes, a2ui.MaxNextTurnBytes)
 }
 
 // openQuestionOf finds the open question of a worker in the conversation's

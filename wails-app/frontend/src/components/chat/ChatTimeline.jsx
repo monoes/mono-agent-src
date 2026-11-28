@@ -6,7 +6,7 @@ import { SandboxBadge } from './SandboxBadge.jsx'
 import { UnsandboxedWarning } from './ChatWarnings.jsx'
 import { AgentRow } from './AgentRow.jsx'
 import { ChatBlocksScope } from './blocks/context.js'
-import { A2UISurface } from '../a2ui/A2UISurface.jsx'
+import { A2UISurface, planTree } from '../a2ui/A2UISurface.jsx'
 import { isAskCard } from '../../lib/a2uiModel.js'
 
 const NOTICE_ICON = {
@@ -20,7 +20,8 @@ const NOTICE_COLOR = {
   error: '#ef4444',
 }
 
-const hasButton = sf => Object.values(sf.components || {}).some(c => c?.component === 'Button')
+// Whether the card draws a button that sends something: only such a card waits for the person.
+const hasButton = sf => planTree(sf.components || {}).order.some(id => sf.components[id]?.component === 'Button' && sf.components[id].action?.event?.name)
 
 function NoticeBanner({ notice }) {
   const Icon = NOTICE_ICON[notice.severity] || Info
@@ -74,8 +75,8 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
     <A2UISurface key={`a2ui-${sf.surfaceId}`} surface={sf} onAction={onA2UIAction} group={turnId} live={!state.terminal} />
   ))
   // A worker's question is answered in its card, not in its row, when the card
-  // holds several questions or other questions wait with it.
-  const openCards = state.terminal ? [] : allSurfaces.filter(sf => isAskCard(sf) && waits(sf))
+  // holds several questions or anything else of the turn waits with it.
+  const openCards = state.terminal ? [] : allSurfaces.filter(waits)
   const answerInCard = agent => {
     const card = agent?.question && openCards.find(sf => sf.surfaceId === `ask-${agent.agentId}.${agent.question.id}`)
     return !!card && (openCards.length > 1 || !!card.components['q-q1'])

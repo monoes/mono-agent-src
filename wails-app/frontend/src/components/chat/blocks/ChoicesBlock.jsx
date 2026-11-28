@@ -22,11 +22,16 @@ export function ChoicesBlock({ data, blockKey }) {
   const [pick, setPick] = useDraft(`${blockKey}|pick`, NO_PICK)
   const [busy, setBusy] = useState(false)
   const locked = !!answer
-  const picked = pick.ids.filter(id => data.options.some(o => o.id === id))
+  // A pick stands for the block it was made on.
+  const sig = JSON.stringify(data)
+  const current = pick.sig === sig
+  const dropped = !current && (pick.ids.length > 0 || pick.skip)
+  const picked = current ? pick.ids.filter(id => data.options.some(o => o.id === id)) : []
+  const skipped = current && pick.skip
   const textOf = (ids) => answerText(data, data.options.filter(o => ids.includes(o.id)).map(o => o.label))
   const { grouped, sending } = useAnswerItem(blockKey, {
-    group: !locked && onSend ? turn : '', ready: pick.skip || picked.length > 0, skipped: pick.skip,
-    collect: () => (pick.skip ? { skip: '' } : { text: textOf(picked), remember: () => remember({ text: textOf(picked), ids: picked }) }),
+    group: !locked && onSend ? turn : '', ready: skipped || picked.length > 0, skipped,
+    collect: () => (skipped ? { skip: '' } : { text: textOf(picked), remember: () => remember({ text: textOf(picked), ids: picked }) }),
   })
   const disabled = locked || !onSend || busy || sending
 
@@ -38,10 +43,10 @@ export function ChoicesBlock({ data, blockKey }) {
       if (await onSend(text)) remember({ text, ids })
     } finally { setBusy(false) }
   }
-  const toggle = (id) => setPick({ skip: false, ids: picked.includes(id) ? picked.filter(x => x !== id) : [...picked, id] })
+  const toggle = (id) => setPick({ sig, skip: false, ids: picked.includes(id) ? picked.filter(x => x !== id) : [...picked, id] })
   // In a set a single choice is held, like a multiple one.
-  const choose = (id) => (data.multi ? toggle(id) : grouped ? setPick({ skip: false, ids: [id] }) : submit([id]))
-  const chosenIds = locked ? (answer.ids || []) : pick.skip ? [] : data.multi || grouped ? picked : []
+  const choose = (id) => (data.multi ? toggle(id) : grouped ? setPick({ sig, skip: false, ids: [id] }) : submit([id]))
+  const chosenIds = locked ? (answer.ids || []) : skipped ? [] : data.multi || grouped ? picked : []
 
   return (
     <div role="group" aria-label={data.question || t('chatBlocks.choices')} style={panel}>
@@ -60,7 +65,8 @@ export function ChoicesBlock({ data, blockKey }) {
           )
         })}
       </div>
-      {grouped && !locked && <SkipToggle skipped={pick.skip} disabled={disabled} onChange={skip => setPick({ skip, ids: [] })} />}
+      {grouped && !locked && <SkipToggle skipped={skipped} disabled={disabled} onChange={skip => setPick({ sig, skip, ids: [] })} />}
+      {!locked && dropped && <div role="alert" style={note}>{t('chatBlocks.changed')}</div>}
       {data.multi && !grouped && !locked && (
         <button type="button" disabled={disabled || picked.length === 0} onClick={() => submit(picked)} style={primaryButton(disabled || picked.length === 0)}>
           {t('chatBlocks.confirm')}
