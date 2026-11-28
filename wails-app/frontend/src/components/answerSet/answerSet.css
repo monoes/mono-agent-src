@@ -1,0 +1,29 @@
+.answer-set-bar {
+  align-self: stretch;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.07);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary, #cbd5e1);
+}
+.answer-set-bar p { margin: 0 0 6px; }
+.answer-set-bar strong { color: #fbbf24; }
+.answer-set-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.answer-set-actions .btn:not(:disabled) { background: #fbbf24; border-color: #fbbf24; color: #1a1204; font-weight: 700; }
+.answer-set-actions .btn:disabled { background: transparent; border-color: rgba(148, 163, 184, 0.35); color: var(--text-muted, #94a3b8); cursor: not-allowed; }
+.answer-skip {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+.answer-skip[aria-pressed='true'] { border-style: solid; color: #fbbf24; border-color: #fbbf24; }

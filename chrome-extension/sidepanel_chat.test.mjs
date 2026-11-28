@@ -858,6 +858,31 @@ test("a2ui: a button press goes to the bridge as chat_ui_action and a next_turn 
   assert.equal(s.context, null, "no page goes with it");
 });
 
+test("a2ui: two waiting cards go to the bridge as one set, and nothing goes before Send all", async () => {
+  const card = (seq, id) => ({ seq, type: "ui.surface", payload: { surfaceId: id, provenance: "agent", message: { version: "1.0", createSurface: { surfaceId: id, components: [
+    { id: "root", component: "Column", children: ["b"] }, { id: "l", component: "Text", text: `Go ${id}` },
+    { id: "b", component: "Button", child: "l", action: { event: { name: `go_${id}`, context: {} } } }] } } } });
+  const t = setup({ a2ui: true, stored: { "chatConv:p-work": "c-1" }, replies: { ...READY,
+    chat_events: { ok: true, turn: "t1", turn_active: false, events: [card(1, "s1"), card(2, "s2")] },
+    chat_ui_action: { ok: true, outcome: "accepted", delivered: "next_turn", message: "both" },
+    chat_send: { ok: true, data: { conversation: "c-1", turn: "t2", text: "done" } },
+  } });
+  t.doc.fire("panel:profiles");
+  await settle(40);
+  const buttons = () => findAll(t.els["chat-log"], (n) => n.tag === "button" && !n.hidden);
+  const named = (label) => buttons().find((b) => b.textContent === label);
+  named("Go s1").fire("click");
+  await settle(40);
+  assert.equal(t.sent.filter((m) => m.type === "chat_ui_action" || m.type === "chat_send").length, 0);
+  named("Go s2").fire("click");
+  named("Send all").fire("click");
+  await settle(40);
+  const a = lastOf(t.sent, "chat_ui_action");
+  assert.deepEqual(a.action.actions.map((x) => x.name), ["go_s1", "go_s2"]);
+  assert.equal(t.sent.filter((m) => m.type === "chat_ui_action").length, 1);
+  assert.equal(lastOf(t.sent, "chat_send").message, "both");
+});
+
 test("a2ui: a refused or stale press shows its reason under the surface, and the note is saved", async () => {
   const t = await openedWithSurface({ chat_ui_action: { ok: true, outcome: "stale", reason: "closed" } }, { stored: { "chatConv:p-work": "c-1" } });
   t.doc.fire("panel:profiles");

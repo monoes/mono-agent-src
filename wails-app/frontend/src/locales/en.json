@@ -1778,7 +1778,8 @@
     "questionFor": "Question for you:",
     "answer": "Answer",
     "answerLabel": "Your answer",
-    "answerPlaceholder": "Type your answer…"
+    "answerPlaceholder": "Type your answer…",
+    "answerInCard": "Answer in the card; all waiting questions are sent together."
   },
   "stage": {
     "subagent": "Subagent",
@@ -3177,7 +3178,8 @@
         "required": "Required",
         "number": "Enter a number",
         "range": "Out of range"
-      }
+      },
+      "keep": "Keep these values"
     }
   },
   "hil": {
@@ -3652,7 +3654,13 @@
     "queued": "Your choice is queued and will be sent when the current turn ends.",
     "pressFailed": "Card action not completed",
     "queuedTitle": "Choice queued",
-    "queuedElsewhere": "The chat changed: your choice will be sent when you are back in that chat."
+    "queuedElsewhere": "The chat changed: your choice will be sent when you are back in that chat.",
+    "answerFirst": "Answer every question first.",
+    "setAnswer": "Answer here, then send all the questions together below.",
+    "setReady": "Ready. Not sent yet: use Send all below.",
+    "setChoose": "Pick a button. It is sent only with Send all below.",
+    "setChosen": "Picked. Not sent yet: use Send all below.",
+    "setSkipped": "Skipped: this card is left out and stays open."
   },
   "chatWarnings": {
     "fullAccess": "Full access: this chat can run any command and change any file on this computer as you.",
@@ -5461,9 +5469,10 @@
     "cards_s2": "A card marked \"from monoagent\" was built by monoagent from a real record: a pending approval, a team member's question or a mission. A card marked \"from agent\" was written by the AI.",
     "cards_s3": "Only \"from monoagent\" cards can approve or reject. An agent can write any label on its own button, \"Approve\" included, but pressing it only tells the agent what you pressed. It approves nothing.",
     "cards_s4": "On an approval card, Approve and Reject run the same commands as monoagentcli hil approve and hil reject, and Approve includes your edits to its fields. Approving a send sends it for real; its card says it is sending until it ends, or, after an hour with no end, that the outcome is unknown. A mission plan card has no Approve: approve and start the plan from its mission in the Tasks tab. Stop and Close on mission cards run task session stop or close; Edit plan sends a chat message asking to change the plan.",
-    "cards_s5": "A button on an agent card answers the question that agent is waiting on. Otherwise your press is sent as your next message in that chat, after the current turn if one is running and never into another chat; only the latest press is held for a chat. If a press is refused, you are told why.",
+    "cards_s5": "A button on an agent card answers the question that agent is waiting on. Otherwise your press is sent as your next message in that chat, after the current turn if one is running and never into another chat. If a press is refused, you are told why.",
     "cards_s6": "An approval card for something already decided turns into a note with no buttons: after you press it, or, if you decided elsewhere, at the next check. An item that changed since its card was drawn gets a new card, and a press on the old one decides nothing. The app checks about every 10 seconds while the chat is open and its window is focused.",
     "cards_s7": "A card for a workflow or send approval offers Approve only when it shows all of its text and details, and its text boxes grow to fit. A send with attachments gets a card with only Reject, as a card cannot show them: approve it in Communications. If it cannot all fit, holds a reply link that chat does not show, or the chat already holds as many approval cards as it can, there is no card: decide it in Communications. Requests about the browser (a form submit, a site, pairing) get no card either, because they cannot be checked and decided in one step. A send that monoagent cannot show, such as a mailbox draft, gets a card with only Reject. Mission cards and settled cards may shorten long text. From a terminal, monoagentcli chat ui show <conversation> --profile <name> prints a chat's open cards as text and changes nothing.",
+    "cards_s8": "When several questions wait in the same reply (question cards, agent cards with buttons, or choices and forms in a message), none of them sends on its own. Answer each one, then press Send all: they go out together, and not before. You can skip an agent's card or a block in a message, but not a team member's question. What you typed stays if another question arrives; if one goes unanswered for 10 minutes it closes and the others stay. Approvals and mission buttons are still pressed one at a time.",
     "orgs_title": "Orgs",
     "orgs_blurb": "Teams of agents with roles, budgets and a boss.",
     "orgs_quip": "You are the board of directors. The agents are very keen interns.",
@@ -6483,5 +6492,17 @@
   "ui8Sandbox": {
     "badge": "No sandbox",
     "agentLabel": "No sandbox: this agent has full access"
+  },
+  "answerSet": {
+    "label": "Questions answered together",
+    "waiting_one": "{{count}} question is waiting.",
+    "waiting_other": "{{count}} questions are waiting.",
+    "how": "Nothing is sent until you answer them all and send them together.",
+    "progress": "{{ready}} of {{total}} ready",
+    "allSkipped": "Everything is skipped: nothing to send",
+    "sendAll": "Send all",
+    "sending": "Sending…",
+    "skip": "Skip this one",
+    "skipped": "Skipped (press to undo)"
   }
 }

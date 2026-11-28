@@ -1,10 +1,13 @@
 package ai
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Answers to a dynamic-org worker's questions (#256). `chat turn answer`
@@ -20,11 +23,15 @@ func (s *AIStore) AddAnswer(profileID, conversationID, turnID, agentID, question
 	if profileID == "" {
 		return ErrProfileRequired
 	}
+	return insertAnswer(s.db.Exec, profileID, conversationID, turnID, Answer{agentID, questionID, text})
+}
+
+func insertAnswer(exec func(string, ...any) (sql.Result, error), profileID, conversationID, turnID string, a Answer) error {
 	// One statement that holds only while the conversation exists, so an answer racing a delete
 	// either lands before it (and goes with it) or is refused, never left behind.
-	res, err := s.db.Exec(`INSERT INTO ai_chat_answers (profile_id, conversation_id, turn_id, agent_id, question_id, text, created_at)
+	res, err := exec(`INSERT INTO ai_chat_answers (profile_id, conversation_id, turn_id, agent_id, question_id, text, created_at)
 		SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ai_chat_conversations WHERE id = ? AND profile_id = ?)`,
-		profileID, conversationID, turnID, agentID, questionID, text, nowRFC3339(), conversationID, profileID)
+		profileID, conversationID, turnID, a.AgentID, a.QuestionID, a.Text, nowRFC3339(), conversationID, profileID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return ErrAlreadyAnswered
 	}
@@ -35,6 +42,26 @@ func (s *AIStore) AddAnswer(profileID, conversationID, turnID, agentID, question
 		return ErrConversationNotFound
 	}
 	return nil
+}
+
+// Answer is the user's answer to one worker's question.
+type Answer struct{ AgentID, QuestionID, Text string }
+
+// AddAnswers records the answers of several questions of one turn together:
+// all of them or, when any cannot be recorded, none.
+func (s *AIStore) AddAnswers(profileID, conversationID, turnID string, answers []Answer) error {
+	if profileID == "" {
+		return ErrProfileRequired
+	}
+	return dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		tx := dbconn.ConnTx{Ctx: context.Background(), Conn: conn}
+		for _, a := range answers {
+			if err := insertAnswer(tx.Exec, profileID, conversationID, turnID, a); err != nil {
+				return fmt.Errorf("question %s of %s: %w", a.QuestionID, a.AgentID, err)
+			}
+		}
+		return nil
+	})
 }
 
 // TakeAnswer returns the answer to a question once, marking it consumed.

@@ -4,6 +4,7 @@ import { Users, ChevronRight, ChevronDown, Loader, Check, X, Lock, HelpCircle } 
 import { ChatMarkdown } from './ChatMarkdown.jsx'
 import { UnconfinedWorkerWarning } from './ChatWarnings.jsx'
 import { api } from '../../services/api.js'
+import { useDraft } from '../answerSet/useDraft.js'
 
 // AgentRow is one dynamic-org worker (#226) in the lead's timeline: a
 // compact line with its role, model and status, expandable to its brief and
@@ -23,12 +24,12 @@ function StatusIcon({ status }) {
 
 // QuestionBox answers a worker's open question (#256) through
 // `chat turn answer`. scope is the live turn's { conversationId, turnId }.
-function QuestionBox({ agent, scope }) {
+function QuestionBox({ agent, scope, answerInCard }) {
   const { t } = useTranslation()
-  const [text, setText] = useState('')
-  const [state, setState] = useState({ sending: false, error: '' })
   const q = agent.question
-  const canAnswer = !!scope?.conversationId && !!scope?.turnId
+  const [text, setText] = useDraft(scope?.turnId ? `${scope.turnId}|${agent.agentId}|${q.id}|text` : '', '')
+  const [state, setState] = useState({ sending: false, error: '' })
+  const canAnswer = !!scope?.conversationId && !!scope?.turnId && !answerInCard
   const send = async (e) => {
     e.preventDefault()
     const answer = text.trim()
@@ -44,7 +45,8 @@ function QuestionBox({ agent, scope }) {
   }
   return (
     <form onSubmit={send} data-testid="agent-question" style={{ margin: '0 8px 6px 30px', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(251,191,36,0.35)', background: 'rgba(251,191,36,0.06)', display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ fontFamily: mono, fontSize: 10, color: '#fbbf24' }}>{t('agentRow.questionFor')} {q.text}</div>
+      <div style={{ fontFamily: mono, fontSize: 10, color: '#fbbf24', whiteSpace: 'pre-wrap' }}>{t('agentRow.questionFor')} {q.text}</div>
+      {answerInCard && <div style={{ fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)' }}>{t('agentRow.answerInCard')}</div>}
       {canAnswer && (
         <div style={{ display: 'flex', gap: 6 }}>
           <input value={text} onChange={e => setText(e.target.value)} aria-label={t('agentRow.answerLabel')} placeholder={t('agentRow.answerPlaceholder')}
@@ -57,7 +59,7 @@ function QuestionBox({ agent, scope }) {
   )
 }
 
-export function AgentRow({ agent, scope }) {
+export function AgentRow({ agent, scope, answerInCard = false }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   if (!agent) return null
@@ -79,7 +81,7 @@ export function AgentRow({ agent, scope }) {
         <span style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>{status}</span>
       </button>
       {agent.confinement === 'write-lease' && <UnconfinedWorkerWarning />}
-      {agent.question && agent.status === 'waiting_user' && <QuestionBox agent={agent} scope={scope} />}
+      {agent.question && agent.status === 'waiting_user' && <QuestionBox agent={agent} scope={scope} answerInCard={answerInCard} />}
       {!open && agent.summary && (
         <div style={{ padding: '0 8px 5px 30px', fontFamily: mono, fontSize: 9.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.summary}</div>
       )}
