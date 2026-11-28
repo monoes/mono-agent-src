@@ -72,6 +72,10 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 	}
 }
 
+// noCommandChecksLine closes the cost text of a goal no checker can act on, so the preview agrees with `pursuit
+// readiness` (#1767): the goal-check line and figures of a reported host stay, as the worst case.
+const noCommandChecksLine = "- This goal has no command checks (you judge every criterion), so no checker is needed and no goal check runs for this mission, whatever is said above about goal checks.\n"
+
 func (d Deps) limitsFromFlags(cmd *cobra.Command, parked, pct, wakes int) (missionpursuit.AwayLimits, error) {
 	if (cmd.Flags().Changed("parked-max") && parked == 0) || (cmd.Flags().Changed("pct") && pct == 0) || (cmd.Flags().Changed("wakes-max") && wakes == 0) {
 		return missionpursuit.AwayLimits{}, d.InvalidInput("--parked-max, --pct and --wakes-max are 1 or more (leave them out for the defaults %d, %d and %d)",
@@ -128,6 +132,10 @@ The criteria are written by whoever proposed them, so they are agent text. The p
 					if derr := missionpursuit.CheckDisplayable(v.Goal.Criteria); derr != nil {
 						return d.beginErr(derr)
 					}
+				}
+				// Shown only, not part of the digest's text: it follows from the criteria, which the goal hash already covers.
+				if table.Text != "" && !missionpursuit.NeedsChecker(v.Goal.Criteria) {
+					table.Text += noCommandChecksLine
 				}
 				return d.writePreview(cmd, p, session, v, table)
 			})

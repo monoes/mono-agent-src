@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
 // bindingEngine is a fakeEngine that also knows whether binding is on and what status it reports.
@@ -75,5 +77,15 @@ func TestProbeIsOperatorOnlyAndTouchesNothingWhenRefused(t *testing.T) {
 	r.refusal = "an agent token is set"
 	if _, err := run(t, r.deps, "", "probe"); exitOf(err) != 3 || r.e.canonCalls != 0 {
 		t.Fatalf("%v", err)
+	}
+}
+
+// The help says why a verb that stores nothing is still the user's own (#1767).
+func TestProbeHelpSaysWhyItIsTheUsersOwn(t *testing.T) {
+	long := newRig().deps.newProbe().Long
+	for _, want := range []string{"not a passive read", "so only you may run it", clicore.OperatorOnlyHelp} {
+		if !strings.Contains(long, want) {
+			t.Errorf("probe help lacks %q: %s", want, long)
+		}
 	}
 }

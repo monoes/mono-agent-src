@@ -12,6 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/monoes/mono-agent/internal/cli/profilegate"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/profileorder"
 )
 
@@ -20,6 +21,12 @@ import (
 // gate enforces: there is no active profile and no fallback. ModeWarn stays for
 // the gate package's own tests.
 var profileGateMode = profilegate.ModeEnforce
+
+// sessionTurnProfileHint follows the refusal inside a coder session's turn
+// (#1765): its agent may expect the session token to name the profile.
+const sessionTurnProfileHint = "\nThis is a coder session's turn: its session token does not choose the profile. " +
+	"Pass --profile with the session's own profile (the session commands refuse any other); " +
+	"the mono-agent section of the turn's instructions and the check-in digest, where given, name the command with it."
 
 // installProfileGate makes every command run the gate before it runs. The gate
 // reads whether --profile was given from the parsed flags, so it must come
@@ -44,7 +51,11 @@ func installProfileGate(root *cobra.Command, cfg *globalConfig) {
 		}
 		warning, err := profilegate.Check(cmd, given, profileGateMode, list)
 		if err != nil {
-			return errInvalidInput("%s", err.Error())
+			msg := err.Error()
+			if os.Getenv(coderhost.SessionTokenEnv) != "" {
+				msg += sessionTurnProfileHint
+			}
+			return errInvalidInput("%s", msg)
 		}
 		if warning != "" {
 			fmt.Fprintln(cmd.ErrOrStderr(), warning)
