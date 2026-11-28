@@ -2,7 +2,6 @@ package monomind
 
 import (
 	"fmt"
-	"strings"
 )
 
 // TurnResult is the terminal state of one exec turn.
@@ -144,14 +143,11 @@ func ApplyEventToResult(res *TurnResult, ev Event) {
 		// about non-fatal errors as they stream by still see them; only a
 		// fatal error (or a later done/process exit with no success
 		// signal) should surface as the turn's terminal res.Err.
+		msg := withStartupHint(ev.ErrMessage)
 		if ev.Fatal {
-			msg := ev.ErrMessage
-			if strings.Contains(msg, "did not initialize") {
-				msg += " — set " + StartupTimeoutEnv + " (e.g. 180s), or for coder turns `coder set --startup-timeout 180s`, to give claude longer to start"
-			}
 			res.Err = &ProtocolError{Code: ev.Code, Message: msg, Fatal: ev.Fatal}
 		} else {
-			res.warning = &ProtocolError{Code: ev.Code, Message: ev.ErrMessage}
+			res.warning = &ProtocolError{Code: ev.Code, Message: msg}
 		}
 	case EventDone:
 		res.SawDone = true

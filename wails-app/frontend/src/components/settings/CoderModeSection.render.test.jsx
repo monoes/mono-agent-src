@@ -151,8 +151,49 @@ describe('CoderModeSection', () => {
     fireEvent.change(screen.getByLabelText('Budget per turn'), { target: { value: '1.5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     // The org router (the coder-org settings' own) is left alone: ''.
-    await waitFor(() => expect(App.CoderSet).toHaveBeenCalledWith('/data/coder', 50, '30m', 1.5, ''))
+    await waitFor(() => expect(App.CoderSet).toHaveBeenCalledWith('/data/coder', 50, '30m', 1.5, '', ''))
     expect(await screen.findByText(/Saved\./)).toBeInTheDocument()
+  })
+
+  const startup = (over = {}) => ({ enabled: true, startupTimeoutEffective: '2m0s', startupTimeoutSource: 'default', ...over })
+  const save = async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(/Saved\./)
+  }
+  const sentStartup = () => App.CoderSet.mock.calls.at(-1)[5]
+
+  it('sets the start-up limit, and clearing it returns to the default', async () => {
+    mount(status(startup()))
+    const set = status(startup({ startupTimeout: '3m0s', startupTimeoutEffective: '3m0s', startupTimeoutSource: 'set' }))
+    App.CoderSet.mockResolvedValue(set)
+    const field = await screen.findByLabelText('Start-up limit')
+    expect(field).toHaveValue('')
+    expect(screen.getByTestId('coder-startup-hint')).toHaveTextContent('In effect now: 2m0s.')
+    fireEvent.change(field, { target: { value: ' 3m ' } })
+    await save()
+    expect(sentStartup()).toBe('3m')
+    await waitFor(() => expect(field).toHaveValue('3m0s'))
+    expect(screen.getByTestId('coder-startup-hint')).toHaveTextContent('In effect now: 3m0s.')
+
+    // Unchanged: left alone.
+    await save()
+    expect(sentStartup()).toBe('')
+
+    App.CoderSet.mockResolvedValue(status(startup()))
+    fireEvent.change(field, { target: { value: '' } })
+    await save()
+    expect(sentStartup()).toBe('0')
+  })
+
+  it('says when the environment variable overrides the start-up limit', async () => {
+    mount(status(startup({ startupTimeoutEffective: '4m0s', startupTimeoutSource: 'env' })))
+    expect(await screen.findByTestId('coder-startup-hint')).toHaveTextContent('MONOAGENT_STARTUP_TIMEOUT overrides this: 4m0s is in effect.')
+  })
+
+  it('hides the start-up limit for a CLI that reports none', async () => {
+    mount(status({ enabled: true }))
+    await screen.findByLabelText('Timeout')
+    expect(screen.queryByLabelText('Start-up limit')).not.toBeInTheDocument()
   })
 
   it('shows the CLI error', async () => {

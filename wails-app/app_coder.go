@@ -119,11 +119,12 @@ func (a *App) CoderDisable() string {
 }
 
 // coderSetArgs builds `coder set`. An empty workspace root, maxTurns <= 0,
-// an empty timeout or an empty orgRouter leave that setting unchanged;
-// budgetUsd 0 clears the budget and a negative one leaves it unchanged.
+// an empty timeout, orgRouter or startupTimeout leave that setting unchanged;
+// budgetUsd 0 clears the budget and a negative one leaves it unchanged, and a
+// startupTimeout of "0" returns claude's start-up limit to the default.
 // orgRouter is the dynamic org's router: auto, jev or model (the CLI checks).
 // App access has its own binding, CoderSetAppAccess.
-func coderSetArgs(workspaceRoot string, maxTurns int, timeout string, budgetUsd float64, orgRouter string) []string {
+func coderSetArgs(workspaceRoot string, maxTurns int, timeout string, budgetUsd float64, orgRouter, startupTimeout string) []string {
 	args := []string{"coder", "set"}
 	if workspaceRoot != "" {
 		args = append(args, "--workspace-root", workspaceRoot)
@@ -140,14 +141,17 @@ func coderSetArgs(workspaceRoot string, maxTurns int, timeout string, budgetUsd 
 	if orgRouter != "" {
 		args = append(args, "--org-router", orgRouter)
 	}
+	if startupTimeout != "" {
+		args = append(args, "--startup-timeout", startupTimeout)
+	}
 	return args
 }
 
-func (a *App) CoderSet(workspaceRoot string, maxTurns int, timeout string, budgetUsd float64, orgRouter string) string {
+func (a *App) CoderSet(workspaceRoot string, maxTurns int, timeout string, budgetUsd float64, orgRouter, startupTimeout string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
-	return a.jsonResult(coderSetArgs(workspaceRoot, maxTurns, timeout, budgetUsd, orgRouter)...)
+	return a.jsonResult(coderSetArgs(workspaceRoot, maxTurns, timeout, budgetUsd, orgRouter, startupTimeout)...)
 }
 
 // CoderSetAppAccess is `coder set --app-access on|off` (coder.appAccess,
