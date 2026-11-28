@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,6 +67,15 @@ func TestHelperUnplacedChild(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(os.Getenv("S3_UNPLACED_DIR"), "child.result"), []byte(msg+" after "+time.Since(start).String()), 0o600)
 }
 
+// hasLeft says the process runs no more: a zombie or dead entry, or no process of that pid. A state that cannot be
+// read counts as running unless the pid is gone.
+func hasLeft(pid int) bool {
+	if s := processState(pid); s == "Z" || s == "X" {
+		return true
+	}
+	return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+}
+
 func TestAHostKilledBetweenStartAndAdoptLeavesNoRunningChild(t *testing.T) {
 	dir := t.TempDir()
 	host := exec.Command(os.Args[0], "-test.run=^TestHelperUnplacedHost$")
@@ -112,15 +122,15 @@ func TestAHostKilledBetweenStartAndAdoptLeavesNoRunningChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-hostDone
-	for end := time.Now().Add(8 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
-		if err := syscall.Kill(pid, 0); err != nil {
-			break
-		}
-		if processState(pid) == "Z" { // a zombie of init is gone as far as running goes
-			break
+	// One verdict per look: the dead child can be reaped between any two reads of it, and a second look that finds no
+	// state for a pid that answered a moment before would call a finished child running.
+	left := false
+	for end := time.Now().Add(8 * time.Second); !left && time.Now().Before(end); {
+		if left = hasLeft(pid); !left {
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	if syscall.Kill(pid, 0) == nil && processState(pid) != "Z" {
+	if !left {
 		t.Fatalf("the unplaced child outlived its host (%s later): it runs without being in any unit", time.Since(killed))
 	}
 	if took := time.Since(killed); took > 5*time.Second {
