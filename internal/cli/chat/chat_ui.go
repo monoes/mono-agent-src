@@ -101,6 +101,13 @@ func newChatUIActionCmd(cfg *Deps, sys *SystemActions) *cobra.Command {
 			"checks it against the conversation's live surfaces (rebuilt from its journal: the surface must be live and its " +
 			"button must have declared exactly that name), and journals a ui.action event with the outcome accepted, " +
 			"rejected or stale. The result is always one JSON document with the outcome (exit 0).\n\n" +
+			"When several cards of one reply wait for the user (workers' questions, or agent cards with buttons), a press " +
+			"of one alone is rejected: send them together as {\"version\":\"1.0\",\"actions\":[<action>,...],\"skipped\":[<surfaceId>,...]}. " +
+			"Every waiting card is either in actions or, for an agent's card only, in skipped; a set is delivered whole or not at all, " +
+			"each agent card's action names the card's \"revision\" (\"<turn>:<seq>\" of its last ui.surface event; a single action " +
+			"may name it too, and a changed card refuses it), the next-turn message holds at most 16384 bytes (with \"appendBytes\", " +
+			"what the caller adds to it), " +
+			"and never holds an approval or a mission button.\n\n" +
 			"An accepted press on an agent's surface is delivered to that agent: as the answer to its open question when the " +
 			"agent is waiting in a running turn (\"delivered\":\"answer\"), otherwise the document carries \"message\", the text " +
 			"the caller sends as the conversation's next user message (\"delivered\":\"next_turn\"). A press on a system surface " +
@@ -132,12 +139,12 @@ func newChatUIActionCmd(cfg *Deps, sys *SystemActions) *cobra.Command {
 }
 
 // readUIAction returns the envelope: the flag's value, or stdin for "-". It reads one byte past the cap so that
-// ParseAction refuses an oversized envelope instead of a cut one.
+// ParsePress refuses an oversized envelope instead of a cut one.
 func readUIAction(flag string, stdin io.Reader) ([]byte, error) {
 	if flag != "-" {
 		return []byte(flag), nil
 	}
-	b, err := io.ReadAll(io.LimitReader(stdin, int64(a2ui.DefaultLimits.MaxActionBytes)+1))
+	b, err := io.ReadAll(io.LimitReader(stdin, int64(a2ui.DefaultLimits.MaxSetBytes)+1))
 	if err != nil {
 		return nil, clicore.InvalidInput("read the action from stdin: %v", err)
 	}
@@ -164,7 +171,7 @@ func runUIAction(ctx context.Context, cfg *Deps, sys *SystemActions, conversatio
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	act, err := a2ui.ParseAction(raw, a2ui.DefaultLimits)
+	press, err := a2ui.ParsePress(raw, a2ui.DefaultLimits)
 	if err != nil {
 		return nil, clicore.InvalidInput("%v", err)
 	}
@@ -182,6 +189,10 @@ func runUIAction(ctx context.Context, cfg *Deps, sys *SystemActions, conversatio
 	}
 	ctx = withUIConv(ctx, conversationID, profileID)
 	replay := dynorg.RebuildRegistry(evs)
+	if press.Set {
+		return runUISet(store, profileID, conversationID, press, evs, replay)
+	}
+	act := press.Actions[0]
 	record := func(res *UIActionResult) (*UIActionResult, error) {
 		_, err := store.RecordUIAction(profileID, conversationID, chatevents.UIActionPayload{
 			SurfaceID: act.SurfaceID, Name: act.Name, SourceComponentID: act.SourceComponentID,
@@ -196,6 +207,16 @@ func runUIAction(ctx context.Context, cfg *Deps, sys *SystemActions, conversatio
 			outcome = outcomeStale
 		}
 		return record(&UIActionResult{Outcome: outcome, Reason: err.Error()})
+	}
+	if why := changedCard(act, surf, replay); why != "" {
+		return record(&UIActionResult{Outcome: outcomeRejected, Reason: why})
+	}
+	waiting, err := waitingCards(store, profileID, conversationID, replay)
+	if err != nil {
+		return nil, err
+	}
+	if n := waiting.with(act.SurfaceID); n > 1 {
+		return record(&UIActionResult{Outcome: outcomeRejected, Reason: fmt.Sprintf("%d cards are waiting for you: answer all of them and send them together", n)})
 	}
 	if prefix := prefixOf(act.Name); surf.Prov == a2ui.FromSystem || prefix != "" {
 		return systemAction(ctx, sys, act, surf, prefix, record)
@@ -242,50 +263,82 @@ func agentAction(store *ai.AIStore, profileID, conversationID string, act a2ui.A
 			}
 		}
 	}
+	if why := tooLong(len(res.Message)); why != "" {
+		return record(&UIActionResult{Outcome: outcomeRejected, Reason: why, AgentID: author})
+	}
 	return record(res)
+}
+
+// changedCard refuses a press made on an earlier version of an agent's card: its
+// agent can change what a button says and does. "" lets the press go on (the
+// host's approval cards carry a digest of their own, and a caller that names no
+// version answers the card as it is now).
+func changedCard(a a2ui.Action, s *a2ui.Surface, replay *dynorg.UIReplay) string {
+	if s.Prov == a2ui.FromAgent && a.Revision != "" && a.Revision != replay.Revisions[a.SurfaceID] {
+		return "the card changed after you answered it: look at it again, then answer"
+	}
+	return ""
+}
+
+// tooLong refuses a next-turn message a chat cannot take whole.
+func tooLong(bytes int) string {
+	if bytes <= a2ui.MaxNextTurnBytes {
+		return ""
+	}
+	return fmt.Sprintf("these answers make a message of %d bytes and a chat message holds %d: shorten what you typed, or skip a card",
+		bytes, a2ui.MaxNextTurnBytes)
 }
 
 // openQuestionOf finds the open question of a worker in the conversation's
 // running turn: the turn and question ids, "" when it has none.
 func openQuestionOf(store *ai.AIStore, profileID, conversationID, agentID string) (turnID, questionID string, err error) {
+	turn, open, err := openQuestions(store, profileID, conversationID)
+	if ids := open[agentID]; err == nil && len(ids) > 0 {
+		return turn, ids[len(ids)-1], nil
+	}
+	return "", "", err
+}
+
+// openQuestions lists the questions nothing has closed yet in the
+// conversation's running turn: the turn id and, per worker, the question ids.
+func openQuestions(store *ai.AIStore, profileID, conversationID string) (string, map[string][]string, error) {
 	t, err := store.ActiveTurn(conversationID, profileID)
 	if errors.Is(err, ai.ErrTurnNotFound) {
-		return "", "", nil
+		return "", nil, nil
 	}
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
-	open := map[string]bool{}
+	open := map[[2]string]bool{}
 	var after int64
 	for {
 		evs, err := store.GetEvents(conversationID, t.ID, profileID, after, 500)
 		if err != nil {
-			return "", "", err
+			return "", nil, err
 		}
 		for _, ev := range evs {
 			after = ev.Seq
 			var m chatevents.AgentMessagePayload
-			if ev.Type != chatevents.EventAgentMessage || json.Unmarshal(ev.Payload, &m) != nil || m.AgentID != agentID || m.QuestionID == "" {
+			if ev.Type != chatevents.EventAgentMessage || json.Unmarshal(ev.Payload, &m) != nil || m.QuestionID == "" {
 				continue
 			}
-			switch {
+			switch key := [2]string{m.AgentID, m.QuestionID}; {
 			case m.Direction == "question":
-				open[m.QuestionID] = true
+				open[key] = true
 			case m.Direction == "followup" && (m.From == "user" || m.From == "system"):
-				delete(open, m.QuestionID)
+				delete(open, key)
 			}
 		}
 		if len(evs) < 500 {
 			break
 		}
 	}
-	ids := make([]string, 0, len(open))
-	for q := range open {
-		ids = append(ids, q)
+	byAgent := map[string][]string{}
+	for k := range open {
+		byAgent[k[0]] = append(byAgent[k[0]], k[1])
 	}
-	sort.Strings(ids)
-	if len(ids) > 0 {
-		return t.ID, ids[len(ids)-1], nil
+	for _, ids := range byAgent {
+		sort.Strings(ids)
 	}
-	return "", "", nil
+	return t.ID, byAgent, nil
 }

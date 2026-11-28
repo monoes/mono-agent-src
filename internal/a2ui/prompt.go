@@ -20,6 +20,7 @@ func PromptSnippet() string {
 	b.WriteString("\n## Showing the user a small interface (ui_render)\n")
 	b.WriteString("Use ui_render only when the user must fill in or pick something, or press a button to decide: a short form, a choice, a confirmation. ")
 	b.WriteString("Plain answers, explanations, code and lists stay ordinary markdown; never use a surface for them.\n")
+	b.WriteString("Several questions go on one surface with one button that sends every answer: never a surface or a button per question.\n")
 	b.WriteString("ui_render takes {messages: [...]}, each an A2UI v1.0 envelope {\"version\":\"1.0\", \"<kind>\": {...}} with kind createSurface, updateComponents, updateDataModel or deleteSurface. ")
 	b.WriteString("createSurface needs a surfaceId (a short token, no spaces or slashes) and may carry components and a dataModel; surfaceId is repeated in every later message of that surface. ")
 	fmt.Fprintf(&b, "A surfaceId never starts with %s (reserved). ", strings.Join(SystemSurfacePrefixes, ", "))

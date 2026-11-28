@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -166,6 +167,44 @@ func (r *Registry) Settle(id string) {
 		c.Settled = true
 		r.surf[id] = c
 	}
+}
+
+// Waiting returns the ids of the surfaces that still hold a button the user can
+// answer with: not settled, with at least one Button, reachable from the root,
+// that declares an event.
+func (r *Registry) Waiting() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var ids []string
+	for id, s := range r.surf {
+		if !s.Settled && s.hasEvent() {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// hasEvent walks from the root, as a renderer does: a button nothing refers to
+// is never drawn.
+func (s *Surface) hasEvent() bool {
+	queue, seen := []string{"root"}, map[string]bool{"root": true}
+	for len(queue) > 0 {
+		c := s.Components[queue[0]]
+		queue = queue[1:]
+		a, _ := c["action"].(map[string]any)
+		ev, _ := a["event"].(map[string]any)
+		if name, _ := ev["name"].(string); c["component"] == "Button" && name != "" {
+			return true
+		}
+		for _, ref := range childRefs(c) {
+			if !seen[ref] {
+				seen[ref] = true
+				queue = append(queue, ref)
+			}
+		}
+	}
+	return false
 }
 
 // Surface returns a copy of a live surface, or nil.

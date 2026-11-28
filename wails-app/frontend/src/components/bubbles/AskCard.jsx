@@ -8,10 +8,15 @@ import { formatBytes, safeImageSrc, safeUrl } from '../../lib/askModel.js'
 import * as hil from '../../services/hilApi.js'
 import { askHilRef } from '../../lib/commsStatus.js'
 import './asks.css'
+import { useAnswerItem } from '../answerSet/AnswerSet.jsx'
+import { useDraft } from '../answerSet/useDraft.js'
 import { quoteClaim } from '../../lib/quoteClaim.js'
 import { confirm } from '../ConfirmDialog.jsx'
 
 const mono = 'var(--font-mono)'
+
+// The group of an org run's questions that wait together.
+export const ORG_ASKS = 'org-asks'
 
 function Muted({ children, style }) {
   return <div style={{ fontFamily: mono, fontSize: 9.5, color: 'var(--text-muted)', ...style }}>{children}</div>
@@ -52,21 +57,30 @@ function Frame({ ask, pending, icon: Icon, title, label, children }) {
 
 function QuestionBody({ ask, nameOf, canAct, readOnly, busy, outcome, onAnswer, onDismiss }) {
   const { t } = useTranslation()
-  const [text, setText] = useState('')
+  const key = `org|${ask.ref || ask.id}|text`
+  const [text, setText, dropText] = useDraft(key, '')
   const pending = ask.pending && !outcome?.state
-  const submit = () => { if (text.trim()) onAnswer?.(ask, text.trim()) }
+  // With other questions waiting, the answer is held and sent with theirs.
+  const { grouped, sending } = useAnswerItem(key, {
+    group: pending && canAct && !readOnly && onAnswer ? ORG_ASKS : '', ready: !!text.trim(),
+    collect: () => ({ run: () => onAnswer(ask, text.trim()) }),
+  })
+  const submit = () => { if (text.trim() && !grouped) onAnswer?.(ask, text.trim()) }
+  useEffect(() => { if (!pending) dropText() }, [pending, dropText])
   return (
     <Frame ask={ask} pending={pending} icon={HelpCircle} title={t('orgBubble.asks', { name: nameOf(ask.role) })}>
       <div style={{ marginTop: 4 }}><ChatMarkdown content={ask.text || ''} /></div>
       {ask.answer && <Muted style={{ marginTop: 4 }}>{t('orgBubble.yourAnswer', { answer: ask.answer })}</Muted>}
       {pending ? (
         <div className="ask-actions">
-          <input type="text" className="ask-input" value={text} onChange={e => setText(e.target.value)} disabled={!canAct || busy}
+          <input type="text" className="ask-input" value={text} onChange={e => setText(e.target.value)} disabled={!canAct || busy || sending}
             onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent?.isComposing) submit() }}
             aria-label={t('orgBubble.answerLabel')} placeholder={t('orgBubble.answerPlaceholder')} />
-          <button type="button" className="btn btn-primary btn-sm" data-testid="org-chat-answer" disabled={!canAct || busy || !text.trim()} onClick={submit}>
-            {busy ? <Loader size={11} className="spin" /> : t('orgBubble.answer')}
-          </button>
+          {!grouped && (
+            <button type="button" className="btn btn-primary btn-sm" data-testid="org-chat-answer" disabled={!canAct || busy || !text.trim()} onClick={submit}>
+              {busy ? <Loader size={11} className="spin" /> : t('orgBubble.answer')}
+            </button>
+          )}
           {ask.blocking && (
             <button type="button" className="btn btn-ghost btn-sm" data-testid="org-chat-dismiss" disabled={readOnly || busy}
               title={t('orgBubble.dismissHint')} onClick={() => onDismiss?.(ask)}>

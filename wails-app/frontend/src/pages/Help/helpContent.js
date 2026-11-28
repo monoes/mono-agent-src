@@ -114,6 +114,7 @@ export const TOPICS = [
       step('ui6SetHelp.cards_s3', go('communications')),
       step('ui6SetHelp.cards_s4', go('tasks')),
       step('ui6SetHelp.cards_s5', go('communications')),
+      step('ui6SetHelp.cards_s8', go('communications')),
       step('ui6SetHelp.cards_s6', go('communications')),
       step('ui6SetHelp.cards_s7', go('communications')),
     ],

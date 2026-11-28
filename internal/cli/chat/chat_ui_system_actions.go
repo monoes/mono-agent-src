@@ -59,8 +59,10 @@ func splitAskID(id string) (agentID, qid string, ok bool) {
 	return id[:i], id[i+1:], true
 }
 
+// answerText is the text a worker gets for its card's fields. Every question
+// of the card must be answered: part of a set is never sent.
 func answerText(surf *a2ui.Surface, fields map[string]string) (string, error) {
-	var parts []string
+	var blocks, answers []string
 	for i := 0; i < surfaces.MaxAskQuestions; i++ {
 		key := surfaces.AnswerKey(i)
 		q, has := surf.Components["q-"+key]
@@ -68,28 +70,17 @@ func answerText(surf *a2ui.Surface, fields map[string]string) (string, error) {
 			break
 		}
 		ans := strings.TrimSpace(fields[key])
-		qt, _ := q["text"].(string)
-		parts = append(parts, qt+"\n"+ans)
 		if ans == "" {
-			parts[len(parts)-1] = ""
+			return "", errors.New("answer every question before sending")
 		}
+		qt, _ := q["text"].(string)
+		blocks, answers = append(blocks, qt+"\n"+ans), append(answers, ans)
 	}
-	var asked, answered int
-	var blocks []string
-	for i, p := range parts {
-		asked++
-		if p == "" {
-			continue
-		}
-		answered++
-		if len(parts) == 1 {
-			blocks = append(blocks, strings.TrimSpace(fields[surfaces.AnswerKey(i)]))
-		} else {
-			blocks = append(blocks, p)
-		}
-	}
-	if asked == 0 || answered == 0 {
-		return "", errors.New("answer at least one question")
+	switch len(answers) {
+	case 0:
+		return "", errors.New("answer every question before sending")
+	case 1:
+		return answers[0], nil
 	}
 	return strings.Join(blocks, "\n\n"), nil
 }

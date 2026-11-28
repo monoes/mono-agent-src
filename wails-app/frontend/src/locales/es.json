@@ -1778,7 +1778,9 @@
     "questionFor": "Pregunta para ti:",
     "answer": "Responder",
     "answerLabel": "Tu respuesta",
-    "answerPlaceholder": "Escribe tu respuesta…"
+    "answerPlaceholder": "Escribe tu respuesta…",
+    "answerInCard": "Responde en la tarjeta; las preguntas pendientes se envían juntas.",
+    "typedHere": "Escribiste aquí: {{text}}"
   },
   "stage": {
     "subagent": "Subagente",
@@ -3177,8 +3179,10 @@
         "required": "Obligatorio",
         "number": "Introduce un número",
         "range": "Fuera de rango"
-      }
-    }
+      },
+      "keep": "Mantener estos valores"
+    },
+    "changed": "Esta pregunta cambió; se borró tu respuesta."
   },
   "hil": {
     "autoDecide": {
@@ -3652,7 +3656,16 @@
     "queued": "Tu elección está en cola y se enviará cuando termine el turno actual.",
     "pressFailed": "No se completó la acción de la tarjeta",
     "queuedTitle": "Elección en espera",
-    "queuedElsewhere": "Has cambiado de chat: tu elección se enviará cuando vuelvas a ese chat."
+    "queuedElsewhere": "Has cambiado de chat: tu elección se enviará cuando vuelvas a ese chat.",
+    "answerFirst": "Primero responde todas las preguntas.",
+    "setAnswer": "Responde aquí y luego envía todas las preguntas juntas abajo.",
+    "setReady": "Lista. Aún no se ha enviado: usa Enviar todo abajo.",
+    "setChoose": "Elige un botón. Solo se envía con Enviar todo, abajo.",
+    "setChosen": "Elegido. Aún no se ha enviado: usa Enviar todo abajo.",
+    "setSkipped": "Omitida: esta tarjeta queda fuera y sigue abierta.",
+    "pickDropped": "Esta tarjeta cambió, así que se borró tu elección. Revísala de nuevo.",
+    "typedDropped": "Esta tarjeta cambió: se borró lo que habías escrito en un campo que cambió.",
+    "tooLong": "Estas respuestas no caben en un mensaje del chat. Acórtalas y vuelve a enviar."
   },
   "chatWarnings": {
     "fullAccess": "Acceso completo: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",
@@ -5461,9 +5474,10 @@
     "cards_s2": "Una tarjeta marcada «de monoagent» la ha construido monoagent a partir de un registro real: una aprobación pendiente, la pregunta de un miembro del equipo o una misión. Una tarjeta marcada «del agente» la ha escrito la IA.",
     "cards_s3": "Solo las tarjetas «de monoagent» pueden aprobar o rechazar. Un agente puede poner cualquier texto en su propio botón, incluido «Approve», pero al pulsarlo solo se le dice al agente qué has pulsado. No aprueba nada.",
     "cards_s4": "En una tarjeta de aprobación, Approve y Reject ejecutan los mismos comandos que monoagentcli hil approve y hil reject, y Approve incluye lo que hayas editado en sus campos. Aprobar un envío lo envía de verdad; su tarjeta dice que se está enviando hasta que termina o, si pasa una hora sin terminar, que no se sabe cómo acabó. Una tarjeta de plan de misión no tiene Approve: aprueba e inicia el plan desde su misión en la pestaña Tareas. Stop y Close en las tarjetas de misión ejecutan task session stop o close; Edit plan envía un mensaje al chat pidiendo cambiar el plan.",
-    "cards_s5": "Un botón de una tarjeta de agente responde a la pregunta que ese agente está esperando. Si no hay ninguna, tu pulsación se envía como tu siguiente mensaje en ese chat, después del turno actual si hay uno en marcha y nunca a otro chat; de cada chat solo se guarda la última pulsación. Si una pulsación se rechaza, se te dice por qué.",
+    "cards_s5": "Un botón de una tarjeta de agente responde a la pregunta que ese agente está esperando. Si no hay ninguna, tu pulsación se envía como tu siguiente mensaje en ese chat, después del turno actual si hay uno en marcha y nunca a otro chat. Si una pulsación se rechaza, se te dice por qué.",
     "cards_s6": "Una tarjeta de aprobación de algo ya decidido se convierte en una nota sin botones: cuando la pulsas o, si lo decidiste en otro sitio, en la siguiente comprobación. Un elemento que ha cambiado desde que se dibujó su tarjeta recibe una nueva, y pulsar la antigua no decide nada. La app comprueba aproximadamente cada 10 segundos mientras el chat está abierto y su ventana tiene el foco.",
     "cards_s7": "Una tarjeta de aprobación de un flujo de trabajo o de un envío ofrece Approve solo cuando muestra todo su texto y sus detalles, y sus cuadros de texto crecen hasta que cabe. Un envío con archivos adjuntos recibe una tarjeta con solo Reject, porque una tarjeta no puede mostrarlos: apruébalo en Comunicaciones. Si no cabe todo, contiene un enlace de respuesta que el chat no muestra, o el chat ya tiene todas las tarjetas de aprobación que admite, no hay tarjeta: decídelo en Comunicaciones. Las solicitudes sobre el navegador (enviar un formulario, un sitio, emparejar) tampoco tienen tarjeta, porque no se pueden comprobar y decidir en un solo paso. Un envío que monoagent no puede mostrar, como un borrador del buzón, recibe una tarjeta con solo Reject. Las tarjetas de misión y las ya resueltas pueden acortar textos largos. Desde una terminal, monoagentcli chat ui show <conversation> --profile <name> imprime como texto las tarjetas abiertas de un chat y no cambia nada.",
+    "cards_s8": "Cuando varias preguntas esperan en la misma respuesta (tarjetas de pregunta, tarjetas de agente con botones, o opciones y formularios en un mensaje), ninguna se envía por sí sola. Responde cada una y pulsa Enviar todo: salen juntas, y no antes. Puedes omitir una tarjeta de agente o un bloque de un mensaje, pero no la pregunta de un miembro del equipo. Lo que hayas escrito se conserva si llega otra pregunta; si una queda 10 minutos sin respuesta se cierra y las demás siguen. Las aprobaciones y los botones de misión se siguen pulsando de uno en uno.",
     "orgs_title": "Organizaciones",
     "orgs_blurb": "Equipos de agentes con roles, presupuestos y un jefe.",
     "orgs_quip": "Tú eres el consejo de administración. Los agentes son becarios muy entusiastas.",
@@ -6483,5 +6497,17 @@
   "ui8Sandbox": {
     "badge": "Sin sandbox",
     "agentLabel": "Sin sandbox: este agente tiene acceso completo"
+  },
+  "answerSet": {
+    "label": "Preguntas que se responden juntas",
+    "waiting_one": "Hay {{count}} pregunta esperando.",
+    "waiting_other": "Hay {{count}} preguntas esperando.",
+    "how": "No se envía nada hasta que respondas todas y las envíes juntas.",
+    "progress": "{{ready}} de {{total}} listas",
+    "allSkipped": "Todo está omitido: no hay nada que enviar",
+    "sendAll": "Enviar todo",
+    "sending": "Enviando…",
+    "skip": "Omitir esta",
+    "skipped": "Omitida (pulsa para deshacer)"
   }
 }

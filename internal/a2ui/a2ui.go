@@ -56,6 +56,11 @@ func IsSystemSurfaceID(id string) bool {
 	return slices.ContainsFunc(SystemSurfacePrefixes, func(p string) bool { return strings.HasPrefix(id, p) })
 }
 
+// MaxNextTurnBytes is the longest message a chat takes as its next turn on every
+// path (the side panel's chat.send; the app's command line holds more). A press
+// that would make a longer one is refused before anything of it is delivered.
+const MaxNextTurnBytes = 16 << 10
+
 // Limits bound everything an untrusted surface can make us hold or draw.
 type Limits struct {
 	MaxMessageBytes   int // one raw envelope
@@ -66,6 +71,8 @@ type Limits struct {
 	MaxDataModelBytes int // marshalled data model
 	MaxChildren       int // per container
 	MaxActionBytes    int // one action coming back from the renderer
+	MaxSetActions     int // actions, and skipped cards, of one set sent together
+	MaxSetBytes       int // one set coming back from the renderer
 	MaxReturnedString int // one string value in a returned action (edited text)
 }
 
@@ -74,6 +81,7 @@ var DefaultLimits = Limits{
 	MaxMessageBytes: 64 << 10, MaxComponents: 80, MaxDepth: 8, MaxStringBytes: 4000,
 	MaxOptions: 20, MaxDataModelBytes: 32 << 10, MaxChildren: 40,
 	MaxActionBytes: 48 << 10, MaxReturnedString: 24 << 10,
+	MaxSetActions: 2 * MaxSurfaces, MaxSetBytes: 192 << 10,
 }
 
 // Message is one parsed agent-to-renderer envelope.
