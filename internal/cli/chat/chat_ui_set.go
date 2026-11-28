@@ -65,11 +65,29 @@ type agentPress struct{ author, turn, text string }
 // as a single one is; the workers' answers are then stored in one transaction,
 // and the agent cards' presses become one next-turn message.
 func runUISet(store *ai.AIStore, profileID, conversationID string, press a2ui.Press, evs []chatevents.Event, replay *dynorg.UIReplay) (*UIActionResult, error) {
+	waiting, err := waitingCards(store, profileID, conversationID, replay)
+	if err != nil {
+		return nil, err
+	}
+	// A refused set says something only of the cards it was refused for: a card
+	// that is gone is stale, one still waiting stays open, and nothing is said
+	// of any other (an answered card must not open again).
 	record := func(res *UIActionResult) (*UIActionResult, error) {
 		for _, a := range press.Actions {
+			outcome := res.Outcome
+			if outcome != outcomeAccepted {
+				switch {
+				case replay.Closed[a.SurfaceID]:
+					outcome = outcomeStale
+				case waiting[a.SurfaceID] != "":
+					outcome = outcomeRejected
+				default:
+					continue
+				}
+			}
 			if _, err := store.RecordUIAction(profileID, conversationID, chatevents.UIActionPayload{
 				SurfaceID: a.SurfaceID, Name: a.Name, SourceComponentID: a.SourceComponentID,
-				Context: a.Context, Outcome: res.Outcome, Reason: res.Reason,
+				Context: a.Context, Outcome: outcome, Reason: res.Reason,
 			}); err != nil {
 				return res, err
 			}
@@ -78,10 +96,6 @@ func runUISet(store *ai.AIStore, profileID, conversationID string, press a2ui.Pr
 	}
 	refuse := func(format string, args ...any) (*UIActionResult, error) {
 		return record(&UIActionResult{Outcome: outcomeRejected, Reason: "nothing was sent: " + fmt.Sprintf(format, args...)})
-	}
-	waiting, err := waitingCards(store, profileID, conversationID, replay)
-	if err != nil {
-		return nil, err
 	}
 	var answers []ai.Answer
 	var agentPresses []agentPress

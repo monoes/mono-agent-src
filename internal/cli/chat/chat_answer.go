@@ -8,9 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/a2ui/surfaces"
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/dynorg"
 )
 
 // newChatTurnAnswerCmd answers a dynamic-org worker's question (#256): the
@@ -18,6 +20,7 @@ import (
 // worker.
 func newChatTurnAnswerCmd(cfg *Deps) *cobra.Command {
 	var agentID, questionID, text string
+	var alone bool
 	cmd := &cobra.Command{
 		Use:   "answer <conversation-id> <turn-id> --agent <id> --question <id> --text <answer>",
 		Short: "Answer a question a dynamic-org worker asked the user",
@@ -25,7 +28,10 @@ func newChatTurnAnswerCmd(cfg *Deps) *cobra.Command {
 			"\"question\" and a questionId in the turn's events). This records the answer; the running turn " +
 			"passes it to the worker within a second and journals it as that worker's follow-up from the user. " +
 			"Only an open question of a turn that is still running can be answered, and only once: a question " +
-			"that timed out or whose worker was stopped is closed.",
+			"that timed out or whose worker was stopped is closed.\n\n" +
+			"When other cards wait with it in the turn (more questions, or an agent's card with a button), they are " +
+			"answered together, as one set through `chat ui action`; this command then refuses unless --alone says " +
+			"to answer only this question.",
 		Example: `  monoagentcli chat turn answer c1 t1 --agent w1 --question q1 --text "Use Postgres"`,
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -41,6 +47,11 @@ func newChatTurnAnswerCmd(cfg *Deps) *cobra.Command {
 			defer closeDB()
 			if err := checkOpenQuestion(store, profileID, conversationID, turnID, agentID, questionID); err != nil {
 				return err
+			}
+			if !alone {
+				if err := refuseOneOfSet(store, profileID, conversationID, agentID, questionID); err != nil {
+					return err
+				}
 			}
 			if err := store.AddAnswer(profileID, conversationID, turnID, agentID, questionID, text); err != nil {
 				if errors.Is(err, ai.ErrAlreadyAnswered) {
@@ -58,7 +69,26 @@ func newChatTurnAnswerCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&agentID, "agent", "", "The worker that asked (e.g. w1)")
 	cmd.Flags().StringVar(&questionID, "question", "", "The question's id (e.g. q1)")
 	cmd.Flags().StringVar(&text, "text", "", "The answer")
+	cmd.Flags().BoolVar(&alone, "alone", false, "Answer only this question although other cards wait with it")
 	return cmd
+}
+
+// refuseOneOfSet refuses a question whose card waits with others of its turn
+// (#1803). A question without a card is in no set.
+func refuseOneOfSet(store *ai.AIStore, profileID, conversationID, agentID, questionID string) error {
+	evs, err := store.UIEvents(profileID, conversationID)
+	if err != nil {
+		return err
+	}
+	waiting, err := waitingCards(store, profileID, conversationID, dynorg.RebuildRegistry(evs))
+	if err != nil {
+		return err
+	}
+	if n := waiting.with(surfaces.AskSurfaceID(agentID + "." + questionID)); n > 1 {
+		return clicore.InvalidInput("%d cards wait together in this turn: send them as one set with `chat ui action`, "+
+			"or pass --alone to answer only this question", n)
+	}
+	return nil
 }
 
 // checkOpenQuestion refuses an answer unless the turn is still running and

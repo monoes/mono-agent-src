@@ -2898,7 +2898,10 @@ questions go in one call, show on one card and are answered together (#1803).
   row has an answer box that calls it, except while the question holds
   several questions or others wait with it, which are answered in their cards
   and sent together. The running turn passes the answer to the worker within a
-  second. The command itself answers the one question it names.
+  second. The command itself answers the one question it names, and refuses it
+  while other cards wait with it in the turn unless `--alone` is passed. A
+  refused set is journaled `stale` only for cards that are gone and `rejected`
+  for those still waiting; nothing is journaled for any other.
 - **How a question closes:** always as `agent.message` `direction:
   "followup"` with the same `questionId`, from `"user"` (the answer) or from
   `"system"` (no answer within 10 minutes, or the worker was stopped). After

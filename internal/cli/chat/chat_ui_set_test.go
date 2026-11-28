@@ -456,6 +456,92 @@ func TestAnOversizedSinglePressIsRefused(t *testing.T) {
 	}
 }
 
+// outcomes is what the journal says of each card's presses.
+func (r *sysRig) outcomes(t *testing.T) map[string]string {
+	t.Helper()
+	evs, err := r.store.UIEvents("default", r.conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, ev := range evs {
+		var a chatevents.UIActionPayload
+		if ev.Type == chatevents.EventUIAction && json.Unmarshal(ev.Payload, &a) == nil {
+			out[a.SurfaceID] += a.Outcome + ";"
+		}
+	}
+	return out
+}
+
+// One removed card must not close the others of its set: only it is journaled
+// stale, and the rest are still answerable.
+func TestARemovedCardLeavesTheRestOfTheSetOpen(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	askLive(t, r, "w1", "Which region?")
+	agentCard(t, r, "a")
+	agentCard(t, r, "b")
+	bodies := []map[string]any{answerBody("w1", "eu"), cardBody("a"), cardBody("b")}
+	for _, b := range bodies[1:] {
+		b["revision"] = r.revision(t, fmt.Sprint(b["surfaceId"]))
+	}
+	r.appendLive(t, chatevents.EventUISurface, chatevents.UISurfacePayload{SurfaceID: "b", Provenance: "agent",
+		Message: json.RawMessage(`{"version":"1.0","deleteSurface":{"surfaceId":"b"}}`)})
+	if res := r.pressSet(t, nil, bodies...); res.Outcome != "stale" {
+		t.Fatalf("%+v", res)
+	}
+	got := r.outcomes(t)
+	if got["b"] != "stale;" || got["a"] != "rejected;" || got["ask-w1.q1"] != "rejected;" {
+		t.Fatalf("journal %v", got)
+	}
+	if res := r.pressSet(t, nil, answerBody("w1", "eu"), cardBody("a")); res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// A second, late set says nothing about cards the first one settled.
+func TestALateSetReopensNoSettledCard(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	agentCard(t, r, "a")
+	agentCard(t, r, "b")
+	if res := r.pressSet(t, nil, cardBody("a"), cardBody("b")); res.Outcome != "accepted" {
+		t.Fatalf("%+v", res)
+	}
+	if res := r.pressSet(t, nil, cardBody("a"), cardBody("b")); res.Outcome == "accepted" {
+		t.Fatalf("%+v", res)
+	}
+	if got := r.outcomes(t); got["a"] != "accepted;" || got["b"] != "accepted;" {
+		t.Fatalf("journal %v", got)
+	}
+}
+
+// `chat turn answer` is no way around the set, unless the person says so.
+func TestTurnAnswerOfOneQuestionOfASetNeedsAlone(t *testing.T) {
+	r := newSysRig(t)
+	liveTurn(t, r)
+	askLive(t, r, "w1", "Which region?")
+	agentCard(t, r, "db")
+	run := func(extra ...string) error {
+		cmd := newChatTurnAnswerCmd(r.cfg)
+		cmd.SetArgs(append([]string{r.conv.ID, "live", "--agent", "w1", "--question", "q1", "--text", "eu"}, extra...))
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		return cmd.Execute()
+	}
+	if err := run(); err == nil || !strings.Contains(err.Error(), "--alone") {
+		t.Fatalf("err %v", err)
+	}
+	if _, ok := r.answerOf(t, "w1"); ok {
+		t.Fatal("the worker was answered around the set")
+	}
+	if err := run("--alone"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.answerOf(t, "w1"); got != "eu" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestASetEnvelopeIsStrict(t *testing.T) {
 	for _, raw := range []string{
 		`{"version":"1.0","actions":[]}`,
