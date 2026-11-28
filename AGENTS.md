@@ -2883,19 +2883,22 @@ with `veteran: true`, then `agent.status` `idle`. Code:
 - The stage greys out idle veterans until they run.
 
 **Questions for the user** (#256): a worker whose exec can take caller
-tools gets `ask_user`.
+tools gets `ask_user`. It takes `questions`, a list: all of a worker's
+questions go in one call, show on one card and are answered together (#1803).
 - **Asking:** a question is journaled as `agent.status` `waiting_user` with
   the question id as its detail, then `agent.message` with `direction:
   "question"`, a `questionId` and `to: "user"`. Question ids (`q1`, `q2`,
   …) never repeat within a turn, not even across follow-up runs. A worker
-  may ask at most 3 questions per run.
+  may ask at most 3 questions per run, counting each one in a call.
 - **Waiting:** the worker lets go of its leases and its concurrency slot,
   and takes them back in the usual order (leases, then a slot). `org_wait`
   shows the open question.
 - **Answering:** `monoagentcli --profile <id> chat turn answer <conversation> <turn>
   --agent w1 --question q1 --text "…"` records the answer; the app's worker
-  row has an answer box that calls it. The running turn passes the answer
-  to the worker within a second.
+  row has an answer box that calls it, except while the question holds
+  several questions or others wait with it, which are answered in their cards
+  and sent together. The running turn passes the answer to the worker within a
+  second. The command itself answers the one question it names.
 - **How a question closes:** always as `agent.message` `direction:
   "followup"` with the same `questionId`, from `"user"` (the answer) or from
   `"system"` (no answer within 10 minutes, or the worker was stopped). After
@@ -4468,6 +4471,17 @@ reserved for them.
 monoagentcli chat ui show <conversation> --profile work       # a chat's open cards as text (read only)
 monoagentcli chat ui sync-hil <conversation> --profile work   # draw or close the approval cards of a chat
 ```
+
+Cards that wait together are answered together (#1803). When the running
+turn has two or more open questions, or one turn made two or more agent cards
+with a button (or one of each), `chat ui action` rejects a press of one alone.
+They go as one set, `{"version":"1.0","actions":[<action>,...],"skipped":
+[<surfaceId>,...]}`: every waiting card is in `actions` or, for an agent's
+card only, in `skipped`; the set is delivered whole or not at all (the workers'
+answers in one transaction, the agent cards' presses as one next-turn
+message); approvals and mission buttons are never part of it. The app and the
+side panel hold each answer until their **Send all**, also for choices and
+forms in a message (those never reach this command).
 
 `chat ui action <conversation> --action -` (a button press, the envelope on
 stdin) is the user's alone, like every approval from a chat: it refuses an
