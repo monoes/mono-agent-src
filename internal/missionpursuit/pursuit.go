@@ -128,6 +128,16 @@ func (s *Store) insertPursuit(ctx context.Context, x tasks.Queryer, profileID st
 	return err
 }
 
+// NeedsChecker says whether a goal has a criterion the host's goal checker decides (any but a rubric).
+func NeedsChecker(cs []StoredCriterion) bool {
+	for _, c := range cs {
+		if c.Kind != KindRubric {
+			return true
+		}
+	}
+	return false
+}
+
 // hasRubric says whether a criterion is one the person decides.
 func hasRubric(cs []StoredCriterion) bool {
 	for _, c := range cs {

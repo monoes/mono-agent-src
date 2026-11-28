@@ -68,7 +68,8 @@ func (d Deps) newProbe() *cobra.Command {
 		Use:   "probe",
 		Short: "Say whether an open-ended run can start here, and if not why (writes nothing)",
 		Long: "Says whether an open-ended run can start from here: no run in this profile, the containment probe of this machine, " +
-			"peer-credential binding. It runs the real containment steps (a transient test unit on Linux). " + clicore.OperatorOnlyHelp,
+			"peer-credential binding. It stores nothing, but it is not a passive read: it runs the real containment steps on this " +
+			"machine (a transient test unit on Linux), so only you may run it. " + clicore.OperatorOnlyHelp,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := d.operatorGate("probe the open-ended mode"); err != nil {
