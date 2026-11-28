@@ -1,7 +1,9 @@
 package chat
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,6 +65,18 @@ func TestCoderWorkspaceDefaultIsTheProfileFolder(t *testing.T) {
 	cmd := newCoderCmd(testDeps(&testConfig{DBPath: dbPath, ProfileID: "work", JSONOutput: true}))
 	var buf strings.Builder
 	cmd.SetOut(&buf)
+	// the user's own folder: the setup's files are named and kept out of git (#1755)
+	var notice strings.Builder
+	cmd.SetErr(&notice)
+	if _, err := exec.LookPath("git"); err == nil {
+		ownRun(t, custom, "init", "-q")
+	}
+	prevInit := initWorkspace
+	t.Cleanup(func() { initWorkspace = prevInit })
+	initWorkspace = func(_ context.Context, _, d, _ string) (*monomind.WorkspaceInit, error) {
+		os.WriteFile(filepath.Join(d, "CLAUDE.md"), []byte("#"), 0o644)
+		return &monomind.WorkspaceInit{Root: d}, nil
+	}
 	cmd.SetArgs([]string{"workspace", "default"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -74,6 +88,14 @@ func TestCoderWorkspaceDefaultIsTheProfileFolder(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(custom, "keep.txt")); string(b) != "mine" {
 		t.Error("existing file changed")
+	}
+	if !strings.Contains(notice.String(), "monoagent added CLAUDE.md") {
+		t.Errorf("no notice for a custom profile folder: %q", notice.String())
+	}
+	if _, err := exec.LookPath("git"); err == nil {
+		if st := ownRun(t, custom, "status", "--porcelain"); strings.Contains(st, "CLAUDE.md") || !strings.Contains(st, "keep.txt") {
+			t.Errorf("git status in the custom folder:\n%s", st)
+		}
 	}
 }
 

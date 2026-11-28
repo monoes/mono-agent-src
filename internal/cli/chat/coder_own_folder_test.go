@@ -131,3 +131,122 @@ func TestInitOwnFolderBelowTheTopAndExistingExclude(t *testing.T) {
 		t.Errorf("the user's own top-level .claude is hidden:\n%s", st)
 	}
 }
+
+// fakeSetup stands in for monomind init: it writes files (and appends ignore
+// rules) and reports as created only what is listed in created.
+func fakeSetup(t *testing.T, files []string, ignore string, created []string) {
+	t.Helper()
+	prev := initWorkspace
+	t.Cleanup(func() { initWorkspace = prev })
+	initWorkspace = func(_ context.Context, _, d, _ string) (*monomind.WorkspaceInit, error) {
+		for _, f := range files {
+			p := filepath.Join(d, filepath.FromSlash(f))
+			os.MkdirAll(filepath.Dir(p), 0o755)
+			if _, err := os.Stat(p); err != nil {
+				os.WriteFile(p, []byte("setup"), 0o644)
+			}
+		}
+		if p := filepath.Join(d, ".gitignore"); ignore != "" {
+			b, _ := os.ReadFile(p)
+			if !strings.Contains(string(b), ignore) {
+				os.WriteFile(p, append(b, ignore...), 0o644)
+			}
+		}
+		return &monomind.WorkspaceInit{Root: d, Created: created}, nil
+	}
+}
+
+// A repository that already has .claude/ and a .gitignore: what the setup adds
+// inside is kept out of git status, its new ignore rules leave the user's file
+// alone, and a file the setup does not report stays visible (#1755).
+func TestInitOwnFolderExistingFoldersAndGitignore(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	for _, sub := range []string{"", "app/[id]"} {
+		t.Run("at "+sub, func(t *testing.T) {
+			top := t.TempDir()
+			dir := filepath.Join(top, filepath.FromSlash(sub))
+			ownRun(t, top, "init", "-q")
+			os.MkdirAll(filepath.Join(dir, ".claude"), 0o755)
+			os.WriteFile(filepath.Join(dir, ".claude", "mine.json"), []byte("{}"), 0o644)
+			os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("bin\n"), 0o644)
+			ownRun(t, top, "add", "-A")
+			ownRun(t, top, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+
+			// the last file stands for one another process wrote during the setup
+			fakeSetup(t, []string{".claude/helpers/a b.cjs", ".claude/settings.json", ".claude/memory.db", "scratch/state.json", ".claude/users-new.md"},
+				"\n# monomind runtime state\n.claude/memory.db\n*.swarmlog\n",
+				[]string{".claude/helpers", ".claude/settings.json", ".claude/memory.db", "scratch", "memory: 1 pattern seeded"})
+			var notice bytes.Buffer
+			for range 2 { // a second chat on the same folder
+				if _, err := initOwnFolder(context.Background(), &notice, dir, "claude"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			prefix := ""
+			if sub != "" {
+				prefix = sub + "/"
+			}
+			want := "?? " + prefix + ".claude/users-new.md"
+			if st := strings.ReplaceAll(strings.TrimSpace(ownRun(t, top, "status", "--porcelain", "--untracked-files=all")), `"`, ""); st != want {
+				t.Errorf("git status = %q, want only %q", st, want)
+			}
+			if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\n" {
+				t.Errorf(".gitignore = %q, want it as it was", b)
+			}
+			// the moved rules still ignore what they ignored, at any depth
+			os.MkdirAll(filepath.Join(dir, "deep"), 0o755)
+			os.WriteFile(filepath.Join(dir, "deep", "x.swarmlog"), []byte("x"), 0o644)
+			if st := ownRun(t, top, "status", "--porcelain", "--untracked-files=all"); strings.Contains(st, "swarmlog") {
+				t.Errorf("a moved ignore rule no longer applies:\n%s", st)
+			}
+			ex, _ := os.ReadFile(filepath.Join(top, ".git", "info", "exclude"))
+			if n := strings.Count(string(ex), "swarmlog"); n != 1 {
+				t.Errorf("the rule is listed %d times:\n%s", n, ex)
+			}
+			for _, want := range []string{"2 new file(s) inside .claude", ".gitignore is unchanged", "scratch"} {
+				if !strings.Contains(notice.String(), want) {
+					t.Errorf("notice lacks %q:\n%s", want, notice.String())
+				}
+			}
+		})
+	}
+}
+
+// Outside a git work tree there is nowhere to move ignore rules to: they stay
+// and the user is told.
+func TestInitOwnFolderGitignoreOutsideARepo(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("bin\n"), 0o644)
+	fakeSetup(t, nil, "# monomind runtime state\ndata/\n", nil)
+	var notice bytes.Buffer
+	if _, err := initOwnFolder(context.Background(), &notice, dir, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\n# monomind runtime state\ndata/\n" {
+		t.Errorf(".gitignore = %q", b)
+	}
+	if !strings.Contains(notice.String(), "lines at the end of .gitignore") {
+		t.Errorf("notice: %q", notice.String())
+	}
+}
+
+// Lines that appear in .gitignore without monomind's heading are not the
+// setup's to take back.
+func TestInitOwnFolderLeavesOtherGitignoreEdits(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	ownRun(t, dir, "init", "-q")
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("bin\n"), 0o644)
+	fakeSetup(t, nil, "mine.log\n", nil)
+	if _, err := initOwnFolder(context.Background(), &bytes.Buffer{}, dir, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); string(b) != "bin\nmine.log\n" {
+		t.Errorf(".gitignore = %q", b)
+	}
+}
