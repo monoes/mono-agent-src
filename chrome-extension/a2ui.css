@@ -306,3 +306,60 @@ textarea.a2ui-input {
     transition: width 0.2s ease;
   }
 }
+
+/* Several cards waiting at once (#1803): what each holds, and the bar that sends them all. */
+.a2ui-hint {
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+}
+
+.a2ui-hint:empty {
+  margin: calc(-1 * var(--sp-2)) 0 0;
+}
+
+.a2ui-btn[aria-pressed="true"] {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 1px;
+  font-weight: 700;
+}
+
+.a2ui-skip {
+  align-self: flex-start;
+  padding: var(--sp-1, 4px) var(--sp-2);
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.a2ui-skip[aria-pressed="true"] {
+  border-style: solid;
+  color: var(--warn);
+}
+
+.a2ui [hidden],
+.a2ui-skip[hidden] {
+  display: none;
+}
+
+.chat-msg.a2ui-setbar {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-width: 100%;
+  border: 1px solid var(--warn);
+  background: var(--bg);
+  font-size: var(--t-xs);
+}
+
+.a2ui-setbar .a2ui-status {
+  margin: 0;
+}
+
+.a2ui-setbar .a2ui-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

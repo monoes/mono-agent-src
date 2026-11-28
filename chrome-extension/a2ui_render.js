@@ -6,6 +6,9 @@
  * Text, Row, Column, Card, Divider, Button, TextField, CheckBox, ChoicePicker,
  * Progress, Badge. Anything else is a muted placeholder.
  *
+ * When several cards wait at once (a2ui_timeline.js: setGrouped), a Button sends
+ * nothing: the card holds what the person picked until the set is sent (#1803).
+ *
  * Fields (TextField, CheckBox, ChoicePicker) change the LOCAL data model only.
  * A Button builds the A2UI action envelope and hands it to `onAction`:
  *
@@ -21,7 +24,7 @@
  * each component drawn at most once, depth 12, text clipped; a surface that cannot be drawn
  * becomes one error card instead of throwing.
  *
- * Use:  const m = MonoA2UIRender.mount(document, surface, { onAction });
+ * Use:  const m = MonoA2UIRender.mount(document, surface, { onAction, onChange, onEdit });
  *       parent.appendChild(m.el);  ...  m.sync(surface) after each model change.
  */
 
@@ -41,6 +44,11 @@
   const SENT = "Sent. The buttons work again in a few seconds.";
   const WORKING = "Working. Do not press again: this can take a while.";
   const STILL = "Still in progress. Do not press again: this card shows how it ends.";
+  const ANSWER_FIRST = "Answer every question first.";
+  const SET_NOTES = {
+    ask: "Answer here, then send all the questions together below.", askReady: "Ready. Not sent yet: use Send all below.",
+    pick: "Pick a button. It is sent only with Send all below.", picked: "Picked. Not sent yet: use Send all below.", skipped: "Skipped: this card is left out and stays open.",
+  };
   const TONE = { info: ["i", "Note"], success: ["✓", "Success"], warning: ["!", "Warning"], danger: ["✕", "Problem"] };
   const FLEX = { start: "flex-start", center: "center", end: "flex-end", stretch: "stretch", spaceBetween: "space-between", spaceAround: "space-around", spaceEvenly: "space-evenly" };
   let uid = 0;
@@ -86,6 +94,14 @@
     let s = surface;
     let binds = []; // closures that refresh a bound value after the model changed
     let buttons = []; // the surface's button elements
+    let declared = []; // {el, id, comp} of the buttons that send an event
+    // The card as part of a set: whether it is one, the button picked, whether it is skipped, whether the set is going out.
+    let grouped = false;
+    let picked = o.picked && typeof o.picked.chosen === "string" ? o.picked.chosen : "";
+    let skipped = !!(o.picked && o.picked.skipped);
+    let setBusy = false;
+    let hint = null; // says what the card waits for
+    let skip = null; // leaves an agent's card out of the set
     let timer = null; // re-enables them after a press
     let held = false; // a press has not answered, or is still in progress
     let seen = { struct: -1, data: -1 };
@@ -138,6 +154,7 @@
     /** press marks the whole surface as sent (or not): one press, one answer. */
     function setSent(sent) {
       for (const b of buttons) {
+        b.dataset.sent = String(sent);
         if (sent) {
           b.setAttribute("aria-disabled", "true");
           b.setAttribute("aria-describedby", named(status));
@@ -147,7 +164,77 @@
         }
       }
       if (status) status.textContent = sent ? SENT : "";
-      if (!sent) clearT(timer);
+      if (!sent) {
+        clearT(timer);
+        paint();
+      }
+    }
+    const asks = () => s.provenance === "system" && String(s.id).startsWith("ask-");
+    /** answered: every field the button sends holds something. */
+    function answered(b) {
+      const ctx = b && isObj(b.comp.action.event.context) ? b.comp.action.event.context : {};
+      return Object.values(ctx).every((v) => {
+        if (!pathOf(v)) return true;
+        const x = dyn(v);
+        return Array.isArray(x) ? x.length > 0 : x !== undefined && x !== null && String(x).trim() !== "";
+      });
+    }
+    const chosen = () => (declared.some((b) => b.id === picked) ? picked : "");
+    /** waiting is what the card adds to a set; null when there is nothing to answer. */
+    function waiting() {
+      if (s.deleted || !declared.length) return null;
+      if (asks()) return { asks: true, skipped: false, ready: answered(declared[0]) };
+      if (s.provenance === "system") return null; // approvals and missions are pressed on their own
+      return { asks: false, skipped, ready: skipped || !!chosen() };
+    }
+    /** collect is the card's part of a set: {action}, or {skip} when the person left it out. */
+    function collect() {
+      const w = waiting();
+      if (!w || !w.ready) return null;
+      if (w.skipped) return { skip: s.id };
+      const b = asks() ? declared[0] : declared.find((d) => d.id === chosen());
+      const env = envelope(b.comp.action, b.id);
+      return env ? { action: env.action } : null;
+    }
+    /** paint shows each button and the note under the card as the card stands: alone, or part of a set. */
+    function paint() {
+      const w = waiting();
+      const ask = asks();
+      const unanswered = !!w && ask && !w.ready;
+      for (const b of declared) {
+        b.el.hidden = grouped && ask; // the set's own button sends a question
+        if (grouped && !ask) b.el.setAttribute("aria-pressed", String(!skipped && chosen() === b.id));
+        else b.el.removeAttribute("aria-pressed");
+        const sent = b.el.dataset.sent === "true";
+        if (setBusy || sent || (!grouped && unanswered)) b.el.setAttribute("aria-disabled", "true");
+        else b.el.removeAttribute("aria-disabled");
+      }
+      if (skip) {
+        skip.hidden = !grouped || ask;
+        skip.textContent = skipped ? "Skipped (press to undo)" : "Skip this one";
+        skip.setAttribute("aria-pressed", String(skipped));
+      }
+      if (!hint) return;
+      let text = "";
+      if (grouped && w) text = ask ? SET_NOTES[w.ready ? "askReady" : "ask"] : SET_NOTES[skipped ? "skipped" : chosen() ? "picked" : "pick"];
+      else if (unanswered) text = ANSWER_FIRST;
+      if (hint.textContent !== text) hint.textContent = text;
+    }
+    const changed = () => {
+      paint();
+      if (typeof o.onChange === "function") o.onChange();
+    };
+    function pick(id, leave) {
+      picked = id;
+      skipped = leave;
+      if (typeof o.onPick === "function") o.onPick({ chosen: picked, skipped });
+      changed();
+    }
+    function setGrouped(on, busy) {
+      if (grouped === on && setBusy === !!busy) return;
+      grouped = on;
+      setBusy = !!busy;
+      paint();
     }
     /**
      * pressed hands a press over. While onAction's promise is open the buttons
@@ -195,6 +282,8 @@
             localData = s.dataVersion;
             seen.data = s.dataVersion;
             for (const b of binds) b();
+            if (typeof o.onEdit === "function") o.onEdit(path, x);
+            changed();
           } else lit = x;
         },
       };
@@ -286,11 +375,13 @@
           if (k) e.appendChild(k);
         }
         buttons.push(e);
+        if (envelope(c.action, id)) declared.push({ el: e, id, comp: c });
         e.addEventListener("click", () => {
           if (e.getAttribute("aria-disabled") === "true") return;
           const env = envelope(c.action, id);
           if (!env) return;
-          pressed(env);
+          if (!grouped) pressed(env);
+          else if (!asks()) pick(chosen() === id ? "" : id, false);
         });
         return e;
       },
@@ -507,6 +598,7 @@
       const cid = focused && focused.dataset && wrap.contains && wrap.contains(focused) ? focused.dataset.cid : "";
       binds = [];
       buttons = [];
+      declared = [];
       count = 0;
       visits = 0;
       drawn = new Set();
@@ -521,9 +613,24 @@
         while (frag.children && frag.children.length) frag.removeChild(frag.children[0]);
         binds = [];
         buttons = [];
+        declared = [];
         const err = mk("div", "a2ui-card a2ui-error");
         err.textContent = "This card could not be shown.";
         frag.appendChild(err);
+      }
+      hint = doc.createElement("div");
+      hint.className = "a2ui-hint";
+      frag.appendChild(hint);
+      skip = null;
+      if (declared.length && s.provenance !== "system") {
+        skip = doc.createElement("button");
+        skip.type = "button";
+        skip.className = "a2ui-skip";
+        skip.dataset.cid = "set:skip";
+        skip.addEventListener("click", () => {
+          if (!setBusy) pick("", !skipped);
+        });
+        frag.appendChild(skip);
       }
       status = mk("div", "a2ui-status");
       status.setAttribute("role", "status");
@@ -554,6 +661,7 @@
         for (const b of binds) b();
       }
       seen = { struct: s.structVersion, data: s.dataVersion };
+      paint();
       rename();
     }
 
@@ -563,7 +671,7 @@
       unwatch();
       if (doc.fonts && doc.fonts.removeEventListener) doc.fonts.removeEventListener("loadingdone", growAll);
     }
-    return { el: wrap, sync, destroy };
+    return { el: wrap, sync, destroy, waiting, collect, setGrouped };
   }
 
   root.MonoA2UIRender = { mount, textOf, clip, MAX_NODES, MAX_DEPTH };
