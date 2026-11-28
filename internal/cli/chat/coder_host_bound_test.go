@@ -111,24 +111,26 @@ func (r *boundRig) v2Rows() (tokens, bindings int) {
 	return
 }
 
+// fakeProcessWait bounds the waits for a fake turn process to write a file or to end. Both end as soon as it happens; the
+// bound is generous because a loaded machine can take seconds to schedule a shell.
+const fakeProcessWait = 30 * time.Second
+
 func (r *boundRig) waitFile(path string) []byte {
 	r.t.Helper()
-	for i := 0; i < 400; i++ {
+	for end := time.Now().Add(fakeProcessWait); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
 		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
 			return b
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	r.t.Fatalf("%s never appeared", path)
 	return nil
 }
 
 func (r *boundRig) gone(pid int) bool {
-	for i := 0; i < 300; i++ {
+	for end := time.Now().Add(fakeProcessWait); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 		if err := syscall.Kill(pid, 0); err != nil {
 			return true
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
 	return false
 }

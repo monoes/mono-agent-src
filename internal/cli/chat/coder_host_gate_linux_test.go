@@ -93,14 +93,15 @@ p0=$PPID; while [ -d "$d" ] && [ ! -e "$d/release" ] && kill -0 $p0 2>/dev/null;
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Start returns at the admission line, which the script prints before it writes its pid: wait for the pid.
+	pid, err := strconv.Atoi(strings.TrimSpace(string(r.waitFile(filepath.Join(r.dir, "pid")))))
+	if err != nil || pid <= 0 {
+		t.Fatalf("the process's pid: %d %v", pid, err)
+	}
 	if err := os.WriteFile(r.release, []byte("x"), 0o600); err != nil { // the process exits BEFORE anyone refuses it
 		t.Fatal(err)
 	}
-	if !r.gone(func() int {
-		b, _ := os.ReadFile(filepath.Join(r.dir, "pid"))
-		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-		return n
-	}()) {
+	if !r.gone(pid) {
 		t.Fatal("the process did not exit")
 	}
 	r.session("default", "c1", "t2")
