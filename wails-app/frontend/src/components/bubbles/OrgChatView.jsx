@@ -5,7 +5,8 @@ import { ChatMarkdown } from '../chat/ChatMarkdown.jsx'
 import { ChatComposer } from '../chat/ChatComposer.jsx'
 import { threadView, toolSummary } from '../../lib/orgBubble.js'
 import { normalizeAsk } from '../../lib/askModel.js'
-import { AskCard } from './AskCard.jsx'
+import { AskCard, ORG_ASKS } from './AskCard.jsx'
+import { AnswerSetBar, AnswerSetProvider } from '../answerSet/AnswerSet.jsx'
 import { ToolLink } from '../chat/ToolLink.jsx'
 import { cliOf, cliTitle, vaultRelatedCall } from '../chat/toolLinks.js'
 import { useHilAsks } from './useHilAsks.js'
@@ -118,6 +119,8 @@ export function OrgChatView({ conv, nameOf, draft, onDraftChange, orgName = '', 
   }
   const answer = (ask, text) => conv.resolveItem(ask.ref, { answer: text })
   const dismiss = ask => conv.resolveItem(ask.ref, { dismiss: true })
+  // Each answer goes out on its own command; one that fails stays on its card with the reason.
+  const answerAll = async parts => { for (const p of parts) await p.run?.() }
   const decide = (ask, approve, extras = {}) => (ask.kind === 'hil' || ask.kind === 'send'
     ? hil.resolve(ask, approve, extras)
     : conv.resolveItem(ask.ref, { approve, note: extras.note || '' }))
@@ -141,6 +144,7 @@ export function OrgChatView({ conv, nameOf, draft, onDraftChange, orgName = '', 
   }
 
   return (
+    <AnswerSetProvider onSubmit={answerAll}>
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div ref={scrollRef} data-testid="org-chat-thread" role="log" aria-live="polite" aria-relevant="additions" aria-label={threadLabel}
         aria-busy={!history && !historyError}
@@ -194,10 +198,12 @@ export function OrgChatView({ conv, nameOf, draft, onDraftChange, orgName = '', 
           <Speech key={e.id} who={t('orgBubble.you')} mine note={e.delivery === 'queued' ? t('orgBubble.queued') : t('orgBubble.sent')}>{e.text}</Speech>
         ))}
       </div>
+      <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column' }}><AnswerSetBar group={ORG_ASKS} /></div>
       {sendError && <div role="alert" style={{ padding: '0 14px 4px', fontFamily: mono, fontSize: 10, color: 'var(--red, #ef4444)' }}>{t('orgBubble.couldNotSend', { error: sendError })}</div>}
       {composerNote && <Muted style={{ padding: '0 14px 2px' }}>{composerNote}</Muted>}
       <ChatComposer value={draft} onChange={onDraftChange} onSend={onSend} streaming={false}
         disabled={sending || !history || readOnly} disabledReason="" />
     </div>
+    </AnswerSetProvider>
   )
 }

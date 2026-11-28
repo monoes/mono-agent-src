@@ -3,33 +3,45 @@ import { useTranslation } from 'react-i18next'
 import { Check, Square, CheckSquare } from 'lucide-react'
 import { useBlockEnv } from './context.js'
 import { useAnswer } from './answers.js'
+import { SkipToggle, useAnswerItem } from '../../answerSet/AnswerSet.jsx'
+import { useDraft } from '../../answerSet/useDraft.js'
 import { answerText } from './choicesSchema.js'
 import { panel, heading, note, optionButton, primaryButton, COLOR } from './ui.js'
+
+const NO_PICK = { ids: [], skip: false }
 
 // choices: options the user clicks to answer. The answer goes out as the
 // next user message through the chat's onSend; it is then remembered (see
 // answers.js) and the block shows it, locked. Without onSend the block is
-// disabled with a note.
+// disabled with a note. When other questions wait in the same turn, a click only
+// picks: the turn's AnswerSetBar sends them all together.
 export function ChoicesBlock({ data, blockKey }) {
   const { t } = useTranslation()
-  const { onSend } = useBlockEnv()
+  const { onSend, turn } = useBlockEnv()
   const [answer, remember] = useAnswer(blockKey)
-  const [picked, setPicked] = useState([])
+  const [pick, setPick] = useDraft(`${blockKey}|pick`, NO_PICK)
   const [busy, setBusy] = useState(false)
   const locked = !!answer
-  const disabled = locked || !onSend || busy
+  const picked = pick.ids.filter(id => data.options.some(o => o.id === id))
+  const textOf = (ids) => answerText(data, data.options.filter(o => ids.includes(o.id)).map(o => o.label))
+  const { grouped, sending } = useAnswerItem(blockKey, {
+    group: !locked && onSend ? turn : '', ready: pick.skip || picked.length > 0, skipped: pick.skip,
+    collect: () => (pick.skip ? { skip: '' } : { text: textOf(picked), remember: () => remember({ text: textOf(picked), ids: picked }) }),
+  })
+  const disabled = locked || !onSend || busy || sending
 
   const submit = async (ids) => {
-    if (disabled || ids.length === 0) return
-    const labels = data.options.filter(o => ids.includes(o.id)).map(o => o.label)
-    const text = answerText(data, labels)
+    if (disabled || grouped || ids.length === 0) return
+    const text = textOf(ids)
     setBusy(true)
     try {
       if (await onSend(text)) remember({ text, ids })
     } finally { setBusy(false) }
   }
-  const toggle = (id) => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]))
-  const chosenIds = locked ? (answer.ids || []) : picked
+  const toggle = (id) => setPick({ skip: false, ids: picked.includes(id) ? picked.filter(x => x !== id) : [...picked, id] })
+  // In a set a single choice is held, like a multiple one.
+  const choose = (id) => (data.multi ? toggle(id) : grouped ? setPick({ skip: false, ids: [id] }) : submit([id]))
+  const chosenIds = locked ? (answer.ids || []) : pick.skip ? [] : data.multi || grouped ? picked : []
 
   return (
     <div role="group" aria-label={data.question || t('chatBlocks.choices')} style={panel}>
@@ -40,15 +52,16 @@ export function ChoicesBlock({ data, blockKey }) {
           const state = locked ? (chosen ? 'chosen' : 'dim') : (chosen ? 'chosen' : (disabled ? 'dim' : 'idle'))
           const Icon = data.multi ? (chosen ? CheckSquare : Square) : Check
           return (
-            <button key={o.id} type="button" disabled={disabled} aria-pressed={data.multi ? chosen : undefined}
-              onClick={() => (data.multi ? toggle(o.id) : submit([o.id]))} style={optionButton(state)}>
+            <button key={o.id} type="button" disabled={disabled} aria-pressed={data.multi || grouped ? chosen : undefined}
+              onClick={() => choose(o.id)} style={optionButton(state)}>
               <Icon size={12} style={{ flexShrink: 0, color: COLOR.accent, visibility: data.multi || chosen ? 'visible' : 'hidden' }} />
               <span style={{ flex: 1 }}>{o.label}{o.hint && <span style={{ color: COLOR.muted }}> {o.hint}</span>}</span>
             </button>
           )
         })}
       </div>
-      {data.multi && !locked && (
+      {grouped && !locked && <SkipToggle skipped={pick.skip} disabled={disabled} onChange={skip => setPick({ skip, ids: [] })} />}
+      {data.multi && !grouped && !locked && (
         <button type="button" disabled={disabled || picked.length === 0} onClick={() => submit(picked)} style={primaryButton(disabled || picked.length === 0)}>
           {t('chatBlocks.confirm')}
         </button>

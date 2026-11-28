@@ -106,6 +106,9 @@ export function applyMessage(surface, msg, meta = {}) {
 // The host's card ids (internal/a2ui SystemSurfacePrefixes): no agent may name one.
 const SYSTEM_ID = /^(hil|send|ask|mission)-/
 
+// The host's card of a worker's question.
+export const isAskCard = sf => sf?.provenance === 'system' && String(sf.surfaceId).startsWith('ask-')
+
 // May this event touch surface cur (null: none yet)? The host may replace
 // anything. An agent never names a host card, and touches only its own
 // surfaces: same provenance, same author. An event that does not say it is the
