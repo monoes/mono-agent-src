@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
@@ -64,8 +65,8 @@ func (c *Conductor) workerTools(w *worker, m Model, opts *monomind.ExecOptions) 
 	if !canTakeTools(m, opts.Access) {
 		return
 	}
-	asks, spawns := c.cfg.Answers != nil, c.spawnsOn(w, m, opts.Access)
-	if !asks && !spawns {
+	asks, spawns, ui := c.cfg.Answers != nil, c.spawnsOn(w, m, opts.Access), c.cfg.UI != nil
+	if !asks && !spawns && !ui {
 		return
 	}
 	if asks {
@@ -77,7 +78,15 @@ func (c *Conductor) workerTools(w *worker, m Model, opts *monomind.ExecOptions) 
 		opts.Tools = append(opts.Tools, childToolSpecs(c.cfg.Staffer.profiles())...)
 		opts.ToolTimeout = max(opts.ToolTimeout, ToolTimeout)
 	}
+	if ui {
+		opts.Tools = append(opts.Tools, UIToolSpecs()...)
+		opts.ToolTimeout = max(opts.ToolTimeout, time.Minute)
+		opts.SystemPrompt += a2ui.PromptSnippet()
+	}
 	opts.OnToolCall = func(ctx context.Context, name string, args json.RawMessage) (string, error) {
+		if ui && name == ToolUIRender {
+			return c.handle(ctx, w, name, args)
+		}
 		if spawns && (name == ToolSpawn || name == ToolWait || name == ToolMessage) {
 			return c.handle(ctx, w, name, args)
 		}
@@ -132,6 +141,7 @@ func (c *Conductor) ask(ctx context.Context, w *worker, question string) (string
 	c.cfg.Emit.Emit(chatevents.EventAgentMessage, chatevents.AgentMessagePayload{
 		AgentID: w.id, Direction: "question", QuestionID: qid, From: w.id, To: "user", Text: bounded, Truncated: cut,
 	})
+	c.askSurface(w.id, qid, bounded)
 
 	answer, answered, err := c.waitAnswer(ctx, w.id, qid)
 	c.mu.Lock()
@@ -165,6 +175,11 @@ func (c *Conductor) emitAnswer(agentID, qid, from, text string) {
 	c.cfg.Emit.Emit(chatevents.EventAgentMessage, chatevents.AgentMessagePayload{
 		AgentID: agentID, Direction: "followup", QuestionID: qid, From: from, To: agentID, Text: bounded, Truncated: cut,
 	})
+	if from == "user" {
+		c.closeAskSurface(agentID, qid, "Answered")
+	} else {
+		c.closeAskSurface(agentID, qid, "Closed without an answer")
+	}
 }
 
 // waitAnswer polls for the answer until it arrives, AskTimeout passes, or

@@ -38,6 +38,10 @@ type Deps struct {
 	OperatorRefusal func() string
 	// PublicationPrompt is the agents' instruction to register what they publish.
 	PublicationPrompt func() string
+	// RunCLI runs one monoagentcli command in process, as the CLI would with this profile and database named
+	// explicitly and --json set, and returns what it printed. The system surfaces' buttons run `hil approve`,
+	// `task session approve` and the like through it, so a button does what the command does.
+	RunCLI func(ctx context.Context, args ...string) ([]byte, error)
 	// DoomsdayMerge is set only by an engine built with the open-ended mode: for a database it returns the
 	// resolver of the run a conductor's merges belong to (nil result: no run, merges as they were). Nil here is
 	// the default build, and merges are not gated.

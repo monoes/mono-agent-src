@@ -97,6 +97,7 @@ func newChatCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().StringArrayVar(&f.attach, "attach", nil, "Coder turns: attach a file (repeatable; at most 10, 20 MB each). It is copied into the folder's .monoagent/attachments/<turn>/ and the prompt lists the copy")
 	cmd.AddCommand(newChatHistoryCmd(cfg))
 	cmd.AddCommand(newChatTurnCmd(cfg))
+	cmd.AddCommand(newChatUICmd(cfg))
 	cmd.Flags().BoolVar(&f.noHistory, "no-history", false, "Suppress this legacy chat-history table write (profile/tool init and runtime session events are unaffected; a --conversation turn never writes it)")
 	// With --json a failure also ends stdout with {"error","code"}; an agent
 	// that is not installed or not logged in is code agent_not_setup.

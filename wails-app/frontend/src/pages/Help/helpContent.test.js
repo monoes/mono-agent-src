@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { TOPICS, PIT_STAGES, EASTER_EGGS, PAGE_IDS, HELP_KEYS } from './helpContent.js'
 
-const REQUIRED = ['firstSteps', 'profiles', 'connections', 'workflows', 'tasks', 'hil', 'orgs', 'coderModes', 'extension', 'vault', 'apiGateway', 'images', 'troubleshooting', 'updates']
+const REQUIRED = ['firstSteps', 'profiles', 'connections', 'workflows', 'tasks', 'hil', 'cards', 'orgs', 'coderModes', 'extension', 'vault', 'apiGateway', 'images', 'troubleshooting', 'updates']
 
 describe('helpContent', () => {
   it('covers every required topic with unique ids', () => {

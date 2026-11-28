@@ -274,6 +274,7 @@ func (c *Conductor) proposeMissionClose(ctx context.Context, mc *MissionRun, se 
 	proposed, err := c.proposeClose(ctx, mc, se.ID, rep, func() {
 		if c.cfg.Emit != nil {
 			c.cfg.Emit.Emit(chatevents.EventMissionReport, payload)
+			c.missionReportSurface(payload)
 		}
 	})
 	if err != nil {

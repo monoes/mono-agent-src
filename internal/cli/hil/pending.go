@@ -68,6 +68,7 @@ func pendingItems(ctx context.Context, db *sql.DB, profile string) ([]hilItem, e
 	rows.Close() // the lookups below need the connection
 	for i := range items {
 		it, raw := &items[i], raws[i]
+		it.Digest, it.NoChatApprove = hilsend.Digest(raw[0], raw[1], raw[2]), twoStepItem(raw[2])
 		// Rows the scrub could not rewrite are shown masked.
 		for k := range raw {
 			raw[k] = hilscrub.Mask(db, it.ProfileID, it.ID, raw[k])

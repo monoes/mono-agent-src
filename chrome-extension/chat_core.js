@@ -78,6 +78,7 @@
     if (!body || !Number.isFinite(body.seq)) return null;
     const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
     const ev = { seq: body.seq, type: progress.stage, payload };
+    if (typeof body.at === "string") ev.at = body.at;
     // The wrapper may name the conversation and turn ({"seq","conversation","turn","payload"}).
     if (idOf(body.turn)) ev.turn = idOf(body.turn);
     if (idOf(body.conversation)) ev.conversation = idOf(body.conversation);
@@ -100,6 +101,7 @@
     for (const e of Array.isArray(list) ? list : []) {
       if (!e || typeof e.type !== "string" || !Number.isFinite(e.seq)) continue;
       const ev = { seq: e.seq, type: e.type, payload: e.payload && typeof e.payload === "object" ? e.payload : {} };
+      if (typeof e.at === "string") ev.at = e.at;
       const t = idOf(e.turn) || idOf(turn);
       if (t) ev.turn = t;
       out.push(ev);

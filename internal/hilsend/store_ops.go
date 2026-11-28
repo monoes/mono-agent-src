@@ -72,9 +72,15 @@ var betweenReadAndWrite func()
 // or someone else claimed it first). always (an always-allow approve) is
 // refused for a label recipient (ErrAlwaysLabel), leaving it pending.
 func (s Store) claim(ctx context.Context, id string, always bool) (p Payload, rp replay, proof string, claimed bool, err error) {
+	return s.claimWith(ctx, id, always, Edit{})
+}
+
+// claimWith is claim that, when edit.IfDigest is set, claims only the item that
+// still has that digest, writing the edit's text and subject in the same update.
+func (s Store) claimWith(ctx context.Context, id string, always bool, edit Edit) (p Payload, rp replay, proof string, claimed bool, err error) {
 	for attempt := 0; ; attempt++ {
 		var retry bool
-		p, rp, proof, claimed, retry, err = s.claimOnce(ctx, id, always)
+		p, rp, proof, claimed, retry, err = s.claimOnce(ctx, id, always, edit)
 		if !retry || attempt >= 1 {
 			return
 		}
@@ -83,8 +89,8 @@ func (s Store) claim(ctx context.Context, id string, always bool) (p Payload, rp
 
 // claimOnce is one try of claim; retry says the row changed under it (the
 // scrub of an older row) between the read and the write: the write is guarded
-// by the node_config it read, so a scrubbed row is never overwritten.
-func (s Store) claimOnce(ctx context.Context, id string, always bool) (p Payload, rp replay, proof string, claimed, retry bool, err error) {
+// by the row it read, so a changed or scrubbed row is never overwritten.
+func (s Store) claimOnce(ctx context.Context, id string, always bool, edit Edit) (p Payload, rp replay, proof string, claimed, retry bool, err error) {
 	r, err := s.find(ctx, id)
 	if betweenReadAndWrite != nil {
 		betweenReadAndWrite()
@@ -98,6 +104,28 @@ func (s Store) claimOnce(ctx context.Context, id string, always bool) (p Payload
 	}
 	if p.State != StatePending {
 		return p, rp, "", false, false, nil
+	}
+	ed := r.ed
+	if edit.IfDigest != "" {
+		if Digest(r.ro, r.ed, r.nc) != edit.IfDigest {
+			return p, rp, "", false, false, fmt.Errorf("send item %s: %w", p.ID, ErrChanged)
+		}
+		if edit.Text != nil && p.TextReadOnly {
+			return p, rp, "", false, false, fmt.Errorf("send item %s: %w", p.ID, ErrNoText)
+		}
+		if edit.Subject != nil && p.SubjectReadOnly {
+			return p, rp, "", false, false, fmt.Errorf("send item %s: %w", p.ID, ErrNoSubject)
+		}
+		if edit.Text != nil {
+			p.Text = *edit.Text
+		}
+		if edit.Subject != nil {
+			p.Subject = *edit.Subject
+		}
+		if edit.Text != nil || edit.Subject != nil {
+			raw, _ := json.Marshal(editable{Text: p.Text, Subject: p.Subject})
+			ed = string(raw)
+		}
 	}
 	if p.Unreviewable != "" {
 		// A card that can't show what the step sends isn't approved from:
@@ -118,8 +146,9 @@ func (s Store) claimOnce(ctx context.Context, id string, always bool) (p Payload
 	rp.ResolvedAt = now()
 	raw, _ := json.Marshal(rp)
 	res, err := s.DB.ExecContext(ctx,
-		`UPDATE hil_pending SET status = 'sending', node_config = ?, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND status = 'pending' AND profile_id = ? AND node_config = ?`, string(raw), p.ID, s.Profile, r.nc)
+		`UPDATE hil_pending SET status = 'sending', node_config = ?, editable_data = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND status = 'pending' AND profile_id = ? AND node_config = ? AND editable_data = ? AND readonly_data = ?`,
+		string(raw), ed, p.ID, s.Profile, r.nc, r.ed, r.ro)
 	if err != nil {
 		return p, rp, "", false, false, err
 	}
@@ -134,16 +163,16 @@ func (s Store) claimOnce(ctx context.Context, id string, always bool) (p Payload
 }
 
 // reject marks a pending item rejected; false when it was not pending.
-func (s Store) reject(ctx context.Context, id string) (Payload, bool, error) {
+func (s Store) reject(ctx context.Context, id, ifDigest string) (Payload, bool, error) {
 	for attempt := 0; ; attempt++ {
-		p, done, retry, err := s.rejectOnce(ctx, id)
+		p, done, retry, err := s.rejectOnce(ctx, id, ifDigest)
 		if !retry || attempt >= 1 {
 			return p, done, err
 		}
 	}
 }
 
-func (s Store) rejectOnce(ctx context.Context, id string) (Payload, bool, bool, error) {
+func (s Store) rejectOnce(ctx context.Context, id, ifDigest string) (Payload, bool, bool, error) {
 	r, err := s.find(ctx, id)
 	if err != nil {
 		return Payload{}, false, false, err
@@ -155,11 +184,15 @@ func (s Store) rejectOnce(ctx context.Context, id string) (Payload, bool, bool, 
 	if p.State != StatePending {
 		return p, false, false, nil
 	}
+	if ifDigest != "" && Digest(r.ro, r.ed, r.nc) != ifDigest {
+		return p, false, false, fmt.Errorf("send item %s: %w", p.ID, ErrChanged)
+	}
 	rp.ResolvedAt = now()
 	raw, _ := json.Marshal(rp)
 	res, err := s.DB.ExecContext(ctx,
 		`UPDATE hil_pending SET status = 'rejected', node_config = ?, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND status = 'pending' AND profile_id = ? AND node_config = ?`, string(raw), p.ID, s.Profile, r.nc)
+		 WHERE id = ? AND status = 'pending' AND profile_id = ? AND node_config = ? AND editable_data = ? AND readonly_data = ?`,
+		string(raw), p.ID, s.Profile, r.nc, r.ed, r.ro)
 	if err != nil {
 		return p, false, false, err
 	}

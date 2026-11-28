@@ -31,6 +31,11 @@ import (
 // stdout it got, for commands whose report is their output even then (org
 // validate).
 func (a *App) jsonCLI(args ...string) (string, error) {
+	return a.jsonCLIStdin("", args...)
+}
+
+// jsonCLIStdin is jsonCLI with stdin fed to the command (none when empty).
+func (a *App) jsonCLIStdin(stdin string, args ...string) (string, error) {
 	if a.chatSup == nil {
 		return "", fmt.Errorf("chat supervisor not initialized")
 	}
@@ -46,16 +51,24 @@ func (a *App) jsonCLI(args ...string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, full...)
 	suppressConsole(cmd)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	return cliAnswer(args, out, stderr.Bytes(), err)
+}
+
+// cliAnswer reads what a --json command run for args printed and how it ended.
+func cliAnswer(args []string, out, stderr []byte, err error) (string, error) {
 	trimmed := strings.TrimSpace(string(out))
 	if err != nil {
 		var refusal chatRefusal
 		_ = json.Unmarshal([]byte(lastLine(string(out))), &refusal)
 		msg := refusal.Error
 		if msg == "" {
-			msg = lastLine(stderr.String())
+			msg = lastLine(string(stderr))
 		}
 		if msg == "" {
 			msg = err.Error()

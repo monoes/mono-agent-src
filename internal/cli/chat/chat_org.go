@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/a2ui"
 	"github.com/monoes/mono-agent/internal/agentpurposes"
 	"github.com/monoes/mono-agent/internal/agentroster"
 	"github.com/monoes/mono-agent/internal/ai"
@@ -210,6 +211,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		Missions: missionRun(mission, db.DB, journal.turnID),
 		// nil unless the engine is built with the open-ended mode (merges are then gated)
 		DoomsdayFor: cfg.doomsdayFor(db.DB),
+		UI:          uiConfig(db.DB, cfg.ProfileID(), journal.conversationID),
 	})
 	cond.AddVeterans(journal.veterans())
 	cond.ReserveWorkerIDs(storedIDs) // every stored id, not only the latest ones a turn loads
@@ -221,6 +223,8 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	opts.Tools = append(opts.Tools, dynorg.MissionPlanToolSpecs(cond.Mission())...)
 	opts.Tools = append(opts.Tools, dynorg.MissionRunToolSpecs(ctx, cond.Mission())...)
 	opts.SystemPrompt += dynorg.MissionPrompt(cond.Mission())
+	opts.Tools = append(opts.Tools, dynorg.UIToolSpecs()...)
+	opts.SystemPrompt += a2ui.PromptSnippet()
 	if cond.Isolated() {
 		opts.Tools = append(opts.Tools, dynorg.MergeToolSpec())
 		opts.SystemPrompt += dynorg.IsolatedLeadPrompt

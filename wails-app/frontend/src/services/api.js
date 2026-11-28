@@ -112,9 +112,10 @@ function reportError(op, e) {
 // notify surfaces a message on the same toast bus for non-API failures, so UI
 // code can report errors without a blocking native alert(). code is the
 // CLI's error code, when it gave one (e.g. agent_not_setup, which the toast
-// answers with a link to the AI agents page).
-export function notify(op, message, code = '') {
-  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op, message: String(message), code: code || message?.code || '' } }))
+// answers with a link to the AI agents page). title, already translated,
+// replaces the "Failed: <op>" heading.
+export function notify(op, message, code = '', title = '') {
+  errorBus.dispatchEvent(new CustomEvent('api:error', { detail: { op, message: String(message), code: code || message?.code || '', title } }))
 }
 
 // startedRun turns a run binding's promise into { ok } / { ok: false, error }.
@@ -346,8 +347,17 @@ export const api = {
     GoApp.StopChatAgent(conversationID, turnID, agentID).then(parseStreamResult),
   listChatConversations: (cursor = '', limit = 50) =>
     GoApp.ListChatConversations(cursor, limit).then(parseStreamResult),
+  // A2UI surfaces: a pressed button's v1.0 envelope, and the HIL items that still need a card. Both run the CLI.
+  chatUIAction: (conversationID, envelope) =>
+    GoApp.ChatUIAction(conversationID, JSON.stringify(envelope)).then(parseStreamResult),
+  chatUISyncHIL: (conversationID) =>
+    GoApp.ChatUISyncHIL(conversationID).then(parseStreamResult),
   getChatTurns: (conversationID, cursor = '', limit = 50) =>
     GoApp.GetChatTurns(conversationID, cursor, limit).then(parseStreamResult),
+  // The turns that only carry cards, each with its events, in one read
+  // (getChatTurns leaves them out); seen: turn ids already shown.
+  getChatCardTurns: (conversationID, seen = []) =>
+    GoApp.GetChatCardTurns(conversationID, seen).then(parseStreamResult),
   getChatEvents: (conversationID, turnID, afterSeq = 0, limit = 200) =>
     GoApp.GetChatEvents(conversationID, turnID, afterSeq, limit).then(parseStreamResult),
   deleteChatConversation: (conversationID) =>

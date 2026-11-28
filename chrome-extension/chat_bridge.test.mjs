@@ -24,6 +24,8 @@ function setup({ methods = ["chat.send", "chat.stop", "chat.events"], connected 
   };
   const chrome = {
     runtime: {
+      id: "ext",
+      getURL: (p) => `chrome-extension://ext/${p}`,
       onMessage: { addListener: (fn) => (listener = fn) },
       sendMessage: (m) => {
         relayed.push(m);
@@ -43,9 +45,11 @@ function setup({ methods = ["chat.send", "chat.stop", "chat.events"], connected 
   env.MonoAsk = MonoAsk;
   env.MonoSummaryAI = { sticky: async () => choice };
   env.MonoChat.install({ isConnected: () => connected, storage: chrome.storage.local, captionsTimeoutMs });
+  // The side panel's own sender, as Chromium gives it: id, url and origin only.
+  const PANEL = { id: "ext", url: "chrome-extension://ext/sidepanel.html", origin: "chrome-extension://ext" };
   const send = (msg) =>
     new Promise((resolve) => {
-      assert.equal(listener(msg, {}, resolve), true);
+      assert.equal(listener(msg, PANEL, resolve), true);
     });
   return { send, calls, relayed, stored, listener: () => listener, rejectRelay: () => (noPanel = true) };
 }
@@ -440,3 +444,70 @@ test("bad pictures are refused before anything is asked, and free the profile", 
   assert.deepEqual(t.calls, []);
   assert.equal((await t.send({ type: "chat_send", message: "hi" })).ok, true, "the profile is free");
 });
+
+test("chat_ui_action maps the panel's message to chat.ui_action and returns the document", async () => {
+  const action = { version: "1.0", action: { name: "submit_form", surfaceId: "s1", sourceComponentId: "ok", context: {} } };
+  const t = setup({ reply: async () => ({ outcome: "accepted", delivered: "next_turn", message: "hi" }) });
+  const r = await t.send({ type: "chat_ui_action", profile: "p-work", conversationId: "c-1", action });
+  assert.deepEqual(t.calls[0].method, "chat.ui_action");
+  assert.deepEqual(t.calls[0].params, { conversation: "c-1", action, profile: "p-work" });
+  assert.deepEqual([r.ok, r.outcome, r.delivered, r.message], [true, "accepted", "next_turn", "hi"]);
+  assert.equal((await t.send({ type: "chat_ui_action", profile: "p-work", action })).ok, false, "no conversation");
+  assert.equal((await t.send({ type: "chat_ui_action", profile: "p-work", conversationId: "c-1" })).ok, false, "no action");
+  assert.equal(t.calls.length, 1);
+});
+
+test("chat_ui_action waits longer than the bridge holds a press", async () => {
+  const t = setup({ methods: ["chat.ui_action"], reply: () => ({ outcome: "accepted", delivered: "system", inProgress: true }) });
+  const r = await t.send({ type: "chat_ui_action", profile: "p-work", conversationId: "c-1", action: { version: "1.0", action: {} } });
+  assert.equal(r.inProgress, true);
+  assert.ok(t.calls[0].opts.timeoutMs >= 30000, "the bridge answers after 12s at the latest; the panel must still be listening");
+});
+
+test("chat_ui_sync maps to chat.ui_sync", async () => {
+  const t = setup({ reply: async () => ({ surfaced: ["hil-1"], resolved: [] }) });
+  const r = await t.send({ type: "chat_ui_sync", profile: "p-work", conversationId: "c-1" });
+  assert.deepEqual(t.calls[0], { method: "chat.ui_sync", params: { conversation: "c-1", profile: "p-work" }, opts: t.calls[0].opts });
+  assert.deepEqual([r.ok, r.surfaced], [true, ["hil-1"]]);
+});
+
+test("chat_ui_journal asks for unseen turns and keeps each event's turn and time", async () => {
+  const t = setup({ reply: async () => ({ turns: [{ turn: "system-uisurface-a", events: [{ seq: 1, type: "ui.surface", at: "2026-01-01T00:00:00Z", payload: { surfaceId: "s" } }] }], more: false }) });
+  const r = await t.send({ type: "chat_ui_journal", profile: "p-work", conversationId: "c-1", seen: ["system-uiaction-b", 5] });
+  assert.deepEqual(t.calls[0].method, "chat.ui_journal");
+  assert.deepEqual(t.calls[0].params, { conversation: "c-1", seen: ["system-uiaction-b"], profile: "p-work" });
+  assert.deepEqual([r.ok, r.turns[0].events[0].turn, r.turns[0].events[0].at], [true, "system-uisurface-a", "2026-01-01T00:00:00Z"]);
+});
+
+test("the surface messages are taken from the side panel only", async () => {
+  const t = setup({ methods: ["chat.ui_action", "chat.ui_sync", "chat.ui_journal"], reply: () => ({}) });
+  const action = { version: "1.0", action: { name: "hil.approve", surfaceId: "hil-1", sourceComponentId: "b", context: { id: "1" } } };
+  const msgs = [
+    { type: "chat_ui_action", profile: "p-work", conversationId: "c-1", action },
+    { type: "chat_ui_sync", profile: "p-work", conversationId: "c-1" },
+    { type: "chat_ui_journal", profile: "p-work", conversationId: "c-1" },
+  ];
+  const own = "chrome-extension://ext/";
+  const senders = {
+    "no sender": undefined,
+    "an empty sender": {},
+    "a content script": { id: "ext", url: "https://evil.example/page", origin: "https://evil.example", tab: { id: 4 }, frameId: 0 },
+    "another extension": { id: "other", url: `${own}sidepanel.html` },
+    "no url": { id: "ext" },
+    "another page of ours": { id: "ext", url: `${own}signin.html` },
+    "a look-alike name": { id: "ext", url: `${own}sidepanel.html.evil.html` },
+    "a web page naming it": { id: "ext", url: `https://evil.example/?${own}sidepanel.html` },
+  };
+  for (const msg of msgs) {
+    for (const [name, sender] of Object.entries(senders)) {
+      let answered = false;
+      assert.equal(t.listener()(msg, sender, () => (answered = true)), false, `${msg.type} from ${name}`);
+      assert.equal(answered, false);
+    }
+  }
+  await new Promise((r) => setImmediate(r));
+  assert.equal(t.calls.length, 0, "nothing reached the bridge");
+  for (const msg of msgs) assert.equal((await t.send(msg)).ok, true, msg.type);
+  assert.equal(t.calls.length, 3);
+});
+

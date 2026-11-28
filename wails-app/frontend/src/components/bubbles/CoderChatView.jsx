@@ -31,10 +31,14 @@ import MissionCards from './mission/MissionCards.jsx'
 import MissionStrip from './mission/MissionStrip.jsx'
 import OrgProposalCard, { proposalRefs } from './OrgProposalCard.jsx'
 import { missionItems, startedProposals } from '../../lib/missionModel.js'
+import { foldConversationSurfaces, isJournalTurn } from '../../lib/a2uiModel.js'
+import { useA2UIActions } from '../a2ui/useA2UIActions.js'
+import { useHilSync } from '../a2ui/useHilSync.js'
 import '../chat/chat.css'
 import i18nOr from '../../lib/i18nOr.js'
 
 const mono = 'var(--font-mono)'
+const NO_SURFACES = []
 const srOnly = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }
 
 // CoderChatView is the chat half of an expanded coder bubble: the
@@ -151,6 +155,12 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   // blocked, steering or mid-turn: they then render disabled.
   const canBlockSend = !blocked && !steering && !conv.streaming && !!conv.conversationId
   const blockSend = useCallback(async (text) => (await conv.send(text, [])) !== false, [conv])
+  // A2UI surface buttons: the CLI decides what a press does; an accepted press for the next turn is sent as the next message.
+  const a2ui = useA2UIActions({ conversationId: conv.conversationId || '', send: text => conv.send(text, []), streaming: conv.streaming, onChanged: conv.refreshUI })
+  // Cards are folded over the whole conversation: a later turn can change or close an earlier one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- turnList is rebuilt each render from these
+  const surfacesByTurn = useMemo(() => foldConversationSurfaces(turnList), [conv.messages, conv.liveTurn, conv.streaming])
+  useHilSync(lite ? '' : conv.conversationId || '', conv.refreshUI)
   const blocksHost = useMemo(
     () => ({ onSend: canBlockSend ? blockSend : undefined, conversationId: conv.conversationId || '' }),
     [canBlockSend, blockSend, conv.conversationId])
@@ -206,10 +216,14 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
           <WorkspaceImageContext.Provider value={conv.conversationId || ''}>
             {conv.messages.map((msg, i) => (
               msg.role === 'coder-init' ? <CoderInitNote key={i} workspace={msg.workspace} />
+                : msg.role === 'turn' && isJournalTurn(msg.turnId) ? (surfacesByTurn[msg.turnId] && !lite
+                  // A card the CLI added: no turn status, there was no turn to speak of.
+                  ? <div key={i} className="chat-assistant-turn"><ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} onA2UIAction={a2ui.onA2UIAction} surfaces={surfacesByTurn[msg.turnId]} /></div>
+                  : null)
                 : msg.role === 'turn' ? (
                   <div key={i} className="chat-assistant-turn">
                     {lite ? <LiteTurn state={msg.state} turnId={msg.turnId} /> : <>
-                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} />
+                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} onA2UIAction={a2ui.onA2UIAction} surfaces={surfacesByTurn[msg.turnId] || NO_SURFACES} />
                       {artifactCards(msg.turnId, msg.state)}
                       {orgProposalCards(msg.state)}
                       {missionCards(msg.turnId)}
@@ -227,7 +241,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
             {conv.streaming && (
               <div className="chat-assistant-turn">
                 {lite ? <LiteTurn state={conv.liveTurn} turnId={conv.activeTurnId} isLive /> : <>
-                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} />
+                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} onA2UIAction={a2ui.onA2UIAction} surfaces={surfacesByTurn[conv.activeTurnId] || NO_SURFACES} />
                   {artifactCards(conv.activeTurnId, conv.liveTurn)}
                   {orgProposalCards(conv.liveTurn)}
                   {missionCards(conv.activeTurnId)}
