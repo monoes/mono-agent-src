@@ -39,6 +39,8 @@ jobs:
   # event=push only, so a fast-forward landing cannot accept a PR's trimmed run. Anything else runs them as before.
   test:
     runs-on: ubuntu-latest
+    # Bounds a hung job (the default is 360); above the slowest observed run of this job (45 min).
+    timeout-minutes: 120
     permissions:
       contents: read
       actions: read
@@ -102,11 +104,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # -timeout is per package, and every package shares one hosted runner here (ci.yml splits them over shards).
+      # cmd/monoagentcli, the longest, takes 8 to 14 minutes on most runners but reached 25 on a slow one, where it was
+      # about four fifths through; 45 leaves room for that. A hung test still fails the job.
       - name: Vet and test core (root module)
         if: steps.ci.outputs.passed != 'true'
         run: |
           go vet ./...
-          go test -timeout 25m ./...
+          go test -timeout 45m ./...
 
       - name: Install Linux system dependencies (needed to compile the Wails Go module)
         run: |
