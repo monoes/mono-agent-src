@@ -355,7 +355,7 @@ func TestReleaseWorkflowGuardCatchesViolations(t *testing.T) {
 			return nth(t, s, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/checkout@v4", 0)
 		},
 		"short sha action": func(t *testing.T, s string) string {
-			return nth(t, s, "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e", "actions/setup-go@b7ad1da", 0)
+			return nth(t, s, "actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5", "actions/setup-go@d8cbb80", 0)
 		},
 		"sign-manifest lacks environment": func(t *testing.T, s string) string {
 			return nth(t, s, jobEnvAnchor, "    permissions:\n      contents: read\n", 0)
