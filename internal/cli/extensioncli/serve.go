@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -112,6 +113,8 @@ func newExtensionServeCmd(cfg *Deps) *cobra.Command {
 			extension.FallbackExtensionPort + " when another program (usually a Chrome\n" +
 			"started with --remote-debugging-port) already holds it; override with " +
 			extension.ExtensionPortEnv + ".\n" +
+			"The extension looks only at those two ports by itself; for another one, set its\n" +
+			"side panel's Connection settings → Bridge address.\n" +
 			"\n" +
 			"The extension's service worker is suspended by Chrome whenever it goes idle\n" +
 			"and respawns on the next event, so the socket dropping and coming back is\n" +
@@ -177,6 +180,9 @@ func runExtensionServe(ctx context.Context, out io.Writer, version string) error
 	fmt.Fprintf(out, "MonoAgent bridge listening on %s\n", addr)
 	fmt.Fprintf(out, "  Extension socket: ws://%s/monoagent\n", addr)
 	fmt.Fprintf(out, "  Pair a browser:   monoagentcli extension pair --open (or paste the token from `extension pair`)\n")
+	if hint := customPortHint(addr); hint != "" {
+		fmt.Fprintf(out, "  Note:             %s\n", hint)
+	}
 	fmt.Fprintf(out, "  Status:           monoagentcli extension status\n")
 	fmt.Fprintf(out, "  Summaries:        %s (--summary-runtime / %s)\n", configuredSummaryRuntime(), summaryRuntimeEnv)
 	fmt.Fprintln(out, "Waiting for the extension. Press Ctrl+C to stop.")
@@ -185,6 +191,18 @@ func runExtensionServe(ctx context.Context, out io.Writer, version string) error
 	<-ctx.Done()
 	fmt.Fprintln(out, "Shutting down the bridge.")
 	return nil
+}
+
+// customPortHint is what the user must do before the extension can use a bridge
+// on a port it does not look at by itself; "" for the default ports. addr is
+// host:port or a base URL.
+func customPortHint(addr string) string {
+	_, port, err := net.SplitHostPort(strings.TrimPrefix(addr, "http://"))
+	if err != nil || port == extension.DefaultExtensionPort || port == extension.FallbackExtensionPort {
+		return ""
+	}
+	return "the extension looks only at ports " + extension.DefaultExtensionPort + " and " + extension.FallbackExtensionPort +
+		" by itself. Before pairing, set its side panel's Connection settings → Bridge address to ws://127.0.0.1:" + port + "/monoagent"
 }
 
 // waitForBridgeBind blocks until the server reports the address it bound

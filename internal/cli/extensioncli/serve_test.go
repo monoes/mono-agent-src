@@ -261,3 +261,18 @@ func TestExtensionStatus_ReportsPairingTokenMismatch(t *testing.T) {
 		t.Fatalf("mismatch JSON: %+v %v", report, err)
 	}
 }
+
+// A port the extension does not look at needs a step in its side panel, and
+// the commands that meet such a bridge say so (#1756).
+func TestCustomPortHint(t *testing.T) {
+	for _, addr := range []string{"127.0.0.1:9222", "http://127.0.0.1:9323", "junk"} {
+		if got := customPortHint(addr); got != "" {
+			t.Errorf("customPortHint(%q) = %q, want none", addr, got)
+		}
+	}
+	for _, addr := range []string{"127.0.0.1:9431", "http://127.0.0.1:9431"} {
+		if got := customPortHint(addr); !strings.Contains(got, "Bridge address to ws://127.0.0.1:9431/monoagent") {
+			t.Errorf("customPortHint(%q) = %q", addr, got)
+		}
+	}
+}

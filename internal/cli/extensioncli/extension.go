@@ -117,6 +117,9 @@ func openPairingPage(out io.Writer) error {
 		fmt.Fprintln(out, "No bridge is running, so there is no pairing page to open. Start one with `monoagentcli extension serve` and run this again, or paste this token into the extension side panel (Connection settings → Pairing token):")
 		return printPairingToken(out)
 	}
+	if hint := customPortHint(base); hint != "" {
+		fmt.Fprintf(out, "Note: %s.\n", hint)
+	}
 	url, err := extension.RequestPairingURL(base)
 	switch {
 	case err == nil:
@@ -175,12 +178,16 @@ func pairingPageReport() pairReport {
 	default:
 		return pairReport{Fallback: "token", Error: fmt.Sprintf("could not get a pairing page from the bridge: %v", err), Hint: pasteTokenHint}
 	}
+	port := customPortHint(base)
+	if port != "" {
+		port = " Note: " + port + "."
+	}
 	if err := openInBrowser(url); err != nil {
 		return pairReport{URL: url, Error: fmt.Sprintf("could not open a browser: %v", err),
-			Hint: "Open this page in the browser with the extension (it works once, for two minutes)."}
+			Hint: "Open this page in the browser with the extension (it works once, for two minutes)." + port}
 	}
 	return pairReport{Opened: true, URL: url,
-		Hint: "The extension pairs itself; the page says when it is done. If it opened in a browser without the extension, open the page there instead (it works once, for two minutes)."}
+		Hint: "The extension pairs itself; the page says when it is done. If it opened in a browser without the extension, open the page there instead (it works once, for two minutes)." + port}
 }
 
 func writePairJSON(out io.Writer, r pairReport) error {

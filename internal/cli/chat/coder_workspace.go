@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math/big"
 	"os"
@@ -139,8 +140,9 @@ type coderDefaultWorkspace struct {
 // working folder: created if missing, then the runtime's add-only init
 // (nothing already there is touched). It is deliberately not git-initialized:
 // the folder holds the profile's vault and knowledge graph, and may be the
-// user's own project.
-func profileCoderWorkspace(ctx context.Context, db *sql.DB, profileID, initTarget string) (*coderDefaultWorkspace, error) {
+// user's own project. A folder the user pointed the profile at is set up like
+// any folder they pick (initOwnFolder), and w is told what was added.
+func profileCoderWorkspace(ctx context.Context, w io.Writer, db *sql.DB, profileID, initTarget string) (*coderDefaultWorkspace, error) {
 	p, err := lookupProfile(db, profileID)
 	if err != nil {
 		return nil, err
@@ -162,10 +164,14 @@ func profileCoderWorkspace(ctx context.Context, db *sql.DB, profileID, initTarge
 	}
 	ws := &coderDefaultWorkspace{Path: dir, Source: "profile", Created: created}
 	ws.Profile.ID, ws.Profile.Name = p.ID, p.Name
+	setUp := initWorkspace
 	if !profiledir.IsDefaultManaged(db, p.ID) {
 		ws.Source = "profile_custom_folder"
+		setUp = func(ctx context.Context, _, dir, target string) (*monomind.WorkspaceInit, error) {
+			return initOwnFolder(ctx, w, dir, target)
+		}
 	}
-	res, err := initWorkspace(ctx, "", dir, initTarget)
+	res, err := setUp(ctx, "", dir, initTarget)
 	if err != nil {
 		return ws, fmt.Errorf("profile folder %s not initialized: %w", dir, err)
 	}
@@ -314,7 +320,7 @@ func newCoderWorkspaceCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ws, err := profileCoderWorkspace(cmd.Context(), db.DB, cfg.ProfileID(), rt.InitTarget)
+			ws, err := profileCoderWorkspace(cmd.Context(), cmd.ErrOrStderr(), db.DB, cfg.ProfileID(), rt.InitTarget)
 			if err != nil {
 				return err
 			}

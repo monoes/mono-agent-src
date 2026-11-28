@@ -267,11 +267,10 @@ noticeAction.addEventListener("click", async () => {
     return;
   }
   if (which === Status.ACTIONS.RETRY) {
-    // Re-saving the address we already have is how the panel asks the
-    // worker to drop the socket and dial again, using only the message the
-    // worker already answers.
+    // Dial again without saving an address: set_ws_url would make the one in
+    // the box (the default, if none was ever set) the only one ever dialled.
     noteStatus({ status: "connecting" });
-    await ask({ type: "set_ws_url", url: wsUrlInput.value.trim() || Status.DEFAULT_WS_URL });
+    await ask({ type: "account_recheck" });
   }
 });
 
@@ -925,7 +924,7 @@ async function checkHealth() {
     // retry — which can be half a minute away once the fast retries are
     // spent, and is exactly the wait that made the panel look broken.
     if (before && before.reason === "no_bridge" && healthState.reason !== "no_bridge") {
-      ask({ type: "set_ws_url", url: wsUrlInput.value.trim() || Status.DEFAULT_WS_URL });
+      ask({ type: "account_recheck" });
     }
   } finally {
     probing = false;
