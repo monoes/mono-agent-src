@@ -200,6 +200,9 @@ type UIReplay struct {
 	Authors map[string]string
 	// Turns maps each live surface to the turn that created it.
 	Turns map[string]string
+	// Revisions maps each live surface to its version: "<turn>:<seq>" of the
+	// last event applied to it.
+	Revisions map[string]string
 	// Closed holds the surfaces the journal created and later deleted, so an
 	// action for one of them is stale rather than forged.
 	Closed map[string]bool
@@ -211,7 +214,7 @@ type UIReplay struct {
 // surface, never open. An accepted ui.action on an agent's surface settles it.
 // Other event types are ignored.
 func RebuildRegistry(events []chatevents.Event) *UIReplay {
-	r := &UIReplay{Registry: a2ui.NewRegistry(a2ui.DefaultLimits), Authors: map[string]string{}, Turns: map[string]string{}, Closed: map[string]bool{}}
+	r := &UIReplay{Registry: a2ui.NewRegistry(a2ui.DefaultLimits), Authors: map[string]string{}, Turns: map[string]string{}, Revisions: map[string]string{}, Closed: map[string]bool{}}
 	for _, ev := range events {
 		if ev.Type == chatevents.EventUIAction {
 			// An answered agent card frees its slot. A host card is settled by the notice that replaces it.
@@ -238,12 +241,14 @@ func RebuildRegistry(events []chatevents.Event) *UIReplay {
 		if err != nil {
 			continue
 		}
+		r.Revisions[m.SurfaceID] = fmt.Sprintf("%s:%d", ev.TurnID, ev.Seq)
 		switch m.Kind {
 		case a2ui.KindCreateSurface:
 			r.Authors[m.SurfaceID], r.Turns[m.SurfaceID] = p.AgentID, ev.TurnID
 			delete(r.Closed, m.SurfaceID)
 		case a2ui.KindDeleteSurface:
 			delete(r.Authors, m.SurfaceID)
+			delete(r.Revisions, m.SurfaceID)
 			r.Closed[m.SurfaceID] = true
 		}
 	}

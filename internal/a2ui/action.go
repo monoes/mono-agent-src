@@ -13,6 +13,9 @@ type Action struct {
 	SourceComponentID string
 	Timestamp         string
 	Context           map[string]any
+	// Revision names the version of the card the user answered, "<turn>:<seq>"
+	// of the last journal event that drew it ("" when the renderer says none).
+	Revision string
 }
 
 // ParseAction decodes a renderer-to-agent action envelope.
@@ -37,6 +40,9 @@ type Press struct {
 	Actions []Action
 	// Skipped are the cards of a set the user chose to leave unanswered.
 	Skipped []string
+	// AppendBytes is how much the caller adds to the set's next-turn message (a
+	// message's choices and forms).
+	AppendBytes int
 }
 
 // ParsePress decodes an action envelope {version, action} or a set envelope
@@ -60,7 +66,7 @@ func ParsePress(raw []byte, lim Limits) (Press, error) {
 	if v, _ := env["version"].(string); v != Version {
 		return Press{}, errors.New("a2ui: a set envelope is {version, actions, skipped?}")
 	}
-	if err := onlyKeys(env, "version", "actions", "skipped"); err != nil {
+	if err := onlyKeys(env, "version", "actions", "skipped", "appendBytes"); err != nil {
 		return Press{}, fmt.Errorf("a2ui: %w", err)
 	}
 	bodies, ok := list.([]any)
@@ -68,6 +74,14 @@ func ParsePress(raw []byte, lim Limits) (Press, error) {
 		return Press{}, fmt.Errorf("a2ui: actions must list 1 to %d actions", lim.MaxSetActions)
 	}
 	p := Press{Set: true}
+	if v, present := env["appendBytes"]; present {
+		n, ok := v.(json.Number)
+		i, err := n.Int64()
+		if !ok || err != nil || i < 0 || i > int64(lim.MaxSetBytes) {
+			return Press{}, errors.New("a2ui: appendBytes must be a byte count")
+		}
+		p.AppendBytes = int(i)
+	}
 	for _, b := range bodies {
 		if one, err := json.Marshal(b); err != nil || len(one) > lim.MaxActionBytes {
 			return Press{}, fmt.Errorf("a2ui: action is over the %d byte cap", lim.MaxActionBytes)
@@ -99,7 +113,7 @@ func parseActionBody(v any, lim Limits) (Action, error) {
 	if !ok {
 		return Action{}, errors.New("a2ui: only action messages are accepted from the renderer")
 	}
-	if err := onlyKeys(body, "name", "surfaceId", "sourceComponentId", "timestamp", "context", "userMessage"); err != nil {
+	if err := onlyKeys(body, "name", "surfaceId", "sourceComponentId", "timestamp", "context", "userMessage", "revision"); err != nil {
 		return Action{}, fmt.Errorf("a2ui: %w", err)
 	}
 	a := Action{}
@@ -108,6 +122,13 @@ func parseActionBody(v any, lim Limits) (Action, error) {
 	a.SourceComponentID, _ = body["sourceComponentId"].(string)
 	a.Timestamp, _ = body["timestamp"].(string)
 	a.Context, _ = body["context"].(map[string]any)
+	if v, present := body["revision"]; present {
+		rev, ok := v.(string)
+		if !ok || len(rev) > 200 {
+			return Action{}, errors.New("a2ui: revision must be a short string")
+		}
+		a.Revision = rev
+	}
 	if a.Name == "" || a.SurfaceID == "" || a.SourceComponentID == "" || a.Context == nil {
 		return Action{}, errors.New("a2ui: action needs name, surfaceId, sourceComponentId and context")
 	}

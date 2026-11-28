@@ -115,6 +115,12 @@ func runUISet(store *ai.AIStore, profileID, conversationID string, press a2ui.Pr
 		}
 		group, sent[a.SurfaceID] = turn, true
 		if !system {
+			if a.Revision == "" {
+				return refuse("card %q: a card in a set says which version of it was answered (revision)", a.SurfaceID)
+			}
+			if why := changedCard(a, surf, replay); why != "" {
+				return refuse("card %q: %s", a.SurfaceID, why)
+			}
 			agentPresses = append(agentPresses, agentPress{replay.Authors[a.SurfaceID], turn, actionMessage(a, surf, surfaceHistory(evs, a.SurfaceID))})
 			continue
 		}
@@ -164,6 +170,22 @@ press:
 		}
 		messages = append(messages, p.text)
 	}
+	res := &UIActionResult{Outcome: outcomeAccepted, Delivered: "answer"}
+	if len(messages) > 0 {
+		res.Delivered = "next_turn"
+		res.Message = messages[0]
+		if len(messages) > 1 {
+			res.Message = fmt.Sprintf("The user answered %d cards together.\n\n%s", len(messages), strings.Join(messages, "\n\n"))
+		}
+	}
+	// Before anything is stored or settled. The caller joins its own text with a blank line.
+	size := len(res.Message) + press.AppendBytes
+	if res.Message != "" && press.AppendBytes > 0 {
+		size += 2
+	}
+	if why := tooLong(size); why != "" {
+		return refuse("%s", why)
+	}
 	if len(answers) > 0 {
 		if err := store.AddAnswers(profileID, conversationID, group, answers); err != nil {
 			if errors.Is(err, ai.ErrAlreadyAnswered) {
@@ -177,14 +199,6 @@ press:
 		// Best effort, as for a single answer: the conductor closes the card too.
 		if msgs, err := surfaces.ResolvedNotice(a.SurfaceID, "Answered", "success"); err == nil {
 			_ = recordMessages(store, conv, refOfSurface(evs, a.SurfaceID), msgs)
-		}
-	}
-	res := &UIActionResult{Outcome: outcomeAccepted, Delivered: "answer"}
-	if len(messages) > 0 {
-		res.Delivered = "next_turn"
-		res.Message = messages[0]
-		if len(messages) > 1 {
-			res.Message = fmt.Sprintf("The user answered %d cards together.\n\n%s", len(messages), strings.Join(messages, "\n\n"))
 		}
 	}
 	return record(res)

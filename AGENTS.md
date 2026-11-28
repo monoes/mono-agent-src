@@ -4479,7 +4479,13 @@ They go as one set, `{"version":"1.0","actions":[<action>,...],"skipped":
 [<surfaceId>,...]}`: every waiting card is in `actions` or, for an agent's
 card only, in `skipped`; the set is delivered whole or not at all (the workers'
 answers in one transaction, the agent cards' presses as one next-turn
-message); approvals and mission buttons are never part of it. The app and the
+message); approvals and mission buttons are never part of it. An agent
+card's action names the `revision` it answers (`<turn>:<seq>` of the card's
+last `ui.surface` event; required in a set, optional alone) and is refused once
+the card has changed; the app and the side panel also drop a pick, and a typed
+value whose field changed meaning. A press that would make a next-turn message
+over 16 KB (`a2ui.MaxNextTurnBytes`, with the set's `appendBytes`) is refused
+before anything is stored or settled. The app and the
 side panel hold each answer until their **Send all**, also for choices and
 forms in a message (those never reach this command).
 
