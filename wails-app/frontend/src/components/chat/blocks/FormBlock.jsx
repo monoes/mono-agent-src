@@ -24,7 +24,12 @@ export function FormBlock({ data, blockKey }) {
   const uid = useId()
   const { onSend, turn } = useBlockEnv()
   const [answer, remember] = useAnswer(blockKey)
-  const [draft, setDraft] = useDraft(`${blockKey}|form`, NO_DRAFT)
+  const [stored, setStored] = useDraft(`${blockKey}|form`, NO_DRAFT)
+  // What was filled in stands for the form it was filled into.
+  const sig = JSON.stringify(data)
+  const draft = stored.sig === sig ? stored : NO_DRAFT
+  const dropped = stored.sig !== sig && (stored.touched || stored.skip)
+  const setDraft = (change) => setStored(s => ({ ...change(s.sig === sig ? s : NO_DRAFT), sig }))
   const values = { ...Object.fromEntries(data.fields.map(f => [f.id, f.default])), ...draft.values }
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -94,6 +99,7 @@ export function FormBlock({ data, blockKey }) {
         <button type="button" disabled={disabled} onClick={() => setDraft(d => ({ ...d, touched: true, skip: false }))} style={primaryButton(disabled)}>{t('chatBlocks.form.keep')}</button>
       )}
       {!locked && grouped && <SkipToggle skipped={draft.skip} disabled={disabled} onChange={skip => setDraft(d => ({ ...d, skip }))} />}
+      {!locked && dropped && <div role="alert" style={note}>{t('chatBlocks.changed')}</div>}
       {locked && <div style={note}>{t('chatBlocks.answered')}</div>}
       {!locked && !onSend && <div style={note}>{t('chatBlocks.cannotSend')}</div>}
     </form>

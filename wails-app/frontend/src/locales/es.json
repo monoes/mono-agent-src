@@ -3180,7 +3180,8 @@
         "range": "Fuera de rango"
       },
       "keep": "Mantener estos valores"
-    }
+    },
+    "changed": "Esta pregunta cambió; se borró tu respuesta."
   },
   "hil": {
     "autoDecide": {
@@ -3660,7 +3661,10 @@
     "setReady": "Lista. Aún no se ha enviado: usa Enviar todo abajo.",
     "setChoose": "Elige un botón. Solo se envía con Enviar todo, abajo.",
     "setChosen": "Elegido. Aún no se ha enviado: usa Enviar todo abajo.",
-    "setSkipped": "Omitida: esta tarjeta queda fuera y sigue abierta."
+    "setSkipped": "Omitida: esta tarjeta queda fuera y sigue abierta.",
+    "pickDropped": "Esta tarjeta cambió, así que se borró tu elección. Revísala de nuevo.",
+    "typedDropped": "Esta tarjeta cambió: se borró lo que habías escrito en un campo que cambió.",
+    "tooLong": "Estas respuestas no caben en un mensaje del chat. Acórtalas y vuelve a enviar."
   },
   "chatWarnings": {
     "fullAccess": "Acceso completo: este chat puede ejecutar cualquier comando y modificar cualquier archivo de este equipo con tu usuario.",

@@ -3180,7 +3180,8 @@
         "range": "Out of range"
       },
       "keep": "Keep these values"
-    }
+    },
+    "changed": "This question changed; your answer was cleared."
   },
   "hil": {
     "autoDecide": {
@@ -3660,7 +3661,10 @@
     "setReady": "Ready. Not sent yet: use Send all below.",
     "setChoose": "Pick a button. It is sent only with Send all below.",
     "setChosen": "Picked. Not sent yet: use Send all below.",
-    "setSkipped": "Skipped: this card is left out and stays open."
+    "setSkipped": "Skipped: this card is left out and stays open.",
+    "pickDropped": "This card changed, so your pick was cleared. Look at it again.",
+    "typedDropped": "This card changed: what you typed into a changed field was cleared.",
+    "tooLong": "These answers are longer than one chat message holds. Shorten them, then send again."
   },
   "chatWarnings": {
     "fullAccess": "Full access: this chat can run any command and change any file on this computer as you.",
