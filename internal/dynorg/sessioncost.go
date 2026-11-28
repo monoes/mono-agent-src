@@ -25,7 +25,7 @@ func totalsOf(run monomind.TurnResult) coderspend.Totals {
 
 // own is run with the cost it added itself. It is whole unless run reports a cost for the very session of b.
 func (b sessionCost) own(run monomind.TurnResult) monomind.TurnResult {
-	if b.session != "" && run.HasCostUSD && !run.CostPerTurn && run.SessionID == b.session {
+	if b.session != "" && run.HasCostUSD && !run.CostWhole && run.SessionID == b.session {
 		run.CostUSD = coderspend.Added(b.totals, totalsOf(run))
 	}
 	return run
@@ -35,7 +35,7 @@ func (b sessionCost) own(run monomind.TurnResult) monomind.TurnResult {
 // arrive with its result, after the usage event that already carries the cost. A charge is never lowered, so until
 // then the live accounting leaves that cost out; a run that ends without counters is charged whole (own).
 func (b sessionCost) pending(run monomind.TurnResult) bool {
-	return b.session != "" && run.HasCostUSD && !run.CostPerTurn && run.SessionID == b.session && run.ModelUsage == nil && b.totals.Comparable()
+	return b.session != "" && run.HasCostUSD && !run.CostWhole && run.SessionID == b.session && run.ModelUsage == nil && b.totals.Comparable()
 }
 
 // resumedFromLocked is what a run of w on m that resumes the session resume starts from. Callers hold c.mu.
@@ -49,14 +49,14 @@ func (w *worker) resumedFromLocked(m Model, resume string) sessionCost {
 // billLocked remembers the totals w's session reached with the run total, as the runtime reported it: they are what
 // the next run is compared with. A run that named a session or a cost, but not both usably, leaves nothing to compare
 // with, so the next run is charged whole. One that reported neither never reached a session: the last report stands. A
-// run whose cost is marked as its own says nothing of the session's total, so it leaves none either.
+// run whose cost is marked CostWhole says nothing of the session's total, so it leaves none either.
 // Callers hold c.mu.
 func (w *worker) billLocked(m Model, total monomind.TurnResult) {
 	if m.Runtime != coderspend.CumulativeRuntime || (total.SessionID == "" && !total.HasCostUSD) {
 		return
 	}
 	w.billed = sessionCost{}
-	if !total.CostPerTurn && total.SessionID != "" && total.HasCostUSD && finiteCost(total.CostUSD) {
+	if !total.CostWhole && total.SessionID != "" && total.HasCostUSD && finiteCost(total.CostUSD) {
 		w.billed = sessionCost{session: total.SessionID, totals: totalsOf(total)}
 	}
 }

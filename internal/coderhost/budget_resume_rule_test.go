@@ -232,7 +232,7 @@ func TestATurnsOwnCostIsNeverReduced(t *testing.T) {
 		cost := []string{"0.45", "0.5"}[i]
 		addTurn(t, st, c, id, "completed", "x", base.Add(time.Duration(i+1)*time.Minute))
 		event(t, st, c, id, 1, "session.bound", `{"runtime":"claude","sessionId":"s1"}`)
-		event(t, st, c, id, 2, "usage.updated", `{"agentId":"","costUsd":`+cost+`,"source":"result","costPerTurn":true}`)
+		event(t, st, c, id, 2, "usage.updated", `{"agentId":"","costUsd":`+cost+`,"source":"result","costWhole":true}`)
 		event(t, st, c, id, 3, "notice", usageNotice(every(900)))
 	}
 	journalClaudeTurn(t, st, c, "t3", base.Add(3*time.Minute), claudeTurn{"s1", "0.6", every(1000)})

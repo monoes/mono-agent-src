@@ -189,7 +189,7 @@ func (j *turnJournal) journalUsageLocked(source string, followUp *chatevents.Fol
 	if !r.HasInputTokens && !r.HasOutputTokens && !r.HasCostUSD {
 		return
 	}
-	p := chatevents.UsageUpdatedPayload{Source: source, FollowUp: followUp, CostPerTurn: r.CostPerTurn}
+	p := chatevents.UsageUpdatedPayload{Source: source, FollowUp: followUp, CostWhole: r.CostWhole}
 	if r.HasInputTokens {
 		v := r.InputTokens
 		p.InputTokens = &v

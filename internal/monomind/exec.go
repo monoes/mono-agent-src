@@ -31,6 +31,16 @@ var FullAccessKillGrace = 12 * time.Second
 // is set and the sandbox can't be applied.
 var ErrSandboxRequired = errors.New("the required sandbox is not available")
 
+// sessionTotalsVersion asks bin itself for its handshake and returns its version when a resumed claude run's cost is
+// the session's total there (no CapAgentExecTurnCost); "" when the handshake fails or says otherwise.
+func sessionTotalsVersion(ctx context.Context, bin string) string {
+	vi, err := Handshake(ctx, bin)
+	if err != nil || vi.HasCapability(CapAgentExecTurnCost) {
+		return ""
+	}
+	return vi.Version
+}
+
 // Exec runs one agent turn and invokes onEvent for every protocol event in
 // arrival order. It returns the turn's terminal state: a *ProtocolError for
 // error turns (also mirrored in the error event the handler received).
@@ -205,13 +215,15 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 		args = append(args, "--tools", "none")
 	}
 
-	// What a resumed claude turn's cost covers depends on the monomind running it; one whose handshake can't be
-	// read is taken to be an older one.
-	costPerTurn := false
-	if opts.Runtime == "claude" && opts.Resume != "" {
-		caps, _ := capabilitiesFor(ctx, bin)
-		costPerTurn = caps.Has(CapAgentExecTurnCost)
+	// Earlier turns may be taken from a resumed claude run's cost only when the monomind running it is shown to
+	// report session totals: asked now and again at the result (never from the handshake cache, which an upgrade
+	// outlives). Anything else is charged whole.
+	resumedClaude := opts.Runtime == "claude" && opts.Resume != ""
+	totalsVersion := ""
+	if resumedClaude {
+		totalsVersion = sessionTotalsVersion(ctx, bin)
 	}
+	costWhole := resumedClaude && totalsVersion == ""
 
 	cmd := exec.Command(bin, args...)
 	// Always build a filtered environment (not only when opts.Env is set):
@@ -315,7 +327,10 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 	go func() {
 		defer close(loopDone)
 		for ev := range events {
-			ev.CostPerTurn = costPerTurn
+			if resumedClaude && !costWhole && ev.Type == EventResult {
+				costWhole = sessionTotalsVersion(ctx, bin) != totalsVersion
+			}
+			ev.CostWhole = costWhole
 			if ev.Type == EventStart && sandboxEffective != "" {
 				ev.SandboxStatus = sandboxStatus(sandboxEffective, ev.SandboxFields)
 				if fallbackActive && ev.SandboxApplied != "" {

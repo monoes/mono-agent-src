@@ -2043,9 +2043,10 @@ registers nothing and runs on the cap as before. A run's cost is what THAT run r
 worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
 lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not
 recorded when a run enters reserve mode is recorded first (never inside the grant), and the run is refused until it is.
-A monomind with `agent-exec-turn-cost` (protocol rev 35) reports a resumed claude run's own cost: `monomind.Exec` marks
-such a run (`CostPerTurn`, journaled as `costPerTurn` on `usage.updated`) and nothing is subtracted from it or compared
-with it. On an older monomind, a claude run that resumes its session may report the session's running total (#1744): claude restores that total only if
+`monomind.Exec` marks a resumed claude run `CostWhole` (journaled as `costWhole` on `usage.updated`), so that nothing is
+subtracted from it or compared with it, unless a handshake of its own (never the cached one) before the run and another
+at its result both name the same monomind without `agent-exec-turn-cost`: a monomind with it (protocol rev 35) reports
+the run's own cost, and a failed handshake or an upgrade in between proves nothing. On an older monomind, a claude run that resumes its session may report the session's running total (#1744): claude restores that total only if
 the session was the last to exit in the project directory, else the new process counts from zero. One rule
 (`coderspend.Added`, the test of monomind's own runner) covers the conversation's spend, the lead's turns on a mission's
 meter (compaction included) and in the AI-task budget ledger, workers in the mission's meter and an AI task's workers' pool: the previous total of that

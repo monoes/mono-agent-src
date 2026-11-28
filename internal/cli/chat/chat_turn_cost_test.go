@@ -96,3 +96,35 @@ func TestAPerTurnCostCompactionIsAddedWhole(t *testing.T) {
 	meter, conv = rig.turn("t2")
 	wantSpend(t, "the turn after it", meter, conv, 1.51)
 }
+
+// monomind is upgraded while a resumed turn runs, after every handshake that turn started on: its figure is its own
+// cost, and nothing of the earlier turn is taken from it (#1744).
+func TestAnUpgradeDuringAResumedTurnChargesItWhole(t *testing.T) {
+	rig := newLeadSpendRig(t, "0.41\n0.5\n0.6\n", true)
+	bin := os.Getenv(monomind.EnvOverride)
+	script, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := bin + ".upgraded"
+	patched := strings.Replace(string(script), `echo '{"v":1,"version":"9.0.0"`, `new=""; [ -f '`+mark+`' ] && new='"agent-exec-turn-cost",'; echo '{"v":1,"version":"9.0.0"`, 1)
+	patched = strings.Replace(patched, `"capabilities":["agent-exec"`, `"capabilities":['"$new"'"agent-exec"`, 1)
+	// the second turn's exec installs the new monomind just before its result
+	patched = strings.Replace(patched, `  echo '{"v":1,"type":"result"`, `  [ "$1" = 0.5 ] && : > '`+mark+`'
+  echo '{"v":1,"type":"result"`, 1)
+	if strings.Count(patched, mark) != 2 || !strings.Contains(patched, `'"$new"'`) {
+		t.Fatal("the fake monomind changed: patch it again")
+	}
+	if err := os.WriteFile(bin, []byte(patched), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	monomind.ResetCapabilityCache()
+	t.Cleanup(monomind.ResetCapabilityCache)
+	for _, step := range []struct {
+		turn string
+		want float64
+	}{{"t1", 0.41}, {"t2", 0.91}, {"t3", 1.51}} {
+		meter, conv := rig.turn(step.turn)
+		wantSpend(t, step.turn, meter, conv, step.want)
+	}
+}
