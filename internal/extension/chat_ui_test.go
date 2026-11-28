@@ -76,6 +76,18 @@ func TestChatUIActionHappyPath(t *testing.T) {
 	}
 }
 
+// Several cards sent together go through as one set envelope (#1803).
+func TestChatUIActionPassesASet(t *testing.T) {
+	f := &fakeUIChat{out: `{"outcome":"accepted","delivered":"answer"}`}
+	set := map[string]any{"version": "1.0", "actions": []any{goodAction()["action"], goodAction()["action"]}, "skipped": []any{"s2"}}
+	if _, err := callChat(t, chatSrv(f), MethodChatUIAction, map[string]any{"profile": "p-work", "conversation": "c1", "action": set}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.actionArgs[2], `"actions":[`) || !strings.Contains(f.actionArgs[2], `"skipped":["s2"]`) {
+		t.Fatalf("args = %q", f.actionArgs)
+	}
+}
+
 func TestChatUIActionRefusesBadInput(t *testing.T) {
 	big := goodAction()
 	big["action"].(map[string]any)["context"] = map[string]any{"a": strings.Repeat("x", 60<<10)}
@@ -87,6 +99,7 @@ func TestChatUIActionRefusesBadInput(t *testing.T) {
 		"not an object":    {"profile": "p-work", "conversation": "c1", "action": "nope"},
 		"not an action":    {"profile": "p-work", "conversation": "c1", "action": map[string]any{"version": "1.0"}},
 		"too big":          {"profile": "p-work", "conversation": "c1", "action": big},
+		"an empty set":     {"profile": "p-work", "conversation": "c1", "action": map[string]any{"version": "1.0", "actions": []any{}}},
 	} {
 		f := &fakeUIChat{out: `{}`}
 		_, err := callChat(t, chatSrv(f), MethodChatUIAction, params, nil)
