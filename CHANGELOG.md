@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A new open-ended chat no longer shows "Stop run" before any run exists.** The button appears when the profile has a run, as soon as one starts, and while that cannot be read.
 - **Spend of resumed Claude conversations.** The AI task budgets no longer count a task's earlier turns again on each follow-up turn. With a monomind that reports each turn's own cost (capability `agent-exec-turn-cost`, not in monomind 2.29.6), that figure is counted as reported, with nothing subtracted. Per-message caps that count earlier turns are fixed in the runner (monomind#860), not here.
 - **Interactive cards in chat (new, A2UI v1.0).** Pending approvals now appear as cards inside a chat, with editable fields and Approve and Reject buttons that run the same checks as `hil approve` and `hil reject`. In Org mode, the lead and its workers can ask with forms and choices (`ui_render`), team members' questions and missions show as cards, and mission cards offer Edit plan, Stop and Close. The desktop chat and the browser side panel draw them; `chat ui show` prints them in a terminal. Only cards built by MonoAgent can decide anything, and only you can press a button.
 - **Approving from a chat is only offered when the card shows everything.** Items with too much text to show, sends with attachments, and browser-submit, site and pairing items have no Approve button in chat: decide them where you did before. A card refuses a press if its item changed after it was drawn.
