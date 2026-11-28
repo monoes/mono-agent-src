@@ -91,6 +91,9 @@ func TestExtensionPairOpenOpensTheRunningBridgesPairingPage(t *testing.T) {
 	if !strings.Contains(out, "Opened the pairing page") {
 		t.Errorf("output:\n%s", out)
 	}
+	if !strings.Contains(out, "Bridge address to ws://"+strings.TrimPrefix(base, "http://")+"/monoagent") {
+		t.Errorf("pair --open on another port does not say how to point the extension at it:\n%s", out)
+	}
 	var got []byte
 	for deadline := time.Now().Add(3 * time.Second); len(got) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		got, _ = os.ReadFile(opened)

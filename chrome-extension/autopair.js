@@ -49,7 +49,12 @@
   // the person presses "Check again": each request puts a card in front of them.
   const DECLINED_BACKOFF_MS = 10 * 60 * 1000;
 
-  /** bases lists the http origins to ask, best first: the configured ones, then the defaults. */
+  /**
+   * bases lists the http origins to ask, best first. An address the person set
+   * in the side panel is the only one asked: the worker dials nothing else, so
+   * a pairing from another bridge is of no use and must not be requested.
+   * Without one: the learned ones, then the defaults.
+   */
   function bases(known) {
     const out = [];
     const add = (raw) => {
@@ -58,6 +63,7 @@
     };
     const k = known || {};
     add(k.wsUrl);
+    if (out.length) return out;
     add(k.pairedWsUrl);
     add(k.workingWsUrl);
     for (const p of PORTS) add(`ws://${HOST}:${p}/monoagent`);
