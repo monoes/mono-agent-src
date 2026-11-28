@@ -24,6 +24,8 @@ type totalRun struct {
 	noCost  bool
 	tokens  int64
 	killed  bool
+	// perTurn marks total as the run's own cost, as Exec does for a monomind with agent-exec-turn-cost.
+	perTurn bool
 }
 
 func (r totalRun) models() map[string]monomind.ModelUsage {
@@ -49,7 +51,7 @@ func (e *totalsExec) exec(_ context.Context, o monomind.ExecOptions, on func(mon
 	run := e.runs[min(len(e.calls), len(e.runs)-1)]
 	e.calls = append(e.calls, o)
 	e.mu.Unlock()
-	on(monomind.Event{Type: monomind.EventStart})
+	on(monomind.Event{Type: monomind.EventStart, CostFields: monomind.CostFields{CostPerTurn: run.perTurn}})
 	if run.session != "" {
 		on(monomind.Event{Type: monomind.EventSession, SessionID: run.session})
 	}
@@ -209,6 +211,8 @@ func TestResumedCostDoubtfulCasesAreChargedInFull(t *testing.T) {
 		{"no counters now", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6, tokens: -1}}, 1.0},
 		{"no counters before", opus, []totalRun{{session: "s1", total: 0.4, tokens: -1}, {session: "s1", total: 0.6}}, 1.0},
 		{"killed before its counters", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6, killed: true}}, 1.0},
+		{"costs marked as the runs' own", opus, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6, perTurn: true}, {session: "s1", total: 0.7, perTurn: true}}, 1.7},
+		{"a session total after a run's own cost", opus, []totalRun{{session: "s1", total: 0.4, perTurn: true}, {session: "s1", total: 0.6}}, 1.0},
 		{"another runtime", codex, []totalRun{{session: "s1", total: 0.4}, {session: "s1", total: 0.6}}, 1.0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

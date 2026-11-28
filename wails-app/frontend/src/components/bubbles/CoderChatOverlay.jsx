@@ -161,7 +161,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
     })
   }, [store, bubble.key, setup])
   // Stop of an open-ended run: shown for an open-ended chat or while the profile has a run; a Stop leaves its message in the transcript.
-  const runExists = useRunExists(!!bubble.conversationId && isCoderAccess(access))
+  // A new open-ended chat asks too: with no run yet there is nothing to stop.
+  const runExists = useRunExists(isCoderAccess(access) && (!!bubble.conversationId || chatMode.state?.mode === 'open'))
   const unbound = useRunUnbound(runExists)
   const addSystemNotice = conv.addSystemNotice
   const onRunStopped = useCallback(message => { if (message) addSystemNotice(message); setOpenRun(null); Promise.resolve().then(chatMode.refresh).catch(() => {}) }, [addSystemNotice, chatMode.refresh, setOpenRun])

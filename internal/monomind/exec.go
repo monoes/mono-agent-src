@@ -205,6 +205,14 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 		args = append(args, "--tools", "none")
 	}
 
+	// What a resumed claude turn's cost covers depends on the monomind running it; one whose handshake can't be
+	// read is taken to be an older one.
+	costPerTurn := false
+	if opts.Runtime == "claude" && opts.Resume != "" {
+		caps, _ := capabilitiesFor(ctx, bin)
+		costPerTurn = caps.Has(CapAgentExecTurnCost)
+	}
+
 	cmd := exec.Command(bin, args...)
 	// Always build a filtered environment (not only when opts.Env is set):
 	// when a Claude Code session (this app itself, or anything upstream)
@@ -307,6 +315,7 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 	go func() {
 		defer close(loopDone)
 		for ev := range events {
+			ev.CostPerTurn = costPerTurn
 			if ev.Type == EventStart && sandboxEffective != "" {
 				ev.SandboxStatus = sandboxStatus(sandboxEffective, ev.SandboxFields)
 				if fallbackActive && ev.SandboxApplied != "" {

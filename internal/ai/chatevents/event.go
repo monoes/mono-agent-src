@@ -223,6 +223,9 @@ type UsageUpdatedPayload struct {
 	// because its runtime reports none (#230).
 	CostEstimated bool   `json:"costEstimated,omitempty"`
 	Source        string `json:"source"`
+	// CostPerTurn: CostUSD is the turn's own although it resumed a claude session (monomind's
+	// agent-exec-turn-cost), so internal/coderspend subtracts no earlier turn from it.
+	CostPerTurn bool `json:"costPerTurn,omitempty"`
 	// FollowUp is set on the lead's snapshot after a follow-up exec (the compaction): CostUSD is then the turn's
 	// total, and FollowUp what that exec itself reported.
 	FollowUp *FollowUpUsage `json:"followUp,omitempty"`

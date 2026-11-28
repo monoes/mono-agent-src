@@ -48,6 +48,11 @@ const (
 	// (claude as image/document blocks, codex as -i, other runtimes as paths
 	// in the prompt).
 	CapAgentExecAttachments = "agent-exec-attachments"
+
+	// `agent exec`'s cost_usd covers this turn only, also on a resumed claude
+	// session, which before reported the session's running total (protocol rev
+	// 35, monomind#860).
+	CapAgentExecTurnCost = "agent-exec-turn-cost"
 )
 
 // ErrFeatureNeedsMonomind reports that the installed monomind lacks a

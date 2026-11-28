@@ -116,6 +116,13 @@ func LeadTurn(q Querier, profileID, conversationID, turnID string) (usd float64,
 	return usd, reported, nil
 }
 
+// LeadTurns is what the lead added in each of the conversation's turns that journaled a cost (turn -> usd), the
+// figures Spent counts for them: a resumed claude session's turns are not counted again.
+func LeadTurns(q Querier, profileID, conversationID string) (map[string]float64, error) {
+	lead, _, err := turnCosts(q, profileID, conversationID)
+	return lead, err
+}
+
 // Snapshot records the spend of a mission child's conversation, to be called inside the transaction that deletes
 // the conversation (conn is that transaction's connection), before its usage events and turn caps are removed.
 // The conversation is a mission child's when a row names it as its child OR as its pending conversation: the

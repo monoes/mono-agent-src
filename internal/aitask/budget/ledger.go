@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/aitask"
+	"github.com/monoes/mono-agent/internal/coderspend"
 )
 
 // unenforceable are the runtimes that can't take a spend cap (chat's
@@ -206,20 +207,27 @@ type usagePayload struct {
 
 // spending is what task id's conversation has spent, per agent, from the
 // cost its turns journaled: what Sync records. A usage.updated snapshot is the
-// agent's running total within its turn, so the turn's figure is the largest
-// it reported, and the agent's spend is the sum over its turns. A worker counts
-// as part of the task however it was spawned. Missing cost is not zero: an
-// agent that never reported one has no entry. It writes nothing.
+// agent's running total within its turn, so a worker's figure for a turn is the
+// largest it reported; the lead's is what coderspend counts for the turn, since
+// claude reports a resumed session's total (#1744). The agent's spend is the sum
+// over its turns. A worker counts as part of the task however it was spawned.
+// Missing cost is not zero: an agent that never reported one has no entry. It
+// writes nothing.
 func (l *Ledger) spending(ctx context.Context, taskID, conversationID string) (map[string]float64, error) {
-	rows, err := l.DB.QueryContext(ctx, `SELECT turn_id, payload FROM ai_chat_events WHERE conversation_id = ? AND type = 'usage.updated'`, conversationID)
+	rows, err := l.DB.QueryContext(ctx, `SELECT profile_id, turn_id, payload FROM ai_chat_events WHERE conversation_id = ? AND type = 'usage.updated'`, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	perTurn := map[[2]string]float64{}
+	leads := map[string]bool{} // the profiles with a lead's cost to read
 	for rows.Next() {
-		var turn, raw string
+		var profile, turn, raw string
 		var p usagePayload
-		if rows.Scan(&turn, &raw) != nil || json.Unmarshal([]byte(raw), &p) != nil || p.CostUSD == nil || *p.CostUSD < 0 {
+		if rows.Scan(&profile, &turn, &raw) != nil || json.Unmarshal([]byte(raw), &p) != nil || p.CostUSD == nil || *p.CostUSD < 0 {
+			continue
+		}
+		if p.AgentID == "" {
+			leads[profile] = true
 			continue
 		}
 		k := [2]string{turn, p.AgentID}
@@ -227,7 +235,20 @@ func (l *Ledger) spending(ctx context.Context, taskID, conversationID string) (m
 			perTurn[k] = *p.CostUSD
 		}
 	}
+	err = rows.Err()
 	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for profile := range leads {
+		lead, err := coderspend.LeadTurns(l.DB, profile, conversationID)
+		if err != nil {
+			return nil, err
+		}
+		for turn, usd := range lead {
+			perTurn[[2]string{turn, ""}] = usd
+		}
+	}
 	perAgent := map[string]float64{}
 	for k, v := range perTurn {
 		perAgent[k[1]] += v
