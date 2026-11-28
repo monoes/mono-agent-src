@@ -464,27 +464,6 @@ func (h *HybridWorkflowStore) editBase(ctx context.Context, cur *Workflow) Workf
 	return next
 }
 
-// fileCopy returns the file store's workflow for id, or nil when there is no
-// file store, no such workflow, or the read failed.
-func (h *HybridWorkflowStore) fileCopy(ctx context.Context, id string) *Workflow {
-	if h.files == nil {
-		return nil
-	}
-	var wf *Workflow
-	err := h.stableFileRead(ctx, func(open map[string]bool) (err error) {
-		wf = nil
-		if gated(open, id) {
-			return nil
-		}
-		wf, err = h.reconciledFile(ctx, id)
-		return err
-	})
-	if err != nil {
-		return nil
-	}
-	return wf
-}
-
 // ---------------------------------------------------------------------------
 // Node / Connection save — SQLite only (executions need them there)
 // ---------------------------------------------------------------------------

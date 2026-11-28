@@ -13,12 +13,11 @@ import (
 
 // sessionFixture is a master with two children in the default profile and the tokens of their turns.
 type sessionFixture struct {
-	f              *taskFixture
-	store          *coderhost.Store
-	profile        string
-	master, a, b   string
-	tokM, tokA     string
-	callAsAnything func(string, map[string]any) (string, error)
+	f            *taskFixture
+	store        *coderhost.Store
+	profile      string
+	master, a, b string
+	tokM, tokA   string
 }
 
 func newSessionFixture(t *testing.T) *sessionFixture {

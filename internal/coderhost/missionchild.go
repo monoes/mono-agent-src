@@ -302,13 +302,6 @@ func (s *Store) rowOwnerOf(conv string) (profile, lead string, ok bool) {
 	return profile, lead, err == nil
 }
 
-// hasPending says whether a command of the kind is already waiting for the conversation.
-func (s *Store) hasPending(profileID, conv string, kind Kind) bool {
-	var n int
-	return s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = ? AND status = 'pending'`,
-		profileID, conv, string(kind)).Scan(&n) != nil || n > 0
-}
-
 // hasPendingCascade says whether the pass's own command of the kind (no issuer, the pass's turn id) is waiting: a stop or
 // pause a master queued, which may be held, does not stand in for it.
 func (s *Store) hasPendingCascade(profileID, conv string, kind Kind, turn string) bool {

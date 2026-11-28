@@ -91,7 +91,8 @@ func usePendingFake(t *testing.T) *pendingFake {
 	orgChatClient = f
 	t.Cleanup(func() {
 		close(f.release)
-		f.mu.Lock() // orders every Add before the Wait
+		f.mu.Lock()
+		//lint:ignore SA2001 the empty section orders every Add before the Wait
 		f.mu.Unlock()
 		f.finished.Wait()
 		orgChatClient = prev

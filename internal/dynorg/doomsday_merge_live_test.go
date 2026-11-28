@@ -66,21 +66,6 @@ func (r *ddRig) endOf(t *testing.T, op string) mergeRec {
 	return ops[op].End
 }
 
-func (r *ddRig) kinds(t *testing.T, op string) []string {
-	t.Helper()
-	rows, err := r.journal().MergeRows(context.Background(), "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, row := range rows {
-		if row.Rec.Op == op {
-			out = append(out, row.Kind)
-		}
-	}
-	return out
-}
-
 // R1: every step has its own durable row, and the pin row comes before the merge step's row.
 func TestR1TheJournalHoldsTheClaimEveryStepAndThePinInOrder(t *testing.T) {
 	r := newDDRig(t)

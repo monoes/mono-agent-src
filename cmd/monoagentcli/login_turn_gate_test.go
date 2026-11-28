@@ -110,8 +110,6 @@ type loginGateContext struct {
 	setup    func(t *testing.T, f *loginFixture)
 	want     func() string
 	wantPart string
-	// refused is false for the contexts that are the operator's own
-	operator bool
 }
 
 func loginGateContexts() []loginGateContext {

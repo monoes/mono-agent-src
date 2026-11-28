@@ -279,9 +279,6 @@ func quotedOrDefault(s, def string) string {
 	return fmt.Sprintf("%q", s)
 }
 
-// capText escapes text from a record and cuts it at a few hundred bytes.
-func capText(s string) string { return capQuoted(s, 300) }
-
 // quotedList prints names escaped, so a name from a file cannot move the cursor or fake a line.
 func quotedList(names []string) string {
 	if len(names) == 0 {

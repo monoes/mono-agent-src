@@ -15,10 +15,9 @@ import (
 // writer would produce. Every comparing site must decide the same for both spellings, 1 ns either side of the cutoff.
 
 type tsRow struct {
-	name       string
-	stamp      string
-	atOrAfter  bool // the row is not before the cutoff
-	cutoffDesc string
+	name      string
+	stamp     string
+	atOrAfter bool // the row is not before the cutoff
 }
 
 // tsCuts: a whole-second cutoff, one 1 ns after it, and a half-second one.

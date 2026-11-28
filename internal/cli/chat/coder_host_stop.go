@@ -19,10 +19,6 @@ var stopHost = stopHostOS
 // "stopped" only when the lock is.
 var hostStopSettle = 5 * time.Second
 
-// hostStopGrace is how long a host that was asked to stop gets to run its own cleanup (host.json, bindings, registry)
-// before it is ended by force: its extension-shutdown wait plus a margin.
-var hostStopGrace = hostStopWait + 5*time.Second
-
 // hostStopByHand is the way out where the command cannot end the host itself: the same steps the command takes, by hand.
 // No /T: that would take the running turns with the host, and they are meant to keep going.
 func hostStopByHand(pid int) error {
