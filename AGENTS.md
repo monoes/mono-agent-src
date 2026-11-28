@@ -3357,6 +3357,10 @@ monoagentcli --profile work coder host pursuit status --json     # the pursuit l
   the host mints one and signs the row (HMAC under the profile's vault key); it also names the turn's process, and
   a call counts only from that process or a descendant of it (Linux and macOS; elsewhere the signature and the turn only). This process check is a courtesy layer: on Linux it reads `/proc` in the caller's own mount namespace (on macOS the kernel's process table through sysctl), which a same-user process in its own user and mount namespace can present differently (see SECURITY.md, "Persistent coder sessions"); the real boundary against a same-user sibling is the OS user or a sandbox, and a turn that runs with peer-credential binding (on by default where the machine can run it; see SECURITY.md, "Peer-credential binding is on by default") additionally presents its token through the binding service, which learns the caller from the kernel instead of from `/proc`. A tool that daemonises (`nohup`, `setsid`, a double fork) or runs in a container/another pid namespace is outside the tree and is refused with a distinct reason ("not inside the session's turn process tree"); nothing is loosened for it. A host started from inside a session's turn binds no tokens (it logs a warning).
   The turn keeps it in its environment so its shell and MCP server can call the master tools.
+  **The token does not choose the profile:** inside a turn these commands still need `--profile <the session's
+  profile>` (neither the token nor the environment supplies one, and another profile's token check fails). The
+  mono-agent section of a workspace or full turn's instructions and a master's check-in digest give the command
+  with it; the profile refusal inside a turn says so.
   With a token, `sessions send|stop|pause|resume` and `sessions settings set --patch` act **only on descendants**
   of that session (the parent links are walked up in the database from the target; a peer, an ancestor, the
   session itself or an unrelated one is refused), `sessions spawn [--message M] [--access coding|workspace]
@@ -3464,8 +3468,8 @@ monoagentcli --profile work coder host pursuit status --json     # the pursuit l
   with a master's session token, so the steps that spawn are done by asking the master, in its chat, to run the
   command in its turn; the rest is the operator's own terminal:
   1. *Budget caps:* `monoagentcli --profile P coder sessions settings set <master-conv> --budget-usd 2`; ask
-     the master to run `coder sessions spawn --message TEXT --budget-usd 1.5`, then the same with
-     `--budget-usd 1` (refused: it does not fit); `coder sessions status <master-conv>` shows carved and left; a
+     the master to run `monoagentcli --profile P coder sessions spawn --message TEXT --budget-usd 1.5`, then the same with
+     `--budget-usd 1` (refused: it does not fit); `monoagentcli --profile P coder sessions status <master-conv>` shows carved and left; a
      capped turn runs with `--budget-usd` equal to what is left; a runtime that reports no cost counts as 0
      (kilo is refused for a capped session).
   2. *Spawn limits:* a child at the working depth that tries `spawn` is refused (it has no room for children; at the default depth 3 that is a level-3 child, while a level-2 child gets `max_children` 4 and may spawn); a master past
@@ -3479,7 +3483,7 @@ monoagentcli --profile work coder host pursuit status --json     # the pursuit l
      app mid-run: workers and the board survive and the next turn resumes from `mission_status`; a check-in of a
      master with children shows the mission line; a mission lead without children is checked in on while its task session
      is running with open work and never while it is a draft or paused; a draft session starts no worker for a check-in turn.
-  5. *Autonomy producer (ask the master, in its chat, to run these in its turn; none of it is verified live):*
+  5. *Autonomy producer (ask the master, in its chat, to run these in its turn, each as `monoagentcli --profile P ...`; none of it is verified live):*
      `coder sessions park --class risky_action --question "delete the build dir?"` parks on the caller's own
      session (the session goes to `waiting_user`; `questions list <conv>` shows it, answerer `user` for a master
      with no master, `master` for a child; `summary --section hil` counts it in `coder_items`); a park of
